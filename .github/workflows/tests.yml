@@ -15,14 +15,13 @@ concurrency:
 jobs:
   test:
     name: node ${{ matrix.node }} · ${{ matrix.os }}
-    # GitHub-hosted runners only. While the repository is private, Ubuntu alone keeps
-    # Actions minutes low; add windows-latest and macos-latest once it is public.
+    # GitHub-hosted runners only: Fisi Dock runs wherever Gentle Shell does.
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node: [22, 24]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
