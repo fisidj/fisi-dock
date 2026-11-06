@@ -1,0 +1,63 @@
+{
+  "name": "fisi-dock",
+  "version": "0.1.0",
+  "description": "Side panel for Gentle Shell: session, ODD, RDD, CI, agents, todo and changes at a glance (Pi extension and theme)",
+  "type": "module",
+  "license": "MIT",
+  "author": "Fisi Dj (https://github.com/fisidj)",
+  "homepage": "https://github.com/fisidj/fisi-dock#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fisidj/fisi-dock.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fisidj/fisi-dock/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-theme",
+    "gentle-shell",
+    "gentle-shell-package",
+    "gentle-shell-extension",
+    "tui",
+    "sidebar",
+    "dashboard"
+  ],
+  "files": [
+    "extensions",
+    "lib",
+    "themes",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "docs"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.2.0",
+    "@types/node": "^24.19.2"
+  }
+}

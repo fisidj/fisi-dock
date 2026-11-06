@@ -1,0 +1,6 @@
+node_modules/
+/tmp/
+# Local work notes and design drafts stay out of the repository.
+/odd/
+/design/
+/.atl/

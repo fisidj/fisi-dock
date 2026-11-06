@@ -1,0 +1,2002 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { samplePanelModel, type PanelModel } from "../lib/panel-model.ts";
+import { DOCK_MAX_WIDTH, DOCK_TOP_ROWS, DOCK_WIDTH, formatElapsed, formatEstimate, panelDigest, renderAgentsCard, renderDock, renderPanel, renderTodoCard } from "../lib/panel.ts";
+import { bgCode, fgCode, palette } from "../lib/palette.ts";
+import { visibleWidth } from "../lib/text.ts";
+
+const plain = (line: string) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
+const clone = (model: PanelModel): PanelModel => structuredClone(model);
+
+const longModel: PanelModel = {
+	session: {
+		project: "an-extremely-long-project-name-that-never-ends-in-the-rail",
+		branch: "feature/very-long-branch-name-with-many-segments-and-words",
+		ahead: 12,
+		contextPercent: 99,
+		tokensUsed: 198_765,
+		tokensMax: 200_000,
+	},
+	todo: {
+		done: 12,
+		total: 50,
+		active: "A very long active task description that goes on and on past the rail",
+		next: "Another very long next task description that never seems to stop at all",
+		more: 37,
+	},
+	odd: {
+		steps: [
+			{ phase: "exploring-a-very-long-phase-name-here", state: "done", seconds: 3599 },
+			{ phase: "implementing-with-another-long-phase-name", state: "active", seconds: 7322 },
+		],
+	},
+	agents: [
+		{ name: "an-agent-with-a-long-name", task: "A task text that is far too long to ever fit in the rail width", state: "running" },
+		{ name: "explore", task: "Short", state: "done" },
+	],
+	changes: [
+		{ status: "M", path: "packages/some/really/deep/directory/structure/with/a/file-name-that-is-long.ts", added: 1234, removed: 987 },
+		{ status: "?", path: "x", added: 0, removed: 0 },
+	],
+	footer: { cost: 123.456789, review: "RDD on with a long review label" },
+};
+
+function sectionBody(lines: string[], title: string): string[] {
+	const start = lines.findIndex((line) => plain(line).startsWith(`╭─ ${title}`));
+	assert.ok(start >= 0, `section ${title} missing`);
+	const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+	return lines.slice(start + 1, end).map(plain);
+}
+
+for (const width of [55, 47, 40, 30, 20]) {
+	for (const [name, model] of [["sample", samplePanelModel], ["long", longModel]] as const) {
+		test(`every ${name} line fits width ${width}`, () => {
+			const lines = renderPanel(model, width);
+			assert.ok(lines.length > 0);
+			for (const line of lines) assert.ok(visibleWidth(line) <= width, `${visibleWidth(line)} > ${width}: ${JSON.stringify(plain(line))}`);
+		});
+	}
+}
+
+test("frame lines span the full width", () => {
+	for (const width of [47, 30, 20]) {
+		for (const line of renderPanel(samplePanelModel, width).filter((line) => /^[╭│╰]/.test(plain(line)))) {
+			assert.equal(visibleWidth(line), width, JSON.stringify(plain(line)));
+		}
+	}
+});
+
+test("tiny widths never throw nor overflow", () => {
+	for (const width of [0, 1, 2, 3, 5, 10]) {
+		for (const line of renderPanel(longModel, width)) assert.ok(visibleWidth(line) <= width, `width ${width}`);
+	}
+});
+
+test("long values are cut with an ellipsis inside the frame", () => {
+	const lines = renderPanel(longModel, 47).map(plain);
+	const path = lines.find((line) => line.includes("file-name-that-is-long.ts pac"));
+	assert.ok(path, "path row");
+	assert.ok(path.includes("…"));
+	assert.ok(path.startsWith("│") && path.endsWith("│"));
+	const active = sectionBody(lines, "todo").find((line) => line.includes("A very long active"));
+	assert.ok(active, "active row");
+	assert.ok(active.includes("…"));
+	assert.ok(active.endsWith("│"));
+});
+
+test("sections follow the approved order: logo, session, odd, rdd, agents, todo, changes; the panel ends with the last frame (S32, S50, S51)", () => {
+	const lines = renderPanel(samplePanelModel, 47).map(plain);
+	assert.match(lines[0], /^ *[⠛⣤⣿]/, "braille logo first");
+	assert.ok(!lines.some((line) => line.includes("✿")), "no flower");
+	const order = ["╭─ session", "╭─ ODD", "╭─ RDD", "╭─ agents", "╭─ todo", "╭─ changes"].map((title) => lines.findIndex((line) => line.startsWith(title)));
+	for (const index of order) assert.ok(index > 0);
+	assert.deepEqual(order, order.toSorted((a, b) => a - b));
+	const cost = lines.findIndex((line) => line.includes("cost"));
+	assert.ok(cost > order[0] && cost < order[1], "cost inside session");
+	assert.match(lines.at(-1)!, /^╰─+╯$/, "no footer below the last section");
+	assert.ok(!lines.some((line) => /^─+$/.test(line)), "no footer separator");
+});
+
+test("sample sections show design 07 content", () => {
+	const lines = renderPanel(samplePanelModel, 47).map(plain);
+	const session = sectionBody(lines, "session");
+	assert.match(session[0], /^│ project  my-sample-app main ↑1 +│$/);
+	assert.match(session[1], /^│ context +6% used │$/);
+	assert.match(session[2], /^│ ━+┼━+┼━+ │$/);
+	assert.ok(lines.find((line) => line.startsWith("╭─ todo"))!.includes(" 3/7 ─╮"));
+	assert.deepEqual(sectionBody(lines, "agents").map((line) => line.replace(/ +│$/, "")), ["│ ✓ explore Map CI workflow", "│ ⠹ verify Check PR 265 checks"]);
+	const changes = sectionBody(lines, "changes");
+	assert.deepEqual(changes, [`│ ● ci.yml .github/workflows/${" ".repeat(11)}+1 -0 │`]);
+	assert.ok(lines.find((line) => line.startsWith("╭─ changes"))!.includes(" 1 to commit ─╮"));
+});
+
+test("absent or empty sections are not drawn; session, ODD and todo always are; a clean git tree keeps changes (S52, S53, S94)", () => {
+	const lines = renderPanel({ session: { project: "solo" } }, 47).map(plain);
+	for (const title of ["session", "ODD", "todo"]) assert.ok(lines.some((line) => line.startsWith(`╭─ ${title}`)), title);
+	for (const title of ["agents", "changes"]) assert.ok(!lines.some((line) => line.startsWith(`╭─ ${title}`)), title);
+	assert.ok(!lines.some((line) => line.includes("cost")));
+	const empty = renderPanel({ session: { project: "solo" }, todo: { done: 0, total: 0, more: 0 }, odd: { steps: [] }, agents: [], changes: [] }, 47).map(plain);
+	for (const title of ["ODD", "todo"]) assert.ok(empty.some((line) => line.startsWith(`╭─ ${title}`)), title);
+	assert.ok(!empty.some((line) => line.startsWith("╭─ agents")), "agents");
+	assert.ok(empty.some((line) => line.startsWith("╭─ changes")), "changes: [] is a known, clean tree");
+});
+
+// --- S52: ODD always on screen -----------------------------------------------------
+
+const oddText = (lines: string[]) => sectionBody(lines, "ODD").map((line) => line.replace(/^│[ ▎]/, "").replace(/ +│$/, "").replace(/ +/g, " "));
+const settledOdd = (steps: number, earlier = 0, totalSeconds = 165): PanelModel["odd"] => ({
+	steps: Array.from({ length: steps }, (_, index) => ({ phase: index % 2 ? "implementing" : "exploring", state: "done" as const, seconds: 10 })),
+	...(earlier ? { earlier } : {}),
+	settled: true,
+	totalSeconds,
+});
+
+test("ODD before the first request: one muted ready row, faint ○, amber title (S52)", () => {
+	for (const odd of [undefined, { steps: [] }]) {
+		const raw = renderPanel({ session: { project: "p" }, ...(odd ? { odd } : {}) }, 47);
+		const lines = raw.map(plain);
+		assert.deepEqual(oddText(lines), ["○ ready · phases show while I work"]);
+		const row = raw[lines.findIndex((line) => line.startsWith("╭─ ODD")) + 1];
+		assert.ok(row.includes(`${fgCode(palette.faint)}○`), "faint ○");
+		assert.ok(row.includes(`${fgCode(palette.muted)}ready · phases show while I work`), "muted text");
+		assert.ok(raw.find((line) => plain(line).startsWith("╭─ ODD"))!.includes(`${fgCode(palette.amber)}`), "amber title");
+	}
+	for (const width of [47, 30, 20, 12]) for (const line of renderPanel({ session: { project: "p" } }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+// --- S94: todo always drawn ------------------------------------------------------
+
+const NO_TASKS = "no tasks · the list shows while I plan";
+
+test("todo without a list or with 0 tasks: one muted row, faint ○, coral title, no count; the card stays empty (S94, S28)", () => {
+	for (const todo of [undefined, { done: 0, total: 0, more: 0 }]) {
+		const model: PanelModel = { session: { project: "p" }, ...(todo ? { todo } : {}) };
+		const raw = renderPanel(model, 47);
+		const lines = raw.map(plain);
+		const start = lines.findIndex((line) => line.startsWith("╭─ todo"));
+		assert.deepEqual(lines.slice(start, start + 3), [`╭─ todo ${"─".repeat(38)}╮`, `│ ○ ${NO_TASKS}    │`, `╰${"─".repeat(45)}╯`]);
+		assert.ok(raw[start].includes(fgCode(palette.coral)), "coral title");
+		assert.ok(raw[start + 1].includes(`${fgCode(palette.faint)}○`), "faint ○");
+		assert.ok(raw[start + 1].includes(`${fgCode(palette.muted)}${NO_TASKS}`), "muted text");
+		assert.ok(!raw[start + 1].includes(bgCode(palette.highlight)), "not highlighted");
+		assert.deepEqual(renderTodoCard(todo, 64), [], "no narrow card without tasks");
+		for (const width of [47, 30, 20, 12, 5]) for (const line of renderPanel(model, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+	}
+	assert.match(sectionBody(renderPanel({ session: { project: "p" } }, 30), "todo")[0], /^│ ○ no tasks · the list sho… │$/, "ellipsized when narrow");
+});
+
+test("the empty todo sits after agents and before changes, in /dock too, and never drops on short screens (S94, S38)", () => {
+	const model: PanelModel = { session: { project: "p" }, agents: [{ name: "explore", task: "Map", state: "done" }], changes: [{ status: "M", path: "lib/panel.ts", added: 1, removed: 0 }] };
+	const lines = renderPanel(model, 47).map(plain);
+	const order = ["╭─ agents", "╭─ todo", "╭─ changes"].map((title) => lines.findIndex((line) => line.startsWith(title)));
+	assert.ok(order[0] > 0 && order[0] < order[1] && order[1] < order[2], `order ${order}`);
+	const dock = renderDock(model, DOCK_WIDTH + 2, 200).lines.map((line) => plain(line).slice(1, -1));
+	assert.deepEqual(sectionBody(dock, "todo").map((line) => line.replace(/ +│$/, " │")), [`│ ○ ${NO_TASKS} │`], "/dock");
+	const tiny = renderPanel(model, 47, { maxRows: 3 }).map(plain);
+	assert.deepEqual(sectionBody(tiny, "todo"), [`│ ○ ${NO_TASKS}    │`], "kept on the shortest screen");
+	assert.ok(!tiny.some((line) => line.startsWith("╭─ changes")), "changes still drops first");
+});
+
+test("a running request keeps today's timeline (S52)", () => {
+	const lines = renderPanel(samplePanelModel, 58).map(plain);
+	assert.deepEqual(oddText(lines).filter((line) => line !== "│"), ["✓ exploring 0:31", "✓ implementing 1:12", "✓ exploring 0:20", "⡿ checking 0:42"]);
+	assert.equal(oddText(lines).filter((line) => line === "│").length, 3, "spacers kept");
+});
+
+test("a settled request collapses to one row: ✓ last request m:ss · N phases (S52)", () => {
+	const raw = renderPanel({ session: { project: "p" }, odd: settledOdd(4) }, 47);
+	const lines = raw.map(plain);
+	assert.deepEqual(sectionBody(lines, "ODD"), [`│ ✓ last request${" ".repeat(47 - 4 - 14 - 15)}2:45 · 4 phases │`]);
+	const row = raw[lines.findIndex((line) => line.startsWith("╭─ ODD")) + 1];
+	assert.ok(row.includes(`${fgCode(palette.green)}✓`), "green ✓");
+	assert.ok(row.includes(`${fgCode(palette.text)}last request`), "text color");
+	assert.ok(row.includes(`${fgCode(palette.muted)}2:45 · 4 phases`), "muted right side");
+	assert.deepEqual(oddText(renderPanel({ session: { project: "p" }, odd: settledOdd(1, 0, 7) }, 47).map(plain)), ["✓ last request 0:07 · 1 phase"]);
+	assert.deepEqual(oddText(renderPanel({ session: { project: "p" }, odd: settledOdd(6, 3, 600) }, 47).map(plain)), ["✓ last request 10:00 · 9 phases"], "earlier steps count");
+	for (const width of [47, 30, 20, 12]) for (const line of renderPanel({ session: { project: "p" }, odd: settledOdd(6, 120, 3725) }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+	assert.match(sectionBody(renderPanel({ session: { project: "p" }, odd: settledOdd(4) }, 20).map(plain), "ODD")[0], /^│ ✓ last request +│$/, "the right side drops when it does not fit");
+});
+
+test("/dock still lists every kept step after the request settled (S52)", () => {
+	const odd = { ...settledOdd(0), steps: samplePanelModel.odd!.steps.map((step) => ({ ...step, state: "done" as const })) };
+	const lines = renderDock({ session: { project: "p" }, odd }, DOCK_WIDTH + 2, 200).lines.map((line) => plain(line).slice(1, -1));
+	assert.deepEqual(oddText(lines).filter((line) => line !== "│"), ["✓ exploring 0:31", "✓ implementing 1:12", "✓ exploring 0:20", "✓ checking 0:42"]);
+	const empty = renderDock({ session: { project: "p" } }, DOCK_WIDTH + 2, 200).lines.map((line) => plain(line).slice(1, -1));
+	assert.deepEqual(oddText(empty), ["○ ready · phases show while I work"], "/dock before any request");
+});
+
+const costRow = (footer: NonNullable<PanelModel["footer"]>, width = 47) =>
+	renderPanel({ session: { project: "p" }, footer }, width).find((line) => /^│ cost /.test(plain(line)))!;
+
+test("session cost row: `cost` on the left with the dollars, no review text nor RDD (S50, S32)", () => {
+	assert.equal(plain(costRow({ cost: 0.0123, rdd: "on" })), `│ cost     $0.012${" ".repeat(28)} │`);
+	assert.equal(plain(costRow({ cost: 0, rdd: "off" })), `│ cost     $0.000${" ".repeat(28)} │`);
+	const line = costRow({ cost: 0, rdd: "on" });
+	assert.ok(line.includes(`${palette.muted.join(";")}mcost`), "cost label is muted");
+	assert.ok(line.includes(`${palette.text.join(";")}m$0.000`), "value in the text color");
+	const session = sectionBody(renderPanel({ session: { project: "p" }, footer: { cost: 0, review: "✓ Approved", rdd: "on" } }, 47), "session").join("\n");
+	assert.ok(!session.includes("RDD") && !session.includes("review") && !session.includes("Approved"), session);
+});
+
+test("the cost row sits in session after the context rows and fits every rail width", () => {
+	const lines = renderPanel({ session: { project: "p", contextPercent: 5, tokensUsed: 53_500, tokensMax: 1_000_000 }, footer: { cost: 0.012, rdd: "on" } }, 47).map(plain);
+	assert.deepEqual(sectionBody(lines, "session").map((line) => line.replace(/ +/g, " ")), ["│ project p │", "│ context 5% used │", `│ ${"━".repeat(25)}┼${"━".repeat(10)}┼${"━".repeat(6)} │`, "│ cost $0.012 │"]);
+	for (const width of [58, 55, 47, 30, 20, 12, 5, 1]) {
+		for (const line of renderPanel({ session: { project: "p" }, footer: { cost: 123.456, rdd: "off", review: "Reviewers running…" } }, width)) assert.ok(visibleWidth(line) <= width, `width ${width}`);
+	}
+});
+
+// S37: a subscription records tokens but no cost; the row shows them and Pi's API-price estimate.
+const usageRow = (footer: NonNullable<PanelModel["footer"]>, width = 58) =>
+	renderPanel({ session: { project: "p" }, footer }, width).find((line) => / tok|cost/.test(plain(line)))!;
+
+test("estimates round to whole dollars from $10 and keep cents below (S37)", () => {
+	assert.equal(formatEstimate(38.4), "≈$38");
+	assert.equal(formatEstimate(10), "≈$10");
+	assert.equal(formatEstimate(9.996), "≈$10");
+	assert.equal(formatEstimate(9.99), "≈$9.99");
+	assert.equal(formatEstimate(4.267), "≈$4.27");
+	assert.equal(formatEstimate(0.001), "≈$0.00");
+});
+
+test("cost 0 with tokens: the cost row shows tokens and the ≈ estimate (S37, S50)", () => {
+	assert.equal(plain(usageRow({ cost: 0, tokens: 12_400_000, estimate: 38.4, rdd: "on" })), `│ cost     12.4M tok · ≈$38${" ".repeat(29)} │`);
+	assert.equal(plain(usageRow({ cost: 0, tokens: 53_500, estimate: 4.267, rdd: "on" })), `│ cost     53.5k tok · ≈$4.27${" ".repeat(27)} │`);
+	const line = usageRow({ cost: 0, tokens: 12_400_000, estimate: 38.4, rdd: "on" });
+	assert.ok(line.includes(`${palette.muted.join(";")}m tok · `), "label in the muted style");
+	assert.ok(line.includes(`${palette.text.join(";")}m12.4M`) && line.includes(`${palette.text.join(";")}m≈$38`), "values in the text color");
+	assert.ok(!plain(line).includes("$0.000"));
+});
+
+test("cost 0 with tokens and no price: tokens only, no estimate (S37)", () => {
+	assert.equal(plain(usageRow({ cost: 0, tokens: 12_400_000, rdd: "on" })), `│ cost     12.4M tok${" ".repeat(36)} │`);
+});
+
+test("a real cost above 0 shows the dollars, tokens or not (S37)", () => {
+	assert.equal(plain(usageRow({ cost: 0.0123, tokens: 12_400_000, estimate: 38.4, rdd: "on" }, 47)), `│ cost     $0.012${" ".repeat(28)} │`);
+	assert.equal(plain(usageRow({ cost: 0, tokens: 0, rdd: "on" }, 47)), `│ cost     $0.000${" ".repeat(28)} │`);
+});
+
+test("the tokens row fits every rail width (S37)", () => {
+	for (const width of [58, 55, 47, 30, 20, 12, 5, 1]) {
+		for (const line of renderPanel({ session: { project: "p" }, footer: { cost: 0, tokens: 123_456_789, estimate: 12_345.6, rdd: "off", review: "Reviewers running…" } }, width)) assert.ok(visibleWidth(line) <= width, `width ${width}`);
+	}
+});
+
+// --- S50: the RDD section ------------------------------------------------------------
+
+const rddPanel = (model: Partial<PanelModel>, width = 47) => renderPanel({ session: { project: "p" }, ...model }, width);
+const rddTitle = (lines: string[]) => lines.find((line) => plain(line).startsWith("╭─ RDD"))!;
+const hhmm = (ms: number) => {
+	const date = new Date(ms);
+	return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+};
+const ENDED = Date.UTC(2026, 9, 29, 22, 5, 0);
+
+test("RDD section: rose title right after ODD, `on` green / `off` muted on the right (S50)", () => {
+	const lines = rddPanel({ odd: samplePanelModel.odd, agents: samplePanelModel.agents, footer: { cost: 0, rdd: "on" } });
+	const titles = lines.map(plain).filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
+	assert.deepEqual(titles, ["session", "ODD", "RDD", "agents", "todo"]);
+	const on = rddTitle(lines);
+	assert.ok(on.includes(`${fgCode(palette.rose)}RDD`), "title in rose");
+	assert.ok(on.includes(`${fgCode(palette.green)}on`), "on in green");
+	assert.match(plain(on), /^╭─ RDD ─+ on ─╮$/);
+	const off = rddTitle(rddPanel({ footer: { cost: 0, rdd: "off" } }));
+	assert.ok(off.includes(`${fgCode(palette.muted)}off`), "off muted");
+	assert.match(plain(off), /^╭─ RDD ─+ off ─╮$/);
+});
+
+test("RDD idle rows: on says what it watches, off says it is off (S50)", () => {
+	const on = rddPanel({ footer: { cost: 0, rdd: "on" } });
+	assert.deepEqual(sectionBody(on, "RDD").map((line) => line.replace(/ +│$/, "")), ["│ ● watching · reviews high-risk changes"]);
+	assert.ok(on.some((line) => line.includes(`${fgCode(palette.muted)}watching · reviews high-risk changes`)), "muted text");
+	const off = rddPanel({ footer: { cost: 0, rdd: "off" } });
+	assert.deepEqual(sectionBody(off, "RDD").map((line) => line.replace(/ +│$/, "")), ["│ ○ off · changes are not reviewed"]);
+	assert.ok(off.some((line) => line.includes(`${fgCode(palette.muted)}off · changes are not reviewed`)), "muted text");
+});
+
+test("RDD section is hidden only with no switch and no rows (no Gentle AI) (S50)", () => {
+	assert.ok(!rddPanel({ footer: { cost: 0 } }).some((line) => plain(line).startsWith("╭─ RDD")));
+	assert.ok(!rddPanel({}).some((line) => plain(line).startsWith("╭─ RDD")));
+	const rows = rddPanel({ rdd: { reviews: [{ scope: "a.ts", status: "approved", endedAt: ENDED }] } });
+	assert.match(plain(rddTitle(rows)), /^╭─ RDD ─+╮$/, "rows without a switch: title alone");
+});
+
+test("RDD active row: highlighted, teal spinner, bold scope, muted status and m:ss (S50)", () => {
+	const lines = rddPanel({ spinner: 4, footer: { cost: 0, rdd: "on" }, rdd: { reviews: [{ scope: "lib/orbs.ts +2", status: "reviewing", seconds: 18 }] } });
+	const raw = lines.find((line) => plain(line).includes("lib/orbs.ts"))!;
+	assert.match(plain(raw), /^│▎⠼ lib\/orbs\.ts \+2 reviewing… +0:18 │$/);
+	assert.ok(raw.includes(fgCode(palette.teal)), "teal spinner");
+	assert.ok(raw.includes(`\x1b[1m${fgCode(palette.text)}lib/orbs.ts +2`), "bold scope");
+	assert.ok(raw.includes(`${fgCode(palette.muted)}reviewing…`), "muted status");
+	const fixing = plain(rddPanel({ rdd: { reviews: [{ scope: "a.ts", status: "fixing", seconds: 75 }] } }).find((line) => plain(line).includes("a.ts"))!);
+	assert.match(fixing, /^│▎⠹ a\.ts fixing… +1:15 │$/, "still frame without a spinner");
+});
+
+test("RDD waiting row: highlighted amber ! (one column, not the ambiguous-width ⚠), bold scope, amber `needs your OK`, m:ss (S50)", () => {
+	const raw = rddPanel({ rdd: { reviews: [{ scope: "panel.ts +3", status: "waiting", seconds: 4 }] } }).find((line) => plain(line).includes("panel.ts"))!;
+	assert.match(plain(raw), /^│▎! panel\.ts \+3 needs your OK +0:04 │$/);
+	assert.ok(raw.includes(`${fgCode(palette.amber)}!`), "amber glyph");
+	assert.ok(raw.includes(`[1m${fgCode(palette.text)}panel.ts +3`), "bold scope");
+	assert.ok(raw.includes(`${fgCode(palette.amber)}needs your OK`), "amber label");
+});
+
+const HIGHLIGHT_BG = bgCode(palette.highlight);
+
+test("RDD finished rows: ✓ approved, ✗ outdated / unavailable, skipped muted, each with local HH:MM (S50)", () => {
+	const lines = rddPanel({
+		rdd: {
+			reviews: [
+				{ scope: "fisi-dock.md", status: "approved", endedAt: ENDED },
+				{ scope: "panel.ts", status: "outdated", endedAt: ENDED + 60_000 },
+				{ scope: "x.ts", status: "unavailable", endedAt: ENDED },
+				{ scope: "y.ts", status: "skipped", endedAt: ENDED },
+			],
+		},
+	});
+	const body = sectionBody(lines, "RDD").map((line) => line.replace(/ +/g, " "));
+	assert.deepEqual(body, [
+		`│ ✓ fisi-dock.md approved ${hhmm(ENDED)} │`,
+		"│ │ │",
+		`│ ✗ panel.ts outdated · code changed ${hhmm(ENDED + 60_000)} │`,
+		"│ │ │",
+		`│ ✗ x.ts unavailable ${hhmm(ENDED)} │`,
+		"│ │ │",
+		`│ - y.ts skipped ${hhmm(ENDED)} │`,
+	]);
+	const row = (text: string) => lines.find((line) => plain(line).includes(text))!;
+	assert.ok(row("fisi-dock.md").includes(`${fgCode(palette.green)}✓`), "green check");
+	assert.ok(row("fisi-dock.md").includes(`${fgCode(palette.text)}fisi-dock.md`), "scope in the text color");
+	assert.ok(row("fisi-dock.md").includes(`${fgCode(palette.muted)}approved`), "muted label");
+	assert.ok(row("fisi-dock.md").includes(`${fgCode(palette.muted)}${hhmm(ENDED)}`), "muted time");
+	assert.ok(row("panel.ts").includes(`${fgCode(palette.red)}✗`), "red cross");
+	assert.ok(row("panel.ts").includes(`${fgCode(palette.muted)}outdated · code changed`), "muted outdated label");
+	assert.ok(row("y.ts").includes(`${fgCode(palette.muted)}y.ts`), "skipped scope muted");
+	assert.ok(!row("fisi-dock.md").includes(HIGHLIGHT_BG), "finished rows are not highlighted");
+});
+
+test("RDD caps like ODD: the latest 6 rows and `+N earlier` (S50)", () => {
+	const reviews = Array.from({ length: 9 }, (_, index) => ({ scope: `f${index}.ts`, status: "approved" as const, endedAt: ENDED }));
+	const body = sectionBody(rddPanel({ rdd: { reviews } }), "RDD").filter((line) => !/^│ │ +│$/.test(line));
+	assert.equal(body.length, 7);
+	assert.match(body[0], /^│ {3}\+3 earlier +│$/);
+	assert.ok(body[1].includes("f3.ts") && body[6].includes("f8.ts"), "newest last");
+});
+
+test("RDD rows fit 47, 30 and 20 columns, the watching row included (S50)", () => {
+	const models: Partial<PanelModel>[] = [
+		{ footer: { cost: 0, rdd: "on" } },
+		{ footer: { cost: 0, rdd: "off" } },
+		{
+			footer: { cost: 0, rdd: "on" },
+			rdd: {
+				reviews: [
+					{ scope: "a-really-long-file-name-for-the-review.ts +12", status: "outdated", endedAt: ENDED },
+					{ scope: "another-long-name.ts +3", status: "waiting", seconds: 3_700 },
+					{ scope: "lib/orbs.ts +2", status: "reviewing", seconds: 18 },
+				],
+			},
+		},
+	];
+	for (const width of [47, 30, 20, 12, 5]) {
+		for (const model of models) {
+			const lines = rddPanel(model, width);
+			for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${JSON.stringify(plain(line))}`);
+			if (width >= 20) for (const line of lines.filter((line) => /^[╭│╰]/.test(plain(line)))) assert.equal(visibleWidth(line), width, JSON.stringify(plain(line)));
+		}
+	}
+});
+
+test("session profile row: Gentle Shell's label after the context, before the cost; none without one (S99)", () => {
+	const session = (profile?: string) => {
+		const lines = renderPanel({ session: { project: "p", contextPercent: 40, ...(profile ? { profile } : {}) }, footer: { cost: 0.012 } }, 47).map(plain);
+		const start = lines.findIndex((line) => line.startsWith("╭─ session"));
+		return lines.slice(start + 1, lines.findIndex((line, index) => index > start && line.startsWith("╰")));
+	};
+	const rows = session("claude (session)");
+	assert.match(rows[3], /^│ profile  claude \(session\) +│$/);
+	assert.match(rows[4], /^│ cost +\$0\.012 +│$/);
+	assert.ok(!session().some((line) => line.includes("profile")), "no profile, no row");
+	for (const width of [20, 30, 47]) {
+		const line = renderPanel({ session: { project: "p", profile: "a-very-long-profile-name-that-never-ends (session)" } }, width).find((row) => plain(row).includes("profile"))!;
+		assert.equal(visibleWidth(line), width, JSON.stringify(plain(line)));
+	}
+});
+
+const mcpRow = (servers: NonNullable<PanelModel["session"]["mcp"]>, width = 47) =>
+	renderPanel({ session: { project: "p", mcp: servers } }, width).find((line) => plain(line).includes("mcp "));
+
+test("session mcp row: one dot and name per server, green connected, red failing, muted unknown (S32)", () => {
+	const row = mcpRow([{ name: "engram", state: "connected" }, { name: "context7", state: "failing" }, { name: "rea", state: "unknown" }])!;
+	assert.match(plain(row), /^│ mcp      ● engram ● context7 ● rea +│$/);
+	assert.ok(row.includes(`${fgCode(palette.green)}●`), "green dot");
+	assert.ok(row.includes(`${fgCode(palette.red)}●`), "red dot");
+	assert.ok(row.includes(`${fgCode(palette.faint)}●`), "muted dot");
+	const lines = renderPanel({ session: { project: "p", mcp: [{ name: "engram", state: "connected" }] }, footer: { cost: 0, rdd: "on" } }, 47).map(plain);
+	const body = sectionBody(lines, "session");
+	assert.ok(body.at(-1)!.includes("mcp") && body.at(-2)!.startsWith("│ cost "), "mcp is the last session row, after cost");
+});
+
+test("servers that do not fit drop from the right with +N; a lone long name is ellipsized (S32)", () => {
+	const names = ["engram", "context7", "rea", "supabase", "codegraph", "github"].map((name) => ({ name, state: "connected" as const }));
+	assert.match(plain(mcpRow(names, 30)!), /^│ mcp      ● engram \+5 +│$/);
+	assert.match(plain(mcpRow(names, 47)!), /^│ mcp      ● engram ● context7 ● rea \+3 +│$/);
+	assert.match(plain(mcpRow(names, 58)!), /^│ mcp      ● engram ● context7 ● rea ● supabase \+2 +│$/);
+	assert.match(plain(mcpRow([{ name: "a-server-name-far-too-long-for-the-row", state: "connected" }], 30)!), /^│ mcp      ● a-server-name-… │$/);
+	for (const width of [58, 47, 30, 20, 12, 5, 1]) for (const line of renderPanel({ session: { project: "p", mcp: names } }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+test("no mcp servers: no mcp row", () => {
+	assert.equal(mcpRow([]), undefined);
+	assert.ok(!renderPanel({ session: { project: "p" } }, 47).some((line) => plain(line).includes("mcp")));
+});
+
+test("pinned layout without MCP config and footer data: logo, session, the ODD ready row and changes, nothing after the last frame (S32, S52)", () => {
+	const model: PanelModel = {
+		session: { project: "Año Nuevo Demo Project", branch: "main", contextPercent: 5, tokensUsed: 53_500, tokensMax: 1_000_000 },
+		changes: [{ status: "M", path: "lib/panel.ts", added: 3, removed: 1 }],
+	};
+	const lines = renderPanel(model, 47).map(plain);
+	assert.deepEqual(lines.slice(3), [
+		`╭─ session ${"─".repeat(35)}╮`,
+		`│ project  Año Nuevo Demo Project main${" ".repeat(8)}│`,
+		`│ context${" ".repeat(29)}5% used │`,
+		`│ ${"━".repeat(25)}┼${"━".repeat(10)}┼${"━".repeat(6)} │`,
+		`╰${"─".repeat(45)}╯`,
+		`╭─ ODD ${"─".repeat(39)}╮`,
+		`│ ○ ready · phases show while I work${" ".repeat(10)}│`,
+		`╰${"─".repeat(45)}╯`,
+		`╭─ todo ${"─".repeat(38)}╮`,
+		`│ ○ no tasks · the list shows while I plan${" ".repeat(4)}│`,
+		`╰${"─".repeat(45)}╯`,
+		`╭─ changes ${"─".repeat(21)} 1 to commit ─╮`,
+		`│ ● panel.ts lib/${" ".repeat(23)}+3 -1 │`,
+		`╰${"─".repeat(45)}╯`,
+	]);
+	assert.equal(lines.length, 17, "three logo rows on top");
+});
+
+for (const total of [3, 7, 50]) {
+	test(`todo body stays within 4 rows for ${total} tasks`, () => {
+		const model = clone(samplePanelModel);
+		model.todo = { done: 1, total, active: "Active task", next: "Next task", more: Math.max(0, total - 3) };
+		const body = sectionBody(renderPanel(model, 47), "todo");
+		assert.ok(body.length <= 4, `${body.length} rows`);
+		assert.ok(body.some((line) => line.includes("Active task")));
+	});
+}
+
+test("todo rows that do not apply are omitted", () => {
+	const model = clone(samplePanelModel);
+	model.todo = { done: 0, total: 2, active: "Only active", more: 0 };
+	const body = sectionBody(renderPanel(model, 47), "todo");
+	assert.equal(body.length, 1);
+	assert.ok(body[0].includes("Only active"));
+	const sample = sectionBody(renderPanel(samplePanelModel, 47), "todo");
+	assert.equal(sample.length, 4);
+	assert.match(sample[0], /^│ ✓ 3 done +▰+▱+ │$/);
+	assert.match(sample[1], /^│▎⠹ Confirm CI is green +│$/);
+	assert.match(sample[2], /^│ ○ Commit workflow fix +│$/);
+	assert.match(sample[3], /^│ {3}\+2 more +\/dock all │$/);
+});
+
+test("the side panel's +N more row points to /dock, never to ctrl+t (S26)", () => {
+	for (const model of [samplePanelModel, longModel]) {
+		const lines = renderPanel(model, 47);
+		assert.ok(!lines.some((line) => plain(line).includes("ctrl+t")));
+		const more = lines.find((line) => plain(line).includes("more") && plain(line).includes("/dock all"))!;
+		// Same style as before: the key in plain text, " all" muted.
+		assert.ok(more.includes(`${fgCode(palette.text)}/dock`), "key in plain text");
+		assert.ok(more.includes(`${fgCode(palette.muted)} all`), "muted all");
+	}
+});
+
+const eightTasks: PanelModel = {
+	session: { project: "p" },
+	todo: {
+		done: 7,
+		total: 8,
+		active: "Eighth task: write the release notes",
+		more: 0,
+		tasks: [
+			...Array.from({ length: 7 }, (_, index) => ({ title: `Done task ${index + 1}`, state: "done" as const })),
+			{ title: "Eighth task: write the release notes", state: "active" as const },
+		],
+	},
+};
+
+test("the todo card is the side panel's todo section, frame and all, at any width (S28, S7)", () => {
+	for (const width of [55, 47]) {
+		const lines = renderPanel(samplePanelModel, width);
+		const start = lines.findIndex((line) => plain(line).startsWith("╭─ todo"));
+		const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+		assert.deepEqual(renderTodoCard(samplePanelModel.todo, width), lines.slice(start, end + 1), `${width}: byte-identical to the panel`);
+	}
+	const card = renderTodoCard(samplePanelModel.todo, 64).map(plain);
+	assert.match(card[0], /^╭─ todo ─+ 3\/7 ─╮$/);
+	assert.match(card[1], /^│ ✓ 3 done +▰+▱+ │$/);
+	assert.match(card[2], /^│▎⠹ Confirm CI is green +│$/);
+	assert.match(card[3], /^│ ○ Commit workflow fix +│$/);
+	assert.match(card[4], /^│ {3}\+2 more +\/dock all │$/);
+	assert.match(card[5], /^╰─+╯$/);
+	assert.equal(card.length, 6);
+	for (const width of [64, 53, 40, 12, 1]) for (const line of renderTodoCard(samplePanelModel.todo, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+	for (const width of [64, 53, 40]) for (const line of renderTodoCard(samplePanelModel.todo, width)) assert.equal(visibleWidth(line), width, "framed to the full width");
+});
+
+test("the todo card stays compact with a full task list and is empty without a todo (S28, S7)", () => {
+	assert.deepEqual(renderTodoCard(eightTasks.todo, 53), renderTodoCard({ ...eightTasks.todo!, tasks: undefined }, 53));
+	assert.equal(renderTodoCard(eightTasks.todo, 53).length, 4, "done row and active row between the borders");
+	assert.deepEqual(renderTodoCard(undefined, 64), []);
+	assert.deepEqual(renderTodoCard({ done: 0, total: 0, more: 0 }, 64), []);
+	assert.deepEqual(renderTodoCard(samplePanelModel.todo, 0), []);
+});
+
+const mixedTasks: PanelModel = {
+	session: { project: "p" },
+	todo: {
+		done: 1,
+		total: 5,
+		active: "Running now",
+		next: "Waiting in line",
+		more: 1,
+		tasks: [
+			{ title: "Finished first", state: "done" },
+			{ title: "Running now", state: "active" },
+			{ title: "Waiting in line", state: "pending" },
+			{ title: "Needs an admin", state: "blocked" },
+			{ title: "No longer needed", state: "dropped" },
+		],
+	},
+};
+
+type TaskState = "done" | "active" | "pending" | "blocked" | "dropped";
+
+/** A todo of `states.length` tasks titled `Task N`, the counts derived from the states. */
+function todoOf(states: TaskState[]): PanelModel {
+	const tasks = states.map((state, index) => ({ title: `Task ${index}`, state }));
+	const active = tasks.find((task) => task.state === "active")?.title;
+	const next = tasks.find((task) => task.state === "pending")?.title;
+	const open = tasks.filter((task) => task.state !== "done" && task.state !== "dropped").length;
+	const shown = (active ? 1 : 0) + (next ? 1 : 0);
+	const done = tasks.filter((task) => task.state === "done").length;
+	return { session: { project: "p" }, spinner: 2, todo: { done, total: tasks.length, ...(active ? { active } : {}), ...(next ? { next } : {}), more: Math.max(0, open - shown), tasks } };
+}
+
+const statesAt = (total: number, active: number): TaskState[] =>
+	Array.from({ length: total }, (_, index) => (index < active ? "done" : index === active ? "active" : "pending"));
+
+const railTodo = (model: PanelModel, width = 47) => sectionBody(renderPanel(model, width), "todo");
+const rawRailTodo = (model: PanelModel, width = 47) => {
+	const lines = renderPanel(model, width);
+	const start = lines.findIndex((line) => plain(line).startsWith("╭─ todo"));
+	const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+	return lines.slice(start + 1, end);
+};
+
+test("the rail lists every task while they fit 8 rows, same rows as /dock, no summary row (S58)", () => {
+	for (const model of [todoOf(statesAt(4, 1)), mixedTasks, eightTasks]) {
+		const dock = renderPanel(model, 47, { todoExpanded: true });
+		const rail = rawRailTodo(model);
+		assert.equal(rail.length, model.todo!.tasks!.length, "one row per task");
+		const start = dock.findIndex((line) => plain(line).startsWith("╭─ todo"));
+		assert.deepEqual(rail, dock.slice(start + 1, start + 1 + rail.length), "byte-identical to the /dock rows");
+		assert.ok(!rail.some((line) => /[▰▱]/.test(line) || /\d+ done|more|\/dock all/.test(plain(line))), "no summary, bar or more row in the rows");
+	}
+	const four = railTodo(todoOf(statesAt(4, 1)));
+	for (const [index, pattern] of [/^│ ✓ Task 0 +│$/, /^│▎⠹ Task 1 +│$/, /^│ ○ Task 2 +│$/, /^│ ○ Task 3 +│$/].entries()) assert.match(four[index], pattern);
+	assert.equal(railTodo(todoOf(statesAt(8, 6))).length, 8, "8 tasks: 8 rows");
+	assert.match(renderPanel(todoOf(statesAt(4, 1)), 47).map(plain).find((line) => line.startsWith("╭─ todo"))!, /─ ▰▱▱▱ 1\/4 ─╮$/, "title right: bar and done/total");
+});
+
+test("past 8 tasks the rail shows a window: earlier done, 7 tasks from the last done one, +N more (S58)", () => {
+	const body = railTodo(todoOf(statesAt(12, 5)));
+	assert.deepEqual(body.slice(0, 8).map((line) => line.replace(/ +│$/, " │")), [
+		"│ ✓ 4 earlier done │",
+		"│ ✓ Task 4 │",
+		"│▎⠹ Task 5 │",
+		"│ ○ Task 6 │",
+		"│ ○ Task 7 │",
+		"│ ○ Task 8 │",
+		"│ ○ Task 9 │",
+		"│ ○ Task 10 │",
+	]);
+	assert.equal(body.length, 9);
+	assert.match(body[8], /^│ {3}\+1 more +\/dock all │$/);
+	const raw = rawRailTodo(todoOf(statesAt(12, 5)));
+	assert.ok(raw[0].includes(`${fgCode(palette.green)}✓`), "green check");
+	assert.ok(raw[0].includes(`${fgCode(palette.muted)}4 earlier done`), "muted count");
+	assert.ok(raw[8].includes(`${fgCode(palette.muted)}+1 more`) && raw[8].includes(`${fgCode(palette.text)}/dock`), "the existing more row look");
+	assert.match(renderPanel(todoOf(statesAt(12, 5)), 47).map(plain).find((line) => line.startsWith("╭─ todo"))!, /─ ▰▰▰▰▱▱▱▱▱▱ 5\/12 ─╮$/);
+});
+
+test("the rail window clamps at the end of the list and starts at the top for an early active task (S58)", () => {
+	const end = railTodo(todoOf(statesAt(12, 11)));
+	assert.equal(end.length, 8, "earlier row and 7 tasks, nothing after");
+	assert.match(end[0], /^│ ✓ 5 earlier done +│$/);
+	assert.match(end[1], /^│ ✓ Task 5 +│$/);
+	assert.match(end[7], /^│▎⠹ Task 11 +│$/);
+	const top = railTodo(todoOf(statesAt(12, 0)));
+	assert.equal(top.length, 8, "7 tasks and the more row, no earlier row");
+	assert.match(top[0], /^│▎⠹ Task 0 +│$/);
+	assert.match(top[6], /^│ ○ Task 6 +│$/);
+	assert.match(top[7], /^│ {3}\+5 more +\/dock all │$/);
+	const second = railTodo(todoOf(statesAt(9, 1)));
+	assert.match(second[0], /^│ ✓ Task 0 +│$/, "one done task before the active one, nothing hidden");
+	assert.match(second[7], /^│ {3}\+2 more +\/dock all │$/);
+});
+
+test("the rail window without an active task anchors on the first open task, else the last task (S58)", () => {
+	const states: TaskState[] = [...Array<TaskState>(6).fill("done"), "blocked", ...Array<TaskState>(5).fill("pending")];
+	const open = railTodo(todoOf(states));
+	assert.match(open[0], /^│ ✓ 5 earlier done +│$/);
+	assert.match(open[1], /^│ ✓ Task 5 +│$/);
+	assert.match(open[2], /^│ ◌ Task 6 +│$/);
+	assert.match(open[7], /^│ ○ Task 11 +│$/);
+	assert.equal(open.length, 8, "window reaches the end: no more row");
+	const finished = railTodo(todoOf(Array<TaskState>(10).fill("done")));
+	assert.match(finished[0], /^│ ✓ 3 earlier done +│$/);
+	assert.match(finished[7], /^│ ✓ Task 9 +│$/);
+	assert.equal(finished.length, 8);
+	const mixed = railTodo(todoOf(["done", "dropped", "done", "done", "done", "active", "pending", "pending", "pending", "pending", "pending", "pending"]));
+	assert.match(mixed[0], /^│ ✓ 4 earlier +│$/, "a dropped task among them: not all done");
+});
+
+for (const width of [47, 30, 20]) {
+	test(`the rail todo list and window fit ${width} columns (S58)`, () => {
+		for (const model of [todoOf(statesAt(4, 1)), todoOf(statesAt(12, 5)), mixedTasks]) {
+			const lines = renderPanel(model, width);
+			for (const line of lines) assert.equal(visibleWidth(line) <= width, true, `${width}: ${plain(line)}`);
+			assert.ok(railTodo(model, width).some((line) => line.startsWith("│▎")), "active row highlighted");
+		}
+	});
+}
+
+test("the rail's active task keeps the highlight, the spinner frame and the entrance (S58, S54)", () => {
+	const model = todoOf(statesAt(12, 5));
+	const dock = renderPanel(model, 47, { todoExpanded: true });
+	const active = (lines: string[]) => lines.find((line) => plain(line).includes("Task 5"))!;
+	assert.equal(active(renderPanel(model, 47)), active(dock), "same row as /dock");
+	assert.ok(plain(active(renderPanel(model, 47))).includes("▎⠹ Task 5"), "spinner frame 2");
+	const entering = clone(model);
+	entering.todo!.entrance = 0;
+	assert.notEqual(active(renderPanel(entering, 47)), active(renderPanel(model, 47)), "entrance changes the row");
+	assert.equal(active(renderPanel(entering, 47)), active(renderPanel(entering, 47, { todoExpanded: true })));
+});
+
+test("the rail without a task list keeps the summary rows (S58, S7)", () => {
+	for (const model of [eightTasks, mixedTasks, todoOf(statesAt(12, 5))]) {
+		const bare = clone(model);
+		delete bare.todo!.tasks;
+		const body = railTodo(bare);
+		assert.ok(body.length <= 4, `${body.length} rows`);
+		assert.ok(!body.some((line) => line.includes("earlier")));
+	}
+	assert.match(railTodo(samplePanelModel)[0], /^│ ✓ 3 done +▰+▱+ │$/);
+});
+
+const dockTodo = (model: PanelModel, width = DOCK_WIDTH + 2) => sectionBody(renderDock(model, width, 200).lines.map((line) => plain(line).slice(1, -1)), "todo");
+
+test("/dock lists every todo task in order, done ones with ✓ and the active one highlighted (S26)", () => {
+	const body = dockTodo(eightTasks);
+	assert.equal(body.length, 8);
+	body.slice(0, 7).forEach((line, index) => assert.match(line, new RegExp(`^│ ✓ Done task ${index + 1} +│$`)));
+	assert.match(body[7], /^│▎⠹ Eighth task: write the release notes +│$/);
+	assert.ok(!body.some((line) => line.includes("more") || line.includes("/dock all")));
+	const lines = renderDock(eightTasks, DOCK_WIDTH + 4, 200).lines;
+	const active = lines.find((line) => plain(line).includes("Eighth task"))!;
+	assert.ok(active.includes(bgCode(palette.highlight)), "active row highlighted as in the rail");
+	assert.ok(active.includes(`${fgCode(palette.pink)}⠹`), "pink spinner");
+	const done = lines.find((line) => plain(line).includes("Done task 1"))!;
+	assert.ok(done.includes(`${fgCode(palette.green)}✓`), "green check");
+	assert.ok(plain(lines.find((line) => plain(line).includes("╭─ todo"))!).includes(" 7/8 ─╮"));
+});
+
+test("/dock shows pending, blocked and dropped tasks with their own glyphs (S26)", () => {
+	const body = dockTodo(mixedTasks);
+	assert.deepEqual(body.map((line) => line.replace(/ +│$/, "")), [
+		"│ ✓ Finished first",
+		"│▎⠹ Running now",
+		"│ ○ Waiting in line",
+		"│ ◌ Needs an admin",
+		"│ - No longer needed",
+	]);
+	const lines = renderDock(mixedTasks, DOCK_WIDTH + 4, 200).lines;
+	assert.ok(lines.find((line) => plain(line).includes("Needs an admin"))!.includes(`${fgCode(palette.amber)}◌`), "amber blocked glyph");
+	assert.ok(lines.find((line) => plain(line).includes("No longer needed"))!.includes(`${fgCode(palette.muted)}No longer needed`), "dropped title muted");
+});
+
+test("/dock without a task list keeps the compact todo rows", () => {
+	const bare = clone(eightTasks);
+	delete bare.todo!.tasks;
+	const side = sectionBody(renderPanel(bare, DOCK_WIDTH), "todo");
+	assert.deepEqual(dockTodo(bare), side);
+});
+
+for (const width of [64, 53, 40]) {
+	test(`/dock expanded todo fits ${width} columns, long titles cut with an ellipsis (S26)`, () => {
+		const model = clone(mixedTasks);
+		model.todo!.tasks![0].title = "A finished task whose title is far too long for any dock width at all";
+		model.todo!.tasks![1].title = "An active task whose title is far too long for any dock width at all";
+		const { lines } = renderDock(model, width, 200);
+		for (const line of lines) assert.equal(visibleWidth(line), width, JSON.stringify(plain(line)));
+		const body = dockTodo(model, width);
+		assert.equal(body.length, 5);
+		assert.ok(body[0].includes("…") && body[1].includes("…"));
+	});
+}
+
+test("active rows carry the highlight background and pink bar", () => {
+	const lines = renderPanel(samplePanelModel, 47);
+	const active = lines.find((line) => plain(line).includes("Confirm CI is green"))!;
+	assert.ok(active.includes("\x1b[48;2;38;38;38m"), "highlight background");
+	assert.ok(active.includes("\x1b[1m"), "bold text");
+	const checking = lines.find((line) => plain(line).includes("checking"))!;
+	assert.ok(checking.includes("\x1b[48;2;38;38;38m"));
+	assert.ok(plain(checking).startsWith("│▎⡿ checking"), "checking orb, still frame");
+});
+
+test("section titles are bold in their own color", () => {
+	const lines = renderPanel(samplePanelModel, 47);
+	const colors: Record<string, string> = { session: "95;212;224", todo: "255;155;133", ODD: "224;175;104", agents: "195;166;255", changes: "143;201;143" };
+	for (const [title, rgb] of Object.entries(colors)) {
+		const top = lines.find((line) => plain(line).startsWith(`╭─ ${title}`))!;
+		assert.ok(top.includes(`\x1b[1m\x1b[38;2;${rgb}m${title}`), title);
+	}
+});
+
+test("every section frame is the same neutral gray; only titles keep their color", () => {
+	const gray = "\x1b[38;2;69;69;69m";
+	const model: PanelModel = { ...clone(samplePanelModel), headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
+	const lines = renderPanel(model, 47);
+	const titles = ["session", "heads-up", "todo", "ODD", "agents", "changes"];
+	for (const title of titles) {
+		const start = lines.findIndex((line) => plain(line).startsWith(`╭─ ${title}`));
+		assert.ok(start >= 0, title);
+		assert.ok(lines[start].startsWith(`${gray}╭─ `), `${title} top`);
+		let end = start + 1;
+		while (!plain(lines[end]).startsWith("╰")) {
+			assert.ok(lines[end].startsWith(`${gray}│`), `${title} side`);
+			end++;
+		}
+		assert.ok(lines[end].startsWith(`${gray}╰`), `${title} bottom`);
+	}
+});
+
+// S55: the context rows of artboard 18 option B.
+const contextRows = (percent: number, width = 47) => {
+	const lines = renderPanel({ session: { project: "p", contextPercent: percent, tokensUsed: 12_100, tokensMax: 200_000 } }, width);
+	const index = lines.findIndex((line) => plain(line).startsWith("│ context"));
+	return [lines[index], lines[index + 1]];
+};
+const COLOR_LETTER: [readonly number[], string][] = [[palette.teal, "T"], [palette.amber, "A"], [palette.red, "R"], [palette.faint, "f"]];
+/** The line's cells as `<color letter><glyph>` pairs, e.g. "T━" or "f┼"; "?" for any other color. */
+const lineCells = (line: string) => {
+	const cells: string[] = [];
+	let color = "?";
+	for (const match of line.matchAll(/\[38;2;(\d+);(\d+);(\d+)m|\[[0-?]*[ -/]*[@-~]|([━┼])/g)) {
+		if (match[1]) color = COLOR_LETTER.find(([rgb]) => rgb.join(";") === `${match[1]};${match[2]};${match[3]}`)?.[1] ?? "?";
+		else if (match[4]) cells.push(color + match[4]);
+	}
+	return cells.join("");
+};
+const run = (letter: string, count: number, glyph = "━") => `${letter}${glyph}`.repeat(count);
+
+test("context row: muted key, the percent bold in its context color, then a muted `used`; no token count (S55)", () => {
+	for (const [percent, color] of [[16, palette.teal], [65, palette.amber], [90, palette.red]] as const) {
+		const [row] = contextRows(percent);
+		assert.equal(plain(row), `│ context${" ".repeat(43 - 7 - `${percent}% used`.length)}${percent}% used │`);
+		assert.ok(row.includes(`${fgCode(palette.muted)}context`), `${percent}% key muted`);
+		assert.ok(row.includes(`[1m${fgCode(color)}${percent}%[39m[22m`), `${percent}% bold in its color`);
+		assert.ok(row.includes(`${fgCode(palette.muted)} used`), `${percent}% used muted`);
+	}
+	const session = sectionBody(renderPanel(samplePanelModel, 47), "session").join("\n");
+	assert.ok(!session.includes("12.1k") && !session.includes("200k") && !session.includes("·"), session);
+});
+
+test("context line: each filled cell in the color of its own position, faint when empty, ┼ at the empty 60% and 85% cells (S55)", () => {
+	assert.equal(lineCells(contextRows(16)[1]), run("T", 7) + run("f", 18) + run("f", 1, "┼") + run("f", 10) + run("f", 1, "┼") + run("f", 6));
+	assert.equal(lineCells(contextRows(65)[1]), run("T", 26) + run("A", 2) + run("f", 8) + run("f", 1, "┼") + run("f", 6));
+	assert.equal(lineCells(contextRows(90)[1]), run("T", 26) + run("A", 11) + run("R", 2) + run("f", 4));
+	assert.equal(lineCells(contextRows(0)[1]), run("f", 25) + run("f", 1, "┼") + run("f", 10) + run("f", 1, "┼") + run("f", 6));
+	assert.equal(lineCells(contextRows(100)[1]), run("T", 26) + run("A", 11) + run("R", 6));
+});
+
+test("context rows: the percent row above the line; the line fills the inner width at every rail width (S55)", () => {
+	for (const width of [58, 55, 47, 30, 20]) {
+		const lines = renderPanel({ session: { project: "p", contextPercent: 42 } }, width);
+		for (const line of lines) assert.ok(visibleWidth(line) <= width, `width ${width}`);
+		const body = sectionBody(lines, "session");
+		const index = body.findIndex((line) => line.startsWith("│ context"));
+		assert.ok(index > 0, `width ${width} context row`);
+		assert.match(body[index], /42% used │$/);
+		assert.match(body[index + 1], new RegExp(`^│ [━┼]{${width - 4}} │$`), `width ${width} line cells`);
+	}
+});
+
+test("unknown context percent: no context rows (S55)", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" } }, 47), "session").join("\n");
+	assert.ok(!body.includes("context") && !body.includes("━"), body);
+});
+
+test("odd timeline keeps occurrence order with a repeated phase", () => {
+	const body = sectionBody(renderPanel(samplePanelModel, 47), "ODD");
+	const steps = body.filter((line) => !/^│ +│ +│$/.test(line));
+	assert.deepEqual(steps.map((line) => line.replace(/^│[ ▎]/, "").replace(/ +│$/, "").replace(/ +/g, " ")), [
+		"✓ exploring 0:31",
+		"✓ implementing 1:12",
+		"✓ exploring 0:20",
+		"⡿ checking 0:42",
+	]);
+	assert.equal(body.length, 7, "connector rows between steps");
+	assert.match(body[1], /^│ │ +│$/);
+});
+
+test("odd times use m:ss", () => {
+	const model = clone(samplePanelModel);
+	model.odd = { steps: [{ phase: "long", state: "done", seconds: 3725 }, { phase: "short", state: "active", seconds: 5 }] };
+	const body = sectionBody(renderPanel(model, 47), "ODD").join("\n");
+	assert.ok(body.includes("62:05"));
+	assert.ok(body.includes("0:05"));
+});
+
+test("digest is stable and changes when a drawn value changes", () => {
+	assert.equal(panelDigest(samplePanelModel), panelDigest(clone(samplePanelModel)));
+	const edits: ((model: PanelModel) => void)[] = [
+		(model) => (model.session.contextPercent = 7),
+		(model) => (model.todo!.active = "Other"),
+		(model) => (model.odd!.steps[3].seconds = 43),
+		(model) => (model.agents![1].state = "done"),
+		(model) => (model.changes![0].added = 2),
+		(model) => (model.footer!.cost = 0.001),
+	];
+	for (const edit of edits) {
+		const model = clone(samplePanelModel);
+		edit(model);
+		assert.notEqual(panelDigest(model), panelDigest(samplePanelModel));
+	}
+});
+
+const manyAgents = Array.from({ length: 7 }, (_, index) => ({ name: `job-${index + 1}`, task: `Task number ${index + 1} with a long label`, state: "running" as const }));
+const manyChanges = Array.from({ length: 9 }, (_, index) => ({ status: "M" as const, path: `src/some/deep/path/file-${index + 1}.ts`, added: index, removed: 1 }));
+
+test("agents beyond 4 collapse into a +N more row", () => {
+	const lines = renderPanel({ session: { project: "p" }, agents: manyAgents }, 47);
+	const body = sectionBody(lines, "agents");
+	assert.equal(body.length, 5);
+	assert.ok(body[3].includes("job-4"));
+	assert.match(body[4], /^│ {3}\+3 more +│$/);
+});
+
+test("exactly 4 agents draw no more row", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" }, agents: manyAgents.slice(0, 4) }, 47), "agents");
+	assert.equal(body.length, 4);
+	assert.ok(!body.some((line) => line.includes("more")));
+});
+
+test("failed agents show a cross", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" }, agents: [{ name: "job-3", task: "lint", state: "failed" }] }, 47), "agents");
+	assert.match(body[0], /^│ ✗ job-3 lint +│$/);
+});
+
+test("changes beyond 4 files collapse into a muted +N more · /dock all row (S53)", () => {
+	const raw = renderPanel({ session: { project: "p" }, changes: manyChanges }, 47);
+	const body = sectionBody(raw, "changes");
+	assert.equal(body.length, 5, "4 files, one row each, then more");
+	assert.deepEqual(body.slice(0, 4).map((line) => /file-\d/.exec(line)![0]), ["file-9", "file-8", "file-7", "file-6"], "most changed first");
+	assert.match(body[4], /^│ {3}\+5 more · \/dock all +│$/);
+	assert.ok(raw.some((line) => line.includes(`${fgCode(palette.muted)}+5 more · /dock all`)), "muted more row");
+	const four = sectionBody(renderPanel({ session: { project: "p" }, changes: manyChanges.slice(0, 4) }, 47), "changes");
+	assert.equal(four.length, 4);
+	assert.ok(!four.some((line) => line.includes("more")));
+});
+
+test("more rows fit every rail width", () => {
+	for (const width of [47, 30, 20]) {
+		for (const line of renderPanel({ session: { project: "p" }, agents: manyAgents, changes: manyChanges }, width)) {
+			assert.ok(visibleWidth(line) <= width, `${visibleWidth(line)} > ${width}: ${JSON.stringify(plain(line))}`);
+		}
+	}
+});
+
+test("session cost uses three decimals", () => {
+	const footer = (cost: number) => renderPanel({ session: { project: "p" }, footer: { cost } }, 47).map(plain).find((line) => line.includes("cost"))!;
+	assert.ok(footer(0.0123).includes("$0.012"));
+	assert.ok(footer(1.5).includes("$1.500"));
+	assert.ok(footer(Number.NaN).includes("$0.000"));
+});
+
+const manySteps = Array.from({ length: 9 }, (_, index) => ({
+	phase: ["exploring", "implementing", "checking"][index % 3],
+	state: (index === 8 ? "active" : "done") as "active" | "done",
+	seconds: index * 61,
+}));
+
+test("odd draws at most 6 steps, the latest, after a +N earlier row", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" }, odd: { steps: manySteps } }, 47), "ODD");
+	assert.match(body[0], /^│ {3}\+3 earlier +│$/);
+	const steps = body.filter((line) => /[✓●⡿]/.test(line));
+	assert.equal(steps.length, 6);
+	assert.match(steps[0], /✓ exploring +3:03 │$/);
+	assert.match(steps[5], /⡿ checking +8:08 │$/, "checking orb, still frame");
+	assert.equal(body.length, 1 + 6 + 6, "earlier row, 6 steps, a connector before each step");
+});
+
+test("odd adds the model's earlier count to the hidden steps", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" }, odd: { steps: manySteps.slice(3), earlier: 3 } }, 47), "ODD");
+	assert.match(body[0], /^│ {3}\+3 earlier +│$/);
+	const fewer = sectionBody(renderPanel({ session: { project: "p" }, odd: { steps: manySteps.slice(0, 2), earlier: 4 } }, 47), "ODD");
+	assert.match(fewer[0], /^│ {3}\+4 earlier +│$/);
+	assert.equal(fewer.length, 1 + 2 + 2);
+});
+
+test("6 steps or fewer draw no earlier row", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" }, odd: { steps: manySteps.slice(0, 6) } }, 47), "ODD");
+	assert.ok(!body.some((line) => line.includes("earlier")));
+	assert.equal(body.length, 6 + 5);
+});
+
+test("odd times of 10 minutes and more keep m:ss", () => {
+	const body = sectionBody(renderPanel({ session: { project: "p" }, odd: { steps: [{ phase: "checking", state: "active", seconds: 600 }] } }, 47), "ODD").join("\n");
+	assert.ok(body.includes("10:00"));
+});
+
+test("the earlier row fits every rail width", () => {
+	for (const width of [47, 30, 20]) {
+		for (const line of renderPanel({ session: { project: "p" }, odd: { steps: manySteps, earlier: 120 } }, width)) {
+			assert.ok(visibleWidth(line) <= width, `${visibleWidth(line)} > ${width}: ${JSON.stringify(plain(line))}`);
+		}
+	}
+});
+
+// --- phase orbs (S17, artboard 09) ----------------------------------------------
+
+const oddRows = (model: PanelModel, width = 47) => sectionBody(renderPanel(model, width), "ODD").filter((line) => !/^│ +│ +│$/.test(line));
+const rawOddRows = (model: PanelModel, width = 47) => {
+	const lines = renderPanel(model, width);
+	const start = lines.findIndex((line) => plain(line).startsWith("╭─ ODD"));
+	const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+	return lines.slice(start + 1, end);
+};
+
+test("the active odd row shows its phase orb frame in the orb color; done rows keep ✓", () => {
+	const model: PanelModel = { session: { project: "p" }, odd: { steps: [{ phase: "exploring", state: "done", seconds: 3 }, { phase: "checking", state: "active", seconds: 5, frame: 2 }] } };
+	const rows = oddRows(model);
+	assert.match(rows[0], /^│ ✓ exploring +0:03 │$/);
+	assert.match(rows[1], /^│▎⣻ checking +0:05 │$/, "frame 2 of checking");
+	const active = rawOddRows(model).find((line) => plain(line).includes("checking"))!;
+	assert.ok(active.includes(`\x1b[38;2;${palette.amber.join(";")}m⣻`), "orb in the checking color");
+	assert.ok(!active.includes(`${fgCode(palette.pink)}checking`), "the label is no longer pink (S49)");
+	assert.ok(!rows.some((line) => line.includes("●")));
+});
+
+test("the active odd label is muted gray with a white shine at its scan step (S49)", () => {
+	const activeRow = (scan?: number) =>
+		rawOddRows({ session: { project: "p" }, odd: { steps: [{ phase: "exploring", state: "done", seconds: 3 }, { phase: "checking", state: "active", seconds: 5, frame: 2, scan }] } }).find((line) =>
+			plain(line).includes("checking"),
+		)!;
+	const lit = activeRow(3);
+	assert.match(plain(lit), /^│▎⣻ checking +0:05 │$/, "same visible row");
+	assert.ok(lit.includes("\x1b[38;2;255;255;255mc"), "scan 3: the head is on the first letter");
+	assert.ok(lit.includes(`${fgCode(palette.amber)}⣻`), "orb keeps the checking color");
+	assert.ok(lit.includes(`${fgCode(palette.text)}0:05`), "time unchanged");
+	assert.ok(!lit.includes(`${fgCode(palette.pink)}c`) && !/\x1b\[38;2;242;167;201m[a-z]/.test(lit), "no pink label");
+	const still = activeRow(undefined);
+	assert.ok(still.includes(`${fgCode(palette.muted)}checking`), "no scan: the whole label muted");
+	assert.ok(!still.includes("255;255;255"));
+});
+
+test("an active step without a frame shows the still middle frame; an unknown phase keeps ●", () => {
+	assert.match(oddRows({ session: { project: "p" }, odd: { steps: [{ phase: "checking", state: "active", seconds: 1 }] } })[0], /^│▎⡿ checking/);
+	assert.match(oddRows({ session: { project: "p" }, odd: { steps: [{ phase: "dancing", state: "active", seconds: 1, frame: 3 }] } })[0], /^│▎● dancing/);
+});
+
+test("a 3-cell orb keeps every odd label in one column", () => {
+	const model: PanelModel = {
+		session: { project: "p" },
+		odd: { steps: [...manySteps.slice(0, 7).map((step) => ({ ...step, state: "done" as const })), { phase: "planning", state: "active", seconds: 9, frame: 6 }] },
+	};
+	const rows = sectionBody(renderPanel(model, 47), "ODD").filter((line) => !/^│ +│ +│$/.test(line));
+	assert.match(rows[0], /^│ {5}\+2 earlier/);
+	assert.match(rows.at(-1)!, /^│▎⠇⠇⠇ planning +0:09 │$/);
+	const column = (line: string) => line.search(/[a-z+]/);
+	for (const row of rows) assert.equal(column(row), column(rows.at(-1)!), JSON.stringify(row));
+});
+
+test("orb rows fit widths 47, 30 and 20", () => {
+	for (const phase of ["exploring", "researching", "authorizing", "deciding", "planning", "implementing", "checking", "closing", "implementing-with-a-long-name"]) {
+		for (const width of [47, 30, 20]) {
+			for (let frame = 0; frame < 16; frame++) {
+				const model: PanelModel = { session: { project: "p" }, odd: { steps: [...manySteps.slice(0, 7).map((step) => ({ ...step, state: "done" as const })), { phase, state: "active", seconds: 3725, frame }] } };
+				for (const line of renderPanel(model, width)) assert.ok(visibleWidth(line) <= width, `${phase} ${width}: ${JSON.stringify(plain(line))}`);
+			}
+		}
+	}
+});
+
+test("the digest changes when the visible orb frame changes", () => {
+	const at = (frame: number): PanelModel => ({ session: { project: "p" }, odd: { steps: [{ phase: "checking", state: "active", seconds: 1, frame }] } });
+	assert.notEqual(panelDigest(at(1)), panelDigest(at(2)));
+	assert.equal(panelDigest(at(1)), panelDigest(at(1)));
+});
+
+test("queued agents show a faint ○ and keep their place in the list", () => {
+	const lines = renderPanel({ session: { project: "p" }, agents: [{ name: "explore", task: "Map", state: "running" }, { name: "verify", task: "Check", state: "queued" }] }, 47);
+	const body = sectionBody(lines, "agents");
+	assert.match(body[1], /^│ ○ verify Check +│$/);
+	const queued = lines.find((line) => plain(line).includes("verify"))!;
+	assert.ok(queued.includes(`[38;2;${palette.faint.join(";")}m○`), "faint glyph");
+});
+
+// --- S53: changes, one row per file (design 17) -----------------------------------
+
+const changesRaw = (changes: PanelModel["changes"], width = 47) => {
+	const lines = renderPanel({ session: { project: "p" }, changes }, width);
+	const start = lines.findIndex((line) => plain(line).startsWith("╭─ changes"));
+	const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+	return { title: lines[start], rows: lines.slice(start + 1, end) };
+};
+
+test("each status has its glyph, color and right side; edited files show +N -N (S53)", () => {
+	const cases = [
+		{ change: { status: "M" as const, path: "lib/panel.ts", added: 12, removed: 3 }, glyph: "●", color: palette.amber, row: /^│ ● panel\.ts lib\/ +\+12 -3 │$/ },
+		{ change: { status: "?" as const, path: "lib/rdd.ts", added: 0, removed: 0 }, glyph: "+", color: palette.green, row: /^│ \+ rdd\.ts lib\/ +new │$/, word: "new" },
+		{ change: { status: "A" as const, path: "lib/added.ts", added: 10, removed: 0 }, glyph: "+", color: palette.green, row: /^│ \+ added\.ts lib\/ +new │$/, word: "new" },
+		{ change: { status: "D" as const, path: "scripts/old-preview.ts", added: 0, removed: 40 }, glyph: "-", color: palette.red, row: /^│ - old-preview\.ts scripts\/ +deleted │$/, word: "deleted" },
+		{ change: { status: "R" as const, path: "scripts/preview.ts", added: 2, removed: 2 }, glyph: "→", color: palette.blue, row: /^│ → preview\.ts scripts\/ +renamed │$/, word: "renamed" },
+	];
+	for (const { change, glyph, color, row, word } of cases) {
+		const { rows } = changesRaw([change]);
+		assert.equal(rows.length, 1, change.path);
+		assert.match(plain(rows[0]), row);
+		assert.ok(rows[0].includes(`${fgCode(color)}${glyph}`), `${change.status} glyph color`);
+		const name = change.path.split("/").pop()!;
+		assert.ok(rows[0].includes(`\x1b[1m${fgCode(palette.text)}${name}`), "bold name");
+		assert.ok(rows[0].includes(`${fgCode(palette.muted)}${change.path.slice(0, -name.length)}`), "muted folder");
+		if (word) assert.ok(rows[0].includes(`${fgCode(color)}${word}`), `${word} in the glyph color`);
+		assert.ok(!/uncommitted|new file|[█░−]/.test(plain(rows[0])), "no bar, no uncommitted, no new file, ASCII minus");
+	}
+	const edited = changesRaw([{ status: "M", path: "a.ts", added: 12, removed: 3 }]).rows[0];
+	assert.ok(edited.includes(`${fgCode(palette.green)}+12`) && edited.includes(`${fgCode(palette.red)}-3`), "colored counts");
+});
+
+test("edited counts of zero are muted (S53)", () => {
+	const added = changesRaw([{ status: "M", path: "a.ts", added: 5, removed: 0 }]).rows[0];
+	assert.match(plain(added), /^│ ● a\.ts +\+5 -0 │$/);
+	assert.ok(added.includes(`${fgCode(palette.green)}+5`) && added.includes(`${fgCode(palette.muted)}-0`));
+	const removed = changesRaw([{ status: "M", path: "a.ts", added: 0, removed: 4 }]).rows[0];
+	assert.ok(removed.includes(`${fgCode(palette.muted)}+0`) && removed.includes(`${fgCode(palette.red)}-4`));
+});
+
+test("a root file has no folder (S53)", () => {
+	assert.match(plain(changesRaw([{ status: "M", path: "README.md", added: 4, removed: 4 }]).rows[0]), /^│ ● README\.md +\+4 -4 │$/);
+});
+
+test("narrow rails cut the folder before the name and drop the right word before the name, all width-safe (S53)", () => {
+	const change = { status: "M" as const, path: "src/some/deep/path/file-1.ts", added: 1, removed: 0 };
+	const at = (width: number, status: "M" | "R" = "M") => plain(changesRaw([{ ...change, status }], width).rows[0]);
+	assert.match(at(47), /^│ ● file-1\.ts src\/some\/deep\/path\/ +\+1 -0 │$/);
+	assert.match(at(30), /^│ ● file-1\.ts src\/som… +\+1 -0 │$/, "folder cut first");
+	assert.match(at(20), /^│ ● file-1\.… +\+1 -0 │$/, "name cut only when no folder fits");
+	assert.match(at(20, "R"), /^│ → file-1\.ts src… │$/, "the right word drops before the name");
+	const all = [change, { ...change, status: "R" as const }, { ...change, status: "?" as const }, { ...change, status: "D" as const }, ...manyChanges];
+	for (const width of [47, 30, 20]) {
+		for (const line of renderPanel({ session: { project: "p" }, changes: all }, width)) {
+			assert.ok(visibleWidth(line) <= width, `${visibleWidth(line)} > ${width}: ${JSON.stringify(plain(line))}`);
+		}
+	}
+});
+
+test("the title says N to commit, muted, counting every changed file (S53)", () => {
+	const { title } = changesRaw(manyChanges);
+	assert.match(plain(title), /^╭─ changes ─+ 9 to commit ─╮$/);
+	assert.ok(title.includes(`${fgCode(palette.muted)}9 to commit`));
+});
+
+test("a clean tree shows one ✓ everything committed row and no title right; unknown git draws no section (S53)", () => {
+	const { title, rows } = changesRaw([]);
+	assert.equal(plain(title), `╭─ changes ${"─".repeat(35)}╮`);
+	assert.deepEqual(rows.map(plain), [`│ ✓ everything committed${" ".repeat(22)}│`]);
+	assert.ok(rows[0].includes(`${fgCode(palette.green)}✓`) && rows[0].includes(`${fgCode(palette.muted)}everything committed`));
+	assert.ok(!renderPanel({ session: { project: "p" } }, 47).some((line) => plain(line).startsWith("╭─ changes")));
+});
+
+test("files sort by added+removed, most first, keeping git order on ties; /dock lists all in that order (S53)", () => {
+	const changes = [
+		{ status: "?" as const, path: "new.ts", added: 0, removed: 0 },
+		{ status: "M" as const, path: "a.ts", added: 1, removed: 1 },
+		{ status: "M" as const, path: "big.ts", added: 30, removed: 2 },
+		{ status: "M" as const, path: "b.ts", added: 2, removed: 0 },
+		{ status: "D" as const, path: "gone.ts", added: 0, removed: 5 },
+	];
+	const rows = changesRaw(changes).rows.map(plain);
+	assert.deepEqual(rows.slice(0, 4).map((line) => line.split(" ")[2]), ["big.ts", "gone.ts", "a.ts", "b.ts"]);
+	assert.match(rows[4], /^│ {3}\+1 more · \/dock all +│$/);
+	const dock = renderDock({ session: { project: "p" }, changes }, 59, 200).lines.map(plain).filter((line) => /\.ts\b/.test(line));
+	assert.deepEqual(dock.map((line) => /(\S+\.ts)/.exec(line)![1]), ["big.ts", "gone.ts", "a.ts", "b.ts", "new.ts"]);
+	assert.deepEqual(changes.map((change) => change.path), ["new.ts", "a.ts", "big.ts", "b.ts", "gone.ts"], "the model is not reordered");
+});
+
+test("at 55 columns the panel opens with the wide braille logo, at 47 with the compact one", () => {
+	const wide = renderPanel(samplePanelModel, 55).slice(0, 3).map(plain);
+	assert.equal(wide[0].trimEnd(), "  ⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛   ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿");
+	const compact = renderPanel(samplePanelModel, 47).slice(0, 3).map(plain);
+	assert.ok(compact.every((line) => line.length <= 47 && /^ {2}[ ⠛⣤⣿]+$/.test(line)), "compact braille logo");
+	assert.notEqual(compact[0].trimEnd(), wide[0].trimEnd());
+	for (const width of [55, 53, 47]) assert.ok(!renderPanel(samplePanelModel, width).join("").includes("[38;2;95;30;60m"), `no shadow at ${width}`);
+});
+
+test("heads-up rows keep their glyph colors: red for git warnings, amber for todo and plans (S14)", () => {
+	const model: PanelModel = {
+		...clone(samplePanelModel),
+		headsUp: [
+			{ kind: "unpushed", text: "1 commit not pushed" },
+			{ kind: "plan", text: "odd plan fisi-dock" },
+		],
+	};
+	const lines = renderPanel(model, 47);
+	assert.ok(lines.find((line) => plain(line).includes("1 commit not pushed"))!.includes(`${fgCode(palette.red)}!`));
+	assert.ok(lines.find((line) => plain(line).includes("odd plan fisi-dock"))!.includes(`${fgCode(palette.amber)}!`));
+});
+
+// The background each visible cell is drawn on, or undefined when none is set.
+function cellBackgrounds(line: string): (string | undefined)[] {
+	const cells: (string | undefined)[] = [];
+	let background: string | undefined;
+	for (const part of line.split(/(\x1b\[[0-9;]*m)/)) {
+		const sgr = /^\x1b\[([0-9;]*)m$/.exec(part);
+		if (!sgr) {
+			for (const char of part) for (let cell = 0; cell < visibleWidth(char); cell++) cells.push(background);
+			continue;
+		}
+		const params = sgr[1] === "" ? ["0"] : sgr[1].split(";");
+		for (let index = 0; index < params.length; index++) {
+			if (params[index] === "0" || params[index] === "49") background = undefined;
+			else if (params[index] === "48" && params[index + 1] === "2") {
+				background = params.slice(index + 2, index + 5).join(";");
+				index += 4;
+			}
+		}
+	}
+	return cells;
+}
+
+const BLACK_BG = bgCode([0, 0, 0]);
+
+for (const width of [64, 53, 40]) {
+	test(`/dock at ${width} columns: the side panel's own rows and colors, edge to edge, no background of its own (S59)`, () => {
+		const { lines } = renderDock(longModel, width, 20);
+		assert.equal(lines.length, 20, "the whole screen height");
+		const panel = renderPanel(longModel, width - 2, { todoExpanded: true, listsExpanded: true, oddExpanded: true });
+		// The panel starts DOCK_TOP_ROWS down, as the rail starts under the top row and its gap on the PC (S59).
+		assert.deepEqual(lines.slice(0, DOCK_TOP_ROWS), Array(DOCK_TOP_ROWS).fill(" ".repeat(width)), "blank rows above the panel");
+		lines.slice(DOCK_TOP_ROWS, -1).forEach((line, index) => {
+			assert.equal(visibleWidth(line), width, `the whole screen width: ${JSON.stringify(plain(line))}`);
+			// Byte for byte the rail's row (same colors, same highlight), only one plain space of margin each side.
+			assert.equal(line, ` ${panel[index]}${" ".repeat(width - 2 - visibleWidth(panel[index]))} `, `row ${index}: ${JSON.stringify(plain(line))}`);
+		});
+		for (const line of lines) assert.ok(!line.includes(BLACK_BG), `no black background: ${JSON.stringify(plain(line))}`);
+		assert.match(plain(lines.at(-1)!), /^ Esc to close +↑↓ scroll $/);
+		assert.equal(visibleWidth(lines.at(-1)!), width);
+	});
+}
+
+test(`/dock on a wide screen: the panel at most ${DOCK_MAX_WIDTH} columns, centered (S59)`, () => {
+	const { lines } = renderDock(longModel, 200, 20);
+	const panel = renderPanel(longModel, DOCK_MAX_WIDTH).map(plain);
+	const left = (200 - DOCK_MAX_WIDTH) / 2;
+	for (const line of lines) assert.equal(visibleWidth(line), 200);
+	assert.deepEqual(lines.slice(DOCK_TOP_ROWS, -1).map((line) => plain(line).slice(left, left + DOCK_MAX_WIDTH)), panel.slice(0, 19 - DOCK_TOP_ROWS).map((line) => line.padEnd(DOCK_MAX_WIDTH)));
+	assert.equal(plain(lines[DOCK_TOP_ROWS]).slice(0, left).trim(), "", "blank margin on the left");
+});
+
+test("/dock: a panel that fits still covers the whole screen, with no scroll hint (S59)", () => {
+	const { lines, offset } = renderDock(samplePanelModel, 64, 80);
+	const panel = renderPanel(samplePanelModel, 62).map(plain);
+	assert.equal(offset, 0);
+	assert.equal(lines.length, 80);
+	const text = lines.map(plain);
+	assert.deepEqual(text.slice(0, DOCK_TOP_ROWS), Array(DOCK_TOP_ROWS).fill(" ".repeat(64)), "blank rows above the panel");
+	assert.deepEqual(text.slice(DOCK_TOP_ROWS, DOCK_TOP_ROWS + panel.length), panel.map((line) => ` ${line.padEnd(62)} `));
+	for (const line of text.slice(DOCK_TOP_ROWS + panel.length, -1)) assert.equal(line, " ".repeat(64), "blank rows under the panel");
+	assert.match(text.at(-1)!, /^ Esc to close +$/);
+});
+
+test("/dock is 2 rows down, like the rail on the PC (S59)", () => {
+	assert.equal(DOCK_TOP_ROWS, 2);
+});
+
+test("/dock scrolls on short screens and keeps the close hint (S23, S59)", () => {
+	const top = renderDock(longModel, 64, 8, 0);
+	const next = renderDock(longModel, 64, 8, 1);
+	assert.equal(next.offset, 1);
+	assert.equal(plain(next.lines[DOCK_TOP_ROWS]), plain(top.lines[DOCK_TOP_ROWS + 1]));
+	const end = renderDock(longModel, 64, 8, 999);
+	assert.equal(end.offset, renderPanel(longModel, 62).length - (7 - DOCK_TOP_ROWS));
+	assert.equal(plain(end.lines.at(-2)!).slice(1, -1), plain(renderPanel(longModel, 62).at(-1)!).padEnd(62), "the last panel row is reachable");
+	for (const view of [top, next, end]) assert.match(plain(view.lines.at(-1)!), /Esc to close/);
+});
+
+test("/dock: the selected row wears the side panel's own highlight (S59)", () => {
+	const { lines } = renderDock(samplePanelModel, 64, 80);
+	const selected = lines.find((line) => plain(line).includes("▎"))!;
+	assert.ok(cellBackgrounds(selected).includes(palette.highlight.join(";")), "the rail highlight");
+});
+
+// S31: every running spinner moves with the clock: the model carries the frame.
+const running = (spinner?: number): PanelModel => ({
+	session: { project: "p" },
+	todo: {
+		done: 1,
+		total: 3,
+		active: "Running now",
+		next: "Later",
+		more: 0,
+		tasks: [
+			{ title: "Finished", state: "done" },
+			{ title: "Running now", state: "active" },
+			{ title: "Later", state: "pending" },
+		],
+	},
+	agents: [
+		{ name: "verify", task: "Check", state: "running" },
+		{ name: "explore", task: "Map", state: "done" },
+		{ name: "later", task: "Wait", state: "queued" },
+		{ name: "broken", task: "Oops", state: "failed" },
+	],
+	...(spinner !== undefined ? { spinner } : {}),
+});
+
+test("the side panel's todo and agent spinners show the model's frame (S31)", () => {
+	for (const [frame, glyph] of [[0, "⠋"], [1, "⠙"], [3, "⠸"], [9, "⠏"]] as const) {
+		const lines = renderPanel(running(frame), 47);
+		assert.match(sectionBody(lines, "todo")[1], new RegExp(`^│▎${glyph} Running now +│$`), `todo frame ${frame}`);
+		assert.deepEqual(sectionBody(lines, "agents").map((line) => line.replace(/ +│$/, "")), [`│ ${glyph} verify Check`, "│ ✓ explore Map", "│ ○ later Wait", "│ ✗ broken Oops"], `agents frame ${frame}`);
+		for (const line of lines) assert.ok(visibleWidth(line) <= 47);
+	}
+	const still = renderPanel(running(), 47);
+	assert.match(sectionBody(still, "todo")[1], /^│▎⠹ Running now +│$/, "no frame: the still ⠹");
+	assert.deepEqual(still, renderPanel(running(2), 47), "frame 2 is the still glyph");
+});
+
+test("the phone todo card and /dock's full list show the model's spinner frame (S31)", () => {
+	const card = (frame?: number) => renderTodoCard(running(frame).todo, 53, frame).map(plain);
+	assert.match(card(0)[2], /^│▎⠋ Running now +│$/);
+	assert.match(card(5)[2], /^│▎⠴ Running now +│$/);
+	assert.match(card()[2], /^│▎⠹ Running now +│$/, "no frame: still");
+	const dock = (frame: number) => renderDock(running(frame), DOCK_WIDTH + 4, 60).lines.map(plain);
+	assert.ok(dock(0).some((line) => /│▎⠋ Running now +│/.test(line)), "dock todo frame 0");
+	assert.ok(dock(0).some((line) => /│ ⠋ verify Check +│/.test(line)), "dock agent frame 0");
+	assert.ok(dock(4).some((line) => /│▎⠼ Running now +│/.test(line)), "dock todo frame 4");
+	assert.ok(dock(4).some((line) => /│ ✓ Finished +│/.test(line)), "done rows stay ✓");
+});
+
+test("with nothing running the panel ignores the spinner frame: byte-identical output (S31)", () => {
+	const idle = clone(samplePanelModel);
+	delete idle.todo!.active;
+	idle.agents![1].state = "done";
+	idle.odd!.steps[3].state = "done";
+	idle.rdd!.reviews[1] = { scope: "lib/orbs.ts +2", status: "approved", endedAt: 0 };
+	for (const width of [58, 55, 47, 30]) {
+		const before = renderPanel(idle, width);
+		for (let frame = 0; frame < 10; frame++) assert.deepEqual(renderPanel({ ...idle, spinner: frame }, width), before, `${width} frame ${frame}`);
+	}
+});
+
+test("the digest changes when the visible spinner frame changes (S31)", () => {
+	assert.notEqual(panelDigest(running(1)), panelDigest(running(2)));
+	assert.equal(panelDigest(running(1)), panelDigest(running(1)));
+});
+
+// --- S34b: short screens ---------------------------------------------------------
+
+const isSpacer = (line: string) => /^│ │ +│$/.test(line);
+
+test("a panel that fits the rows is unchanged; no row limit is the old output (S34)", () => {
+	const full = renderPanel(samplePanelModel, 47);
+	assert.deepEqual(renderPanel(samplePanelModel, 47, {}), full);
+	assert.deepEqual(renderPanel(samplePanelModel, 47, { maxRows: full.length }), full);
+	assert.deepEqual(renderPanel(samplePanelModel, 47, { maxRows: 500 }), full);
+});
+
+test("short screens keep the logo, session, heads-up, ODD, todo and agents; drop odd and rdd spacers, then changes, then rdd with a running ODD cut to its active row (S38, S34, S50, S52)", () => {
+	const model: PanelModel = { ...clone(samplePanelModel), headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
+	const full = renderPanel(model, 58).map(plain);
+	const logo = full.findIndex((line) => line.startsWith("╭─ session"));
+	assert.ok(logo > 0, "the full panel starts with the logo");
+	const spacers = full.filter(isSpacer).length;
+	assert.equal(spacers, 4, "three odd spacers and one rdd spacer");
+	const has = (lines: string[], title: string) => lines.some((line) => line.startsWith(`╭─ ${title}`));
+
+	// (1) The odd and rdd spacer rows go first.
+	const noSpacers = renderPanel(model, 58, { maxRows: full.length - 1 }).map(plain);
+	assert.equal(noSpacers.length, full.length - spacers);
+	assert.deepEqual(noSpacers.slice(0, logo), full.slice(0, logo), "logo kept");
+	assert.ok(!noSpacers.some(isSpacer), "no spacer rows");
+	assert.deepEqual(sectionBody(noSpacers, "ODD").map((line) => line.replace(/^│[ ▎]/, "").replace(/ +│$/, "").replace(/ +/g, " ")), ["✓ exploring 0:31", "✓ implementing 1:12", "✓ exploring 0:20", "⡿ checking 0:42"]);
+	assert.equal(sectionBody(noSpacers, "RDD").length, 2, "rdd rows without their spacer");
+	assert.ok(has(noSpacers, "changes") && has(noSpacers, "agents"));
+
+	// (2) Then the changes section.
+	const noChanges = renderPanel(model, 58, { maxRows: noSpacers.length - 1 }).map(plain);
+	assert.ok(!has(noChanges, "changes"), "changes dropped");
+	assert.ok(has(noChanges, "ODD") && has(noChanges, "RDD"), "odd and rdd still there");
+	assert.equal(noChanges.length, noSpacers.length - 3, "the changes frame: title, one file row, bottom");
+
+	// (3) Then the rdd section, and a running ODD keeps only its active row; nothing else ever drops: the rest scrolls in Gentle Shell's rail.
+	const noOdd = renderPanel(model, 58, { maxRows: noChanges.length - 1 }).map(plain);
+	assert.ok(has(noOdd, "ODD"), "the ODD title stays");
+	assert.ok(!has(noOdd, "RDD") && !has(noOdd, "changes"), "rdd dropped after changes");
+	assert.deepEqual(oddText(noOdd), ["⡿ checking 0:42"], "only the active row");
+	assert.equal(noOdd.length, noChanges.length - (sectionBody(noChanges, "ODD").length - 1) - sectionBody(noChanges, "RDD").length - 2, "rdd frame and the done odd rows in the same step");
+	for (const title of ["session", "heads-up", "todo", "agents"]) assert.ok(has(noOdd, title), title);
+	assert.deepEqual(noOdd.slice(0, logo), full.slice(0, logo), "logo kept");
+
+	const tiny = renderPanel(model, 58, { maxRows: 3 }).map(plain);
+	assert.deepEqual(tiny, noOdd, "nothing else drops");
+	for (const rows of [40, 30, 20, 10, 3, 0]) for (const line of renderPanel(model, 58, { maxRows: rows })) assert.ok(visibleWidth(line) <= 58, `${rows}: ${plain(line)}`);
+});
+
+test("short screens keep a settled or idle ODD at its one row (S52)", () => {
+	for (const odd of [undefined, settledOdd(4)]) {
+		const model: PanelModel = { ...clone(samplePanelModel), headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
+		if (odd) model.odd = odd;
+		else delete model.odd;
+		const tiny = renderPanel(model, 58, { maxRows: 3 }).map(plain);
+		assert.equal(sectionBody(tiny, "ODD").length, 1);
+		assert.ok(!tiny.some((line) => line.startsWith("╭─ RDD")));
+	}
+});
+
+test("58 columns and 20 rows: braille logo first, then session, heads-up, ODD, agents and todo; no changes or rdd (S38, S52)", () => {
+	const model: PanelModel = { ...clone(samplePanelModel), headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
+	const lines = renderPanel(model, 58, { maxRows: 20 }).map(plain);
+	const logo = renderPanel(model, 58).map(plain).findIndex((line) => line.startsWith("╭─ session"));
+	assert.ok(lines.slice(0, logo).every((line) => /[⠀-⣿]/.test(line) || line.trim() === ""), "braille logo rows first");
+	assert.ok(lines.slice(0, logo).some((line) => /[⠁-⣿]/.test(line)));
+	const titles = lines.filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
+	assert.deepEqual(titles, ["session", "heads-up", "ODD", "agents", "todo"]);
+	console.log(`--- panel at 58 columns, 20 rows available\n${lines.join("\n")}`);
+});
+
+// --- S35: the phone agents card ---------------------------------------------------
+
+const NOW = 1_000_000;
+const runningAgents: PanelModel["agents"] = [
+	{ name: "worker", task: "session rows", state: "running", startedAt: NOW - 271_000 },
+	{ name: "explore", task: "Map CI", state: "done", startedAt: NOW - 50_000 },
+	{ name: "verify", task: "queued prompt", state: "running", startedAt: NOW - 125_000 },
+	{ name: "later", task: "Wait", state: "queued" },
+	{ name: "broken", task: "Lint", state: "failed" },
+];
+
+test("agents card: framed like the panel, running agents only, spinner, name, task and elapsed m:ss (S35, S31)", () => {
+	const lines = renderAgentsCard(runningAgents, 53, 1, NOW);
+	const card = lines.map(plain);
+	assert.match(card[0], /^╭─ agents ─+ 2 ─╮$/, "running count on the top border");
+	assert.match(card[1], /^│ ⠙ worker +session rows +4:31 │$/);
+	assert.match(card[2], /^│ ⠙ verify +queued prompt +2:05 │$/);
+	assert.match(card[3], /^╰─+╯$/);
+	assert.equal(card.length, 4, "done, queued and failed agents are not listed");
+	assert.equal(card[1].indexOf("session rows"), card[2].indexOf("queued prompt"), "tasks start in one column");
+	assert.ok(lines[0].includes(fgCode(palette.frame)) && lines[0].includes(fgCode(palette.lilac)), "gray frame, agents title color");
+	assert.ok(lines[1].includes(`${fgCode(palette.blue)}⠙`), "spinner in the agents blue");
+	console.log(`--- agents card, 53 columns\n${card.join("\n")}`);
+});
+
+test("agents card: the spinner shows the model's frame, the still ⠹ without one (S31)", () => {
+	assert.match(plain(renderAgentsCard(runningAgents, 53, 0, NOW)[1]), /^│ ⠋ worker/);
+	assert.match(plain(renderAgentsCard(runningAgents, 53, 7, NOW)[1]), /^│ ⠧ worker/);
+	assert.match(plain(renderAgentsCard(runningAgents, 53, undefined, NOW)[1]), /^│ ⠹ worker/);
+});
+
+test("agents card: elapsed from startedAt, omitted when unknown, never negative; hours past 60 minutes", () => {
+	assert.equal(formatElapsed(0), "0:00");
+	assert.equal(formatElapsed(59_999), "0:59");
+	assert.equal(formatElapsed(271_000), "4:31");
+	assert.equal(formatElapsed(3_599_000), "59:59");
+	assert.equal(formatElapsed(3_600_000), "1:00:00");
+	assert.equal(formatElapsed(-5_000), "0:00", "a start in the future counts as now");
+	const unknown = renderAgentsCard([{ name: "worker", task: "session rows", state: "running" }], 53, 2, NOW).map(plain);
+	assert.match(unknown[1], /^│ ⠹ worker session rows +│$/, "no start time: no time, never invented");
+	const later = renderAgentsCard(runningAgents, 53, 2, NOW + 1_000).map(plain);
+	assert.match(later[1], / 4:32 │$/, "the time follows now");
+});
+
+test("agents card: at most 4 rows, then +N more  /dock all; [] when nothing runs", () => {
+	const six = Array.from({ length: 6 }, (_, index) => ({ name: `agent${index}`, task: `task ${index}`, state: "running" as const, startedAt: NOW - index * 1_000 }));
+	const card = renderAgentsCard(six, 53, 2, NOW).map(plain);
+	assert.match(card[0], / 6 ─╮$/, "the count is every running agent");
+	assert.deepEqual(card.slice(1, 5).map((line) => line.split(/ +/)[2]), ["agent0", "agent1", "agent2", "agent3"]);
+	assert.match(card[5], /^│ {3}\+2 more +\/dock all │$/);
+	assert.equal(card.length, 7);
+	assert.deepEqual(renderAgentsCard(undefined, 53, 2, NOW), []);
+	assert.deepEqual(renderAgentsCard([], 53, 2, NOW), []);
+	assert.deepEqual(renderAgentsCard(runningAgents.filter((agent) => agent.state !== "running"), 53, 2, NOW), [], "finished and queued only");
+	assert.deepEqual(renderAgentsCard(runningAgents, 0, 2, NOW), []);
+});
+
+test("agents card: width-safe at 64, 53, 40 and 20; long names and tasks are cut, the time stays", () => {
+	const long: PanelModel["agents"] = [
+		{ name: "an-agent-with-a-very-long-name", task: "A very long task description that goes on past the phone", state: "running", startedAt: NOW - 754_000 },
+		{ name: "verify", task: "queued prompt", state: "running", startedAt: NOW - 125_000 },
+	];
+	for (const width of [64, 53, 40, 20]) {
+		const lines = renderAgentsCard(long, width, 2, NOW);
+		for (const line of lines) assert.equal(visibleWidth(line), width, `${width}: ${plain(line)}`);
+		assert.match(plain(lines[1]), /…/, `${width}: cut with an ellipsis`);
+		assert.match(plain(lines[2]), / 2:05 │$/, `${width}: time flush right`);
+	}
+	assert.match(plain(renderAgentsCard(long, 40, 2, NOW)[1]), / 12:34 │$/);
+	console.log(`--- agents card, 40 and 20 columns\n${[...renderAgentsCard(long, 40, 2, NOW), ...renderAgentsCard(long, 20, 2, NOW)].map(plain).join("\n")}`);
+});
+
+test("the side panel's agents section is unchanged by start times (S35 keeps its own rules)", () => {
+	const model: PanelModel = { session: { project: "app" }, agents: runningAgents };
+	const bare: PanelModel = { session: { project: "app" }, agents: runningAgents!.map(({ startedAt: _, ...agent }) => agent) };
+	assert.deepEqual(renderPanel(model, 47), renderPanel(bare, 47));
+});
+
+test("/dock lists every agent and changed file; the side panel keeps its cap of 4 (S35)", () => {
+	const agents = Array.from({ length: 6 }, (_, index) => ({ name: `agent-${index + 1}`, task: `task ${index + 1}`, state: "running" as const }));
+	const changes = Array.from({ length: 6 }, (_, index) => ({ status: "M" as const, path: `src/file-${index + 1}.ts`, added: 1, removed: 0 }));
+	const model: PanelModel = { session: { project: "p" }, agents, changes };
+	const dock = renderDock(model, 59, 200).lines.map(plain).join("\n");
+	for (let index = 1; index <= 6; index++) {
+		assert.ok(dock.includes(`agent-${index}`), `agent-${index} in /dock`);
+		assert.ok(dock.includes(`file-${index}.ts src/`), `file-${index} in /dock`);
+	}
+	assert.ok(!dock.includes("more"), "no +N more inside /dock");
+	const rail = renderPanel(model, 55).map(plain).join("\n");
+	assert.ok(!rail.includes("agent-6") && rail.includes("+2 more"), "side panel still capped");
+});
+
+// Row entrance (S54, artboard 16): only colors change, so every row keeps its width.
+const ENTRANCE_WHITE = "\x1b[38;2;255;255;255m";
+const entranceModel = (entrance?: number): PanelModel => ({
+	session: { project: "p" },
+	agents: [
+		{ name: "explore", task: "Map CI", state: "done" },
+		{ name: "verify", task: "Check PR", state: "running", ...(entrance === undefined ? {} : { entrance }) },
+	],
+	todo: { done: 1, total: 3, active: "Run the suite", next: "Commit", more: 0, ...(entrance === undefined ? {} : { entrance }) },
+	odd: { steps: [{ phase: "exploring", state: "done", seconds: 3 }, { phase: "planning", state: "active", seconds: 5, frame: 2, scan: 3, ...(entrance === undefined ? {} : { entrance }) }] },
+	rdd: { reviews: [{ scope: "a.ts", status: "approved", endedAt: Date.UTC(2026, 9, 29, 22, 5) }, { scope: "b.ts", status: "reviewing", seconds: 4, ...(entrance === undefined ? {} : { entrance }) }] },
+	spinner: 2,
+});
+const rawRow = (lines: string[], title: string, text: string) => {
+	const start = lines.findIndex((line) => plain(line).startsWith(`╭─ ${title}`));
+	const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+	return lines.slice(start + 1, end).find((line) => plain(line).includes(text))!;
+};
+const ENTRANCE_ROWS = [
+	["agents", "verify", palette.lilac, "⠹", "Check PR"],
+	["todo", "Run the suite", palette.coral, "⠹", "Run the suite"],
+	["ODD", "planning", palette.amber, "⠇⠄⠀", "planning"],
+	["RDD", "b.ts", palette.rose, "⠹", "b.ts"],
+] as const;
+
+for (const [title, text, color, glyph, last] of ENTRANCE_ROWS) {
+	test(`${title}: an entering row flashes bold in the section color, then the white shine crosses it (S54)`, () => {
+		const flash = rawRow(renderPanel(entranceModel(0), 47), title, text);
+		assert.ok(flash.includes(`${fgCode(color)}${glyph}`), "the glyph wears the section color during the flash");
+		assert.ok(flash.includes(`\x1b[1m${fgCode(color)}${text.slice(0, 2)}`), "step 0: the text bold in the section color");
+		assert.ok(!flash.includes(ENTRANCE_WHITE), "no shine during the flash");
+		const shine = rawRow(renderPanel(entranceModel(5), 47), title, text);
+		assert.ok(shine.includes(`${ENTRANCE_WHITE}${text[0]}`), "step 5: the white head on the first char");
+		assert.ok(!shine.includes(`${fgCode(color)}${glyph}`), "the glyph is back to its own color after the flash");
+		assert.ok(plain(shine).includes(last), "the text is all there");
+		assert.equal(plain(flash), plain(rawRow(renderPanel(entranceModel(), 47), title, text)), "same visible row");
+	});
+}
+
+test("rows without an entrance, or past its end, look exactly as today (S54)", () => {
+	const today = renderPanel(entranceModel(), 47);
+	assert.deepEqual(renderPanel(entranceModel(200), 47), today);
+	const odd = rawRow(today, "ODD", "planning");
+	assert.ok(odd.includes(ENTRANCE_WHITE), "the ODD label keeps its gray shimmer after the entrance");
+	assert.deepEqual(renderTodoCard(entranceModel(200).todo, 47, 2), renderTodoCard(entranceModel().todo, 47, 2));
+});
+
+test("entering rows are width-safe at 47, 30 and 20 at every step (S54)", () => {
+	for (const width of [47, 30, 20]) {
+		for (let step = 0; step < 30; step++) {
+			const lines = renderPanel(entranceModel(step), width);
+			const today = renderPanel(entranceModel(), width);
+			assert.deepEqual(lines.map(plain), today.map(plain), `${width}/${step}: same visible text`);
+			for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}/${step}: ${plain(line)}`);
+		}
+	}
+});
+
+test("the todo card and /dock list show the active task's entrance too (S54)", () => {
+	const card = renderTodoCard(entranceModel(0).todo, 47, 2).find((line) => plain(line).includes("Run the suite"))!;
+	assert.ok(card.includes(`\x1b[1m${fgCode(palette.coral)}Ru`));
+	const todo = { ...entranceModel(0).todo!, tasks: [{ title: "Commit", state: "done" as const }, { title: "Run the suite", state: "active" as const }] };
+	const dock = renderDock({ session: { project: "p" }, todo }, 59, 200).lines.find((line) => plain(line).includes("Run the suite"))!;
+	assert.ok(dock.includes(`\x1b[1m${fgCode(palette.coral)}Ru`));
+});
+
+// --- S69: the model label at the right end of each agent row (replaces S56's line) ---
+
+const PURPLE = [0xb4, 0x8c, 0xff] as const;
+const modelAgents: PanelModel["agents"] = [
+	{ name: "explore", task: "Map CI workflow", state: "done", model: "claude-haiku-5-5", effort: "medium" },
+	{ name: "worker", task: "Write the RDD section", state: "running", model: "claude-bridge/claude-opus-5-5", effort: "high" },
+	{ name: "verify", task: "Check PR 265 checks", state: "running", model: "claude-sonnet-5-5" },
+	{ name: "plain", task: "No model", state: "queued" },
+];
+
+test("agents: each agent stays one row with its model family and effort on the right; no label without a model (S69)", () => {
+	const raw = renderPanel({ session: { project: "p" }, agents: modelAgents }, 47, { maxRows: Infinity });
+	assert.deepEqual(sectionBody(raw, "agents"), [
+		"│ ✓ explore Map CI workflow    haiku · medium │",
+		"│ ⠹ worker Write the RDD section  opus · high │",
+		"│ ⠹ verify Check PR 265 checks         sonnet │",
+		"│ ○ plain No model                            │",
+	]);
+	const start = raw.findIndex((line) => plain(line).startsWith("╭─ agents"));
+	assert.ok(raw[start + 1].includes(`${fgCode(palette.blue)}haiku`), "family in the medium color");
+	assert.ok(raw[start + 1].includes(`${fgCode(palette.muted)} · medium`), "effort muted");
+	assert.ok(raw[start + 2].includes(`${fgCode(PURPLE)}opus`), "family in the high color");
+	assert.ok(raw[start + 2].includes(`${fgCode(palette.muted)} · high`));
+	assert.ok(raw[start + 3].includes(`${fgCode(palette.muted)}sonnet`) && !plain(raw[start + 3]).includes("·"), "no effort: muted family only");
+	assert.deepEqual(palette.purple, PURPLE);
+});
+
+test("agents: the family takes the effort's group color, an unknown effort muted (S69)", () => {
+	const colors: [string, readonly number[]][] = [
+		["low", palette.amber], ["minimal", palette.amber], ["medium", palette.blue],
+		["high", PURPLE], ["xhigh", PURPLE], ["max", PURPLE], ["turbo", palette.muted],
+	];
+	for (const [effort, color] of colors) {
+		const raw = renderPanel({ session: { project: "p" }, agents: [{ name: "a", task: "t", state: "done", model: "claude-opus-5-5", effort }] }, 47);
+		const start = raw.findIndex((line) => plain(line).startsWith("╭─ agents"));
+		assert.ok(raw[start + 1].includes(`${fgCode(color as [number, number, number])}opus`), effort);
+		assert.ok(raw[start + 1].includes(`${fgCode(palette.muted)} · ${effort}`), effort);
+	}
+	const turbo = renderPanel({ session: { project: "p" }, agents: [{ name: "a", task: "t", state: "done", model: "claude-opus-5-5", effort: "turbo" }] }, 47);
+	assert.deepEqual(sectionBody(turbo, "agents"), ["│ ✓ a t                          opus · turbo │"]);
+});
+
+test("agents: a model with no family word shows today's short model text (S69)", () => {
+	const raw = renderPanel({ session: { project: "p" }, agents: [{ name: "a", task: "t", state: "done", model: "openai/gpt-5-1" }] }, 47);
+	assert.deepEqual(sectionBody(raw, "agents"), ["│ ✓ a t                               gpt-5.1 │"]);
+});
+
+test("agents: without model fields the section is exactly today's rows (S69)", () => {
+	const today = renderPanel({ session: { project: "p" }, agents: manyAgents }, 47);
+	const withUndefined = renderPanel({ session: { project: "p" }, agents: manyAgents.map((agent) => ({ ...agent, effort: "high" })) }, 47);
+	assert.deepEqual(withUndefined, today, "effort alone draws no label");
+	assert.deepEqual(sectionBody(today, "agents").length, 5);
+});
+
+test("agents: a long task is cut before the label (S69)", () => {
+	const agents = [{ name: "worker", task: "Write the RDD section with every lens and its summary", state: "running" as const, model: "claude-opus-5-5", effort: "high" }];
+	assert.deepEqual(sectionBody(renderPanel({ session: { project: "p" }, agents }, 47), "agents"), ["│ ⠹ worker Write the RDD section… opus · high │"]);
+});
+
+test("agents: too narrow, the row drops the effort, then the label (S69)", () => {
+	const agents = [{ name: "worker", task: "Write the RDD section", state: "running" as const, model: "claude-opus-5-5", effort: "high" }];
+	const body = (width: number) => sectionBody(renderPanel({ session: { project: "p" }, agents }, width), "agents");
+	assert.deepEqual(body(26), ["│ ⠹ worker … opus · high │"]);
+	assert.deepEqual(body(25), ["│ ⠹ worker Write … opus │"]);
+	assert.deepEqual(body(14), ["│ ⠹ worker … │"]);
+	for (const width of [55, 47, 30, 20, 14]) for (const line of renderPanel({ session: { project: "p" }, agents }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+test("agents: the cap counts agents; /dock shows every agent's label (S69)", () => {
+	const six = manyAgents.slice(0, 6).map((agent) => ({ ...agent, model: "claude-opus-5-5", effort: "high" }));
+	const body = sectionBody(renderPanel({ session: { project: "p" }, agents: six }, 47), "agents");
+	assert.equal(body.length, 5, "4 agents, then more");
+	assert.ok(body[3].includes("job-4") && body[3].endsWith("opus · high │"));
+	assert.match(body[4], /^│ {3}\+2 more +│$/);
+	const dock = renderDock({ session: { project: "p" }, agents: six }, DOCK_WIDTH + 4, 200).lines.map(plain);
+	assert.equal(dock.filter((line) => line.includes("opus · high")).length, 6);
+});
+
+test("agents: the entrance plays on the name and task, the label stays in its colors (S69, S54)", () => {
+	const agent = { name: "worker", task: "Write", state: "running" as const, model: "claude-opus-5-5", effort: "high" };
+	const still = renderPanel({ session: { project: "p" }, agents: [agent] }, 47);
+	const entering = renderPanel({ session: { project: "p" }, agents: [{ ...agent, entrance: 0 }] }, 47);
+	const start = still.findIndex((line) => plain(line).startsWith("╭─ agents"));
+	assert.notEqual(entering[start + 1], still[start + 1], "the agent row enters");
+	assert.equal(plain(entering[start + 1]), plain(still[start + 1]));
+	assert.ok(entering[start + 1].includes(`${fgCode(PURPLE)}opus`) && entering[start + 1].includes(`${fgCode(palette.muted)} · high`), "the label keeps its colors");
+});
+
+test("agents card: the label follows the time on each running agent's row (S69, S35)", () => {
+	const agents: PanelModel["agents"] = [
+		{ name: "worker", task: "Write the RDD section", state: "running", startedAt: NOW - 42_000, model: "claude-bridge/claude-opus-5-5", effort: "high" },
+		{ name: "verify", task: "Check PR 265 checks", state: "running", startedAt: NOW - 8_000 },
+	];
+	const raw = renderAgentsCard(agents, 53, 2, NOW);
+	const card = raw.map(plain);
+	assert.deepEqual(card.slice(1, 3), [
+		"│ ⠹ worker Write the RDD section   0:42 opus · high │",
+		"│ ⠹ verify Check PR 265 checks                 0:08 │",
+	]);
+	assert.equal(card.length, 4, "one row per agent");
+	assert.ok(raw[1].includes(`${fgCode(PURPLE)}opus`) && raw[1].includes(`${fgCode(palette.muted)} · high`));
+	const today = renderAgentsCard(agents.map(({ model: _m, effort: _e, ...rest }) => rest), 53, 2, NOW);
+	assert.equal(plain(today[1]), "│ ⠹ worker Write the RDD section               0:42 │", "no model: today's row");
+	for (const width of [64, 53, 40, 20]) for (const line of renderAgentsCard(agents, width, 2, NOW)) assert.equal(visibleWidth(line), width, `${width}: ${plain(line)}`);
+});
+
+test("short screens: labels add no rows to the panel (S69, S38)", () => {
+	const model: PanelModel = { ...clone(samplePanelModel), agents: modelAgents };
+	const full = renderPanel(model, 47);
+	const without = renderPanel({ ...model, agents: modelAgents.map(({ model: _m, effort: _e, ...rest }) => rest) }, 47);
+	assert.equal(full.length, without.length, "same height as without models");
+	assert.equal(sectionBody(renderPanel(model, 47, { maxRows: without.length }), "agents").length, 4);
+});
+
+// S58: "tambien ponle la barrita": the listed rail keeps the progress bar, on the title next to done/total.
+test("the listed rail todo shows the progress bar on its title, before done/total (S58)", () => {
+	for (const [model, title] of [
+		[todoOf(statesAt(12, 5)), /─ ▰▰▰▰▱▱▱▱▱▱ 5\/12 ─╮$/],
+		[todoOf(statesAt(4, 1)), /─ ▰▱▱▱ 1\/4 ─╮$/],
+	] as const) {
+		const lines = renderPanel(model, 47);
+		const top = lines.find((line) => plain(line).startsWith("╭─ todo"))!;
+		assert.match(plain(top), title);
+		assert.equal(visibleWidth(top), 47);
+	}
+	for (const width of [30, 20]) for (const line of renderPanel(todoOf(statesAt(12, 5)), width)) assert.ok(visibleWidth(line) <= width);
+});
+
+// --- what each ODD step did (S60) -----------------------------------------------
+
+/** ODD rows with their leading indent kept and inner runs of spaces collapsed. */
+const detailRows = (lines: string[]) => sectionBody(lines, "ODD").map((line) => line.slice(2).replace(/ +│$/, "").replace(/(\S) {2,}(\S)/g, "$1 $2"));
+const detailOdd = (): NonNullable<PanelModel["odd"]> => ({
+	steps: [
+		{ phase: "exploring", state: "done", seconds: 31, detail: { text: "read 3 files · 1 search" } },
+		{ phase: "implementing", state: "done", seconds: 72, detail: { text: "edited lib/tables/", keepEnd: true, tail: " · 2 files" } },
+		{ ...samplePanelModel.odd!.steps[3], detail: { text: "running node --test tests/tables.test.ts" } },
+	],
+});
+
+test("each ODD step shows a muted line with what it did, under its label (S60)", () => {
+	const raw = renderPanel({ session: { project: "p" }, odd: detailOdd() }, 47);
+	const lines = raw.map(plain);
+	assert.deepEqual(detailRows(lines), ["✓ exploring 0:31", "  read 3 files · 1 search", "│", "✓ implementing 1:12", "  edited lib/tables/ · 2 files", "│", "⡿ checking 0:42", "  running node --test tests/tables.test.ts"]);
+	const rowOf = (text: string) => raw[lines.findIndex((line) => line.includes(text))];
+	for (const text of ["read 3 files · 1 search", "edited lib/tables/ · 2 files", "running node --test tests/tables.test.ts"]) {
+		assert.ok(rowOf(text).includes(`${fgCode(palette.muted)}${text}`), `muted: ${text}`);
+		assert.ok(!rowOf(text).includes(bgCode(palette.highlight)), `not highlighted: ${text}`);
+	}
+	const noDetail = renderPanel({ session: { project: "p" }, odd: { steps: detailOdd().steps.map(({ detail: _, ...step }) => step) } }, 47).map(plain);
+	assert.deepEqual(detailRows(noDetail), ["✓ exploring 0:31", "│", "✓ implementing 1:12", "│", "⡿ checking 0:42"], "a step without a detail draws today's rows");
+	for (const width of [47, 30, 20, 12]) for (const line of renderPanel({ session: { project: "p" }, odd: detailOdd() }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+test("a long path keeps its end; other details are cut at the end (S60)", () => {
+	const odd = detailOdd();
+	odd.steps[2] = { ...odd.steps[2], detail: { text: "editing lib/some/very/long/folder/structure/tables/table-row.ts", keepEnd: true } };
+	odd.steps[0] = { ...odd.steps[0], detail: { text: "ran node --test tests/odd-timeline.test.ts tests/panel.test.ts" } };
+	const body = sectionBody(renderPanel({ session: { project: "p" }, odd }, 47).map(plain), "ODD");
+	assert.equal(body[1], `│   ran node --test tests/odd-timeline.test.… │`);
+	assert.equal(body.at(-1), `│   editing …/structure/tables/table-row.ts   │`);
+	odd.steps[1] = { ...odd.steps[1], detail: { text: "edited lib/some/very/long/folder/structure/tables/", keepEnd: true, tail: " · 12 files" } };
+	const cut = sectionBody(renderPanel({ session: { project: "p" }, odd }, 47).map(plain), "ODD");
+	assert.equal(cut[4], `│   edited …/structure/tables/ · 12 files     │`, "the count stays whole (S61)");
+});
+
+test("short screens drop the done steps' lines with the spacers; the shortest keep only the active row (S60, S52)", () => {
+	const model: PanelModel = { session: { project: "p" }, odd: detailOdd() };
+	const full = renderPanel(model, 47);
+	const noSpacers = renderPanel(model, 47, { maxRows: full.length - 1 }).map(plain);
+	assert.deepEqual(detailRows(noSpacers), ["✓ exploring 0:31", "✓ implementing 1:12", "⡿ checking 0:42", "  running node --test tests/tables.test.ts"]);
+	const shortest = renderPanel(model, 47, { maxRows: 3 }).map(plain);
+	assert.deepEqual(detailRows(shortest), ["⡿ checking 0:42"]);
+});
+
+test("a settled request stays one row in the rail; /dock lists the steps with their lines (S60, S52)", () => {
+	const odd = { steps: detailOdd().steps.map((step) => ({ ...step, state: "done" as const, frame: undefined, scan: undefined })), settled: true, totalSeconds: 145 };
+	odd.steps[2].detail = { text: "ran node --test tests/tables.test.ts" };
+	assert.deepEqual(oddText(renderPanel({ session: { project: "p" }, odd }, 47).map(plain)), ["✓ last request 2:25 · 3 phases"]);
+	const lines = renderDock({ session: { project: "p" }, odd }, DOCK_WIDTH + 2, 200).lines.map((line) => plain(line).slice(1, -1));
+	assert.deepEqual(oddText(lines).filter((line) => line !== "│"), ["✓ exploring 0:31", " read 3 files · 1 search", "✓ implementing 1:12", " edited lib/tables/ · 2 files", "✓ checking 0:42", " ran node --test tests/tables.test.ts"], "details indented under the label");
+});
+
+// --- what each RDD review is doing (S62) -------------------------------------------
+
+/** RDD rows with their leading indent kept and inner runs of spaces collapsed. */
+const rddRows = (lines: string[]) => sectionBody(lines, "RDD").map((line) => line.slice(2).replace(/ +│$/, "").replace(/(\S) {2,}(\S)/g, "$1 $2"));
+const detailRdd = (): NonNullable<PanelModel["rdd"]> => ({
+	reviews: [
+		{ scope: "panel.ts +3", status: "approved", endedAt: ENDED, detail: "2 findings · none blocking · 1 lens" },
+		{ scope: "odd-detail.ts +8", status: "reviewing", seconds: 151, detail: "closing · 7 findings, none blocking" },
+	],
+});
+
+test("each review shows a muted line under it: the running step, a finished review's summary (S62)", () => {
+	const raw = renderPanel({ session: { project: "p" }, spinner: 0, rdd: detailRdd() }, 47);
+	const lines = raw.map(plain);
+	assert.deepEqual(rddRows(lines), [`✓ panel.ts +3 approved ${hhmm(ENDED)}`, "  2 findings · none blocking · 1 lens", "│", "⠋ odd-detail.ts +8 reviewing… 2:31", "  closing · 7 findings, none blocking"]);
+	const rowOf = (text: string) => raw[lines.findIndex((line) => line.includes(text))];
+	for (const text of ["2 findings · none blocking · 1 lens", "closing · 7 findings, none blocking"]) {
+		assert.ok(rowOf(text).includes(`${fgCode(palette.muted)}${text}`), `muted: ${text}`);
+		assert.ok(!rowOf(text).includes(bgCode(palette.highlight)), `not highlighted: ${text}`);
+	}
+	const noDetail = renderPanel({ session: { project: "p" }, spinner: 0, rdd: { reviews: detailRdd().reviews.map(({ detail: _, ...review }) => review) } }, 47).map(plain);
+	assert.deepEqual(rddRows(noDetail), [`✓ panel.ts +3 approved ${hhmm(ENDED)}`, "│", "⠋ odd-detail.ts +8 reviewing… 2:31"], "a review without a detail draws today's rows");
+	const cut = rddRows(renderPanel({ session: { project: "p" }, rdd: { reviews: [{ scope: "a.ts", status: "reviewing", seconds: 1, detail: "starting · readability, reliability, resilience, risk" }] } }, 30).map(plain));
+	assert.equal(cut.at(-1), "  starting · readability,…", "cut at the end");
+	for (const width of [47, 30, 20, 12]) for (const line of renderPanel({ session: { project: "p" }, rdd: detailRdd() }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+test("short screens drop the finished reviews' lines with the spacers; the running step stays while RDD shows (S62)", () => {
+	const model: PanelModel = { session: { project: "p" }, spinner: 0, rdd: detailRdd() };
+	const full = renderPanel(model, 47);
+	const noSpacers = renderPanel(model, 47, { maxRows: full.length - 1 }).map(plain);
+	assert.deepEqual(rddRows(noSpacers), [`✓ panel.ts +3 approved ${hhmm(ENDED)}`, "⠋ odd-detail.ts +8 reviewing… 2:31", "  closing · 7 findings, none blocking"]);
+});
+
+// --- CI checks of the last pushed commit (S64) ---------------------------------------
+
+/** CI rows with their leading indent kept and inner runs of spaces collapsed. */
+const ciRows = (lines: string[]) => sectionBody(lines, "CI").map((line) => line.slice(2).replace(/ +│$/, "").replace(/(\S) {2,}(\S)/g, "$1 $2"));
+const ciLine = (lines: string[], text: string) => lines.find((line) => plain(line).includes(text))!;
+const CI_ENDED = Date.UTC(2026, 9, 31, 14, 2, 0);
+const runningCi = (): NonNullable<PanelModel["ci"]> => ({
+	sha: "e6f1ffd",
+	endedAt: CI_ENDED,
+	checks: [
+		{ name: "build", state: "queued" },
+		{ name: "lint", state: "passed", seconds: 34 },
+		{ name: "tests", state: "running", seconds: 72 },
+	],
+});
+const failedCi = (): NonNullable<PanelModel["ci"]> => ({
+	sha: "e6f1ffd",
+	endedAt: CI_ENDED,
+	checks: [
+		{ name: "build", state: "passed", seconds: 48 },
+		{ name: "lint", state: "passed", seconds: 34 },
+		{ name: "tests", state: "failed", seconds: 143, failedJob: "node-22 · Run npm test" },
+	],
+});
+const passedCi = (): NonNullable<PanelModel["ci"]> => ({
+	sha: "e6f1ffd",
+	endedAt: CI_ENDED,
+	checks: [
+		{ name: "build", state: "passed", seconds: 48 },
+		{ name: "lint", state: "passed", seconds: 34 },
+		{ name: "tests", state: "passed", seconds: 161 },
+	],
+});
+
+test("CI section: blue title with the short sha muted on its right, after RDD and before agents; none without runs (S64)", () => {
+	const lines = renderPanel({ session: { project: "p" }, footer: { cost: 0, rdd: "on" }, agents: samplePanelModel.agents, ci: passedCi() }, 47);
+	const titles = lines.map(plain).filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
+	assert.deepEqual(titles, ["session", "ODD", "RDD", "CI", "agents", "todo"]);
+	const title = lines.find((line) => plain(line).startsWith("╭─ CI"))!;
+	assert.match(plain(title), /^╭─ CI ─+ e6f1ffd ─╮$/);
+	assert.ok(title.includes(`${fgCode(palette.blue)}CI`), "title in blue");
+	assert.ok(title.includes(`${fgCode(palette.muted)}e6f1ffd`), "sha muted");
+	assert.ok(!renderPanel({ session: { project: "p" } }, 47).some((line) => plain(line).startsWith("╭─ CI")), "no CI: no section");
+});
+
+test("CI all passed: one `✓ N checks passed` row with the end HH:MM, then a muted line with the names and the longest run (S64)", () => {
+	const lines = renderPanel({ session: { project: "p" }, ci: passedCi() }, 47);
+	assert.deepEqual(ciRows(lines.map(plain)), [`✓ 3 checks passed ${hhmm(CI_ENDED)}`, "  build, lint, tests · longest 2:41"]);
+	assert.match(plain(ciLine(lines, "checks passed")), new RegExp(`^│ ✓ 3 checks passed +${hhmm(CI_ENDED)} │$`));
+	const row = ciLine(lines, "checks passed");
+	assert.ok(row.includes(`${fgCode(palette.green)}✓`), "green check");
+	assert.ok(row.includes(`${fgCode(palette.text)}3 checks passed`), "words in the text color");
+	assert.ok(row.includes(`${fgCode(palette.muted)}${hhmm(CI_ENDED)}`), "muted time");
+	assert.ok(ciLine(lines, "longest").includes(`${fgCode(palette.muted)}build, lint, tests · longest 2:41`), "muted line");
+	const one = renderPanel({ session: { project: "p" }, ci: { sha: "e6f1ffd", endedAt: CI_ENDED, checks: [{ name: "tests", state: "passed", seconds: 9 }] } }, 47).map(plain);
+	assert.deepEqual(ciRows(one), [`✓ 1 check passed ${hhmm(CI_ENDED)}`, "  tests · longest 0:09"], "singular");
+});
+
+test("CI running: one row per workflow; running highlighted with the blue spinner, bold name, muted `running…` and m:ss; queued faint ○ (S64)", () => {
+	const lines = renderPanel({ session: { project: "p" }, spinner: 4, ci: runningCi() }, 47);
+	assert.deepEqual(ciRows(lines.map(plain)), ["○ build queued", "✓ lint passed 0:34", "⠼ tests running… 1:12"]);
+	const running = ciLine(lines, "tests");
+	assert.match(plain(running), /^│▎⠼ tests running… +1:12 │$/);
+	assert.ok(running.includes(HIGHLIGHT_BG), "highlighted");
+	assert.ok(running.includes(`${fgCode(palette.blue)}⠼`), "blue spinner");
+	assert.ok(running.includes(`\x1b[1m${fgCode(palette.text)}tests`), "bold name");
+	assert.ok(running.includes(`${fgCode(palette.muted)}running…`), "muted state");
+	assert.ok(running.includes(`${fgCode(palette.text)}1:12`), "time");
+	const queued = ciLine(lines, "build");
+	assert.match(plain(queued), /^│ ○ build +queued │$/);
+	assert.ok(queued.includes(`${fgCode(palette.faint)}○`), "faint circle");
+	assert.ok(queued.includes(`${fgCode(palette.muted)}build`), "muted name");
+	assert.ok(queued.includes(`${fgCode(palette.muted)}queued`), "muted queued");
+	assert.ok(!queued.includes(HIGHLIGHT_BG), "only the running row is highlighted");
+	const passed = ciLine(lines, "lint");
+	assert.match(plain(passed), /^│ ✓ lint passed +0:34 │$/);
+	assert.ok(passed.includes(`${fgCode(palette.green)}✓`) && passed.includes(`${fgCode(palette.text)}lint`), "green check, name");
+	assert.ok(passed.includes(`${fgCode(palette.muted)}passed`) && passed.includes(`${fgCode(palette.muted)}0:34`), "muted passed and duration");
+	const still = renderPanel({ session: { project: "p" }, ci: runningCi() }, 47).map(plain);
+	assert.equal(ciRows(still)[2], "⠹ tests running… 1:12", "still frame without a spinner");
+});
+
+test("CI failed and cancelled: red ✗ with red `failed` and a muted line naming the job; cancelled faint and muted (S64)", () => {
+	const ci = failedCi();
+	ci.checks.splice(1, 0, { name: "deploy", state: "cancelled", seconds: 10 });
+	const lines = renderPanel({ session: { project: "p" }, ci }, 47);
+	assert.deepEqual(ciRows(lines.map(plain)), ["✓ build passed 0:48", "- deploy cancelled 0:10", "✓ lint passed 0:34", "✗ tests failed 2:23", "  node-22 · Run npm test"]);
+	const failed = ciLine(lines, "tests");
+	assert.ok(failed.includes(`${fgCode(palette.red)}✗`), "red cross");
+	assert.ok(failed.includes(`${fgCode(palette.text)}tests`), "name");
+	assert.ok(failed.includes(`${fgCode(palette.red)}failed`), "red failed");
+	assert.ok(failed.includes(`${fgCode(palette.muted)}2:23`), "muted duration");
+	assert.ok(ciLine(lines, "node-22").includes(`${fgCode(palette.muted)}node-22 · Run npm test`), "muted job line");
+	const cancelled = ciLine(lines, "deploy");
+	assert.ok(cancelled.includes(`${fgCode(palette.faint)}-`), "faint dash");
+	assert.ok(cancelled.includes(`${fgCode(palette.muted)}deploy cancelled`), "muted name and word");
+	assert.ok(cancelled.includes(`${fgCode(palette.muted)}0:10`), "muted duration");
+	const noJob = renderPanel({ session: { project: "p" }, ci: { sha: "e6f1ffd", checks: [{ name: "tests", state: "failed", seconds: 1 }] } }, 47).map(plain);
+	assert.deepEqual(ciRows(noJob), ["✗ tests failed 0:01"], "no job known: no line");
+});
+
+test("CI lists at most 6 workflows, then `+N more` (S64)", () => {
+	const checks = Array.from({ length: 8 }, (_, index) => ({ name: `w${index}`, state: "queued" as const }));
+	assert.deepEqual(ciRows(renderPanel({ session: { project: "p" }, ci: { sha: "e6f1ffd", checks } }, 47).map(plain)), [...checks.slice(0, 6).map((check) => `○ ${check.name} queued`), "  +2 more"]);
+	const six = checks.slice(0, 6);
+	assert.equal(ciRows(renderPanel({ session: { project: "p" }, ci: { sha: "e6f1ffd", checks: six } }, 47).map(plain)).length, 6, "six fit without a more row");
+});
+
+test("CI rows fit 47, 30 and 20 columns (S64)", () => {
+	const long = failedCi();
+	long.checks[0] = { name: "a-really-long-workflow-name-that-never-ends", state: "failed", seconds: 3_700, failedJob: "a-very-long-job-name · a step name that goes on and on" };
+	for (const ci of [runningCi(), failedCi(), passedCi(), long]) {
+		for (const width of [47, 30, 20]) {
+			const lines = renderPanel({ session: { project: "p" }, spinner: 0, ci }, width);
+			assert.ok(lines.some((line) => plain(line).startsWith("╭─ CI")), `${width}: CI shown`);
+			for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+		}
+	}
+	assert.deepEqual(ciRows(renderPanel({ session: { project: "p" }, ci: long }, 30).map(plain)).slice(0, 2), ["✗ a-really-long-wor… 61:40", "  a-very-long-job-name · …"], "name and job line cut at the end");
+});
+
+test("short screens drop the muted CI lines with the spacers, then changes, then the CI section (S64, S77)", () => {
+	const changes: PanelModel["changes"] = [{ status: "M", path: "lib/ci.ts", added: 1, removed: 0 }];
+	const has = (lines: string[], title: string) => lines.some((line) => plain(line).startsWith(`╭─ ${title}`));
+	const cases: [NonNullable<PanelModel["ci"]>, string[]][] = [
+		[failedCi(), ["✓ build passed 0:48", "✓ lint passed 0:34", "✗ tests failed 2:23"]],
+		[passedCi(), [`✓ 3 checks passed ${hhmm(CI_ENDED)}`]],
+	];
+	for (const [ci, short] of cases) {
+		const model: PanelModel = { session: { project: "p" }, ci, changes };
+		const full = renderPanel(model, 47);
+		const noLines = renderPanel(model, 47, { maxRows: full.length - 1 });
+		assert.deepEqual(ciRows(noLines.map(plain)), short, "the muted lines drop first");
+		assert.equal(noLines.length, full.length - 1);
+		assert.ok(has(noLines, "changes"), "changes still there");
+		const noChanges = renderPanel(model, 47, { maxRows: noLines.length - 1 });
+		assert.ok(has(noChanges, "CI") && !has(noChanges, "changes"), "changes drops before CI");
+		const noCi = renderPanel(model, 47, { maxRows: noChanges.length - 1 });
+		assert.ok(!has(noCi, "CI"), "then CI");
+	}
+});
+
+test("/dock draws the CI section like the rail (S64)", () => {
+	const lines = renderDock({ session: { project: "p" }, ci: failedCi() }, DOCK_WIDTH + 2, 200).lines.map((line) => plain(line).slice(1, -1));
+	assert.deepEqual(ciRows(lines), ["✓ build passed 0:48", "✓ lint passed 0:34", "✗ tests failed 2:23", "  node-22 · Run npm test"]);
+});
+
+
+// --- S66: CI review findings ------------------------------------------------------
+
+test("CI all passed without any known duration: the muted line is only the workflow names, without ` · longest` (S66)", () => {
+	const ci: NonNullable<PanelModel["ci"]> = { sha: "e6f1ffd", endedAt: CI_ENDED, checks: [{ name: "build", state: "passed" }, { name: "lint", state: "passed" }] };
+	assert.deepEqual(ciRows(renderPanel({ session: { project: "p" }, ci }, 47).map(plain)), [`✓ 2 checks passed ${hhmm(CI_ENDED)}`, "  build, lint"]);
+	ci.checks[1] = { name: "lint", state: "passed", seconds: 0 };
+	assert.deepEqual(ciRows(renderPanel({ session: { project: "p" }, ci }, 47).map(plain)), [`✓ 2 checks passed ${hhmm(CI_ENDED)}`, "  build, lint · longest 0:00"], "a known 0:00 still shows");
+});
+
+test("CI held past 90 s without a successful read: a running check keeps the still frame while another spinner turns (S66)", () => {
+	const lines = renderPanel({ session: { project: "p" }, spinner: 4, agents: samplePanelModel.agents, ci: { ...runningCi(), stale: true } }, 47).map(plain);
+	assert.deepEqual(ciRows(lines), ["○ build queued", "✓ lint passed 0:34", "⠹ tests running… 1:12"]);
+	assert.equal(ciRows(renderPanel({ session: { project: "p" }, spinner: 4, ci: runningCi() }, 47).map(plain))[2], "⠼ tests running… 1:12", "a fresh read still spins");
+});
+
+// The profile row the fork bridge fed went with S86; S99 brings it back from
+// Gentle Shell's own registries (tests above), so only lens is pinned out here.
+test("the panel knows no lens section: such data in the model changes nothing (S86)", () => {
+	const lens = { files: [{ path: "src/user.ts", problems: [{ severity: "error", line: 4, rule: "typescript:2551", message: "nope" }] }] };
+	const model: PanelModel = { session: { project: "p" }, changes: [], ...({ lens } as object) };
+	const lines = renderPanel(model, 47).map(plain);
+	assert.deepEqual(lines.filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]), ["session", "ODD", "todo", "changes"]);
+	assert.deepEqual(renderDock(model, 57, 200).lines.map(plain).filter((line) => line.includes("lens")), []);
+});
+
+// --- S77: changes and CI drop one at a time ------------------------------------------
+
+/** Every row from the session box down: the logo rows never change here. */
+const belowLogo = (lines: string[]) => {
+	const rows = lines.map(plain);
+	return rows.slice(rows.findIndex((line) => line.startsWith("╭─ session")));
+};
+const S77_TOP = [
+	"╭─ session ───────────────────────────────────╮",
+	"│ project  p                                  │",
+	"╰─────────────────────────────────────────────╯",
+	"╭─ ODD ───────────────────────────────────────╮",
+	"│ ○ ready · phases show while I work          │",
+	"╰─────────────────────────────────────────────╯",
+];
+/** The todo section with no tasks, after the CI and before changes; it never drops (S94). */
+const S77_TODO = [
+	"╭─ todo ──────────────────────────────────────╮",
+	"│ ○ no tasks · the list shows while I plan    │",
+	"╰─────────────────────────────────────────────╯",
+];
+const s77Model = (ci: NonNullable<PanelModel["ci"]>): PanelModel => ({ session: { project: "p" }, ci, changes: [{ status: "M", path: "lib/ci.ts", added: 1, removed: 0 }] });
+const S77_FAILED = [
+	"╭─ CI ────────────────────────────── e6f1ffd ─╮",
+	"│ ✓ build passed                         0:48 │",
+	"│ ✓ lint passed                          0:34 │",
+	"│ ✗ tests failed                         2:23 │",
+	"╰─────────────────────────────────────────────╯",
+];
+const S77_RUNNING = [
+	"╭─ CI ────────────────────────────── e6f1ffd ─╮",
+	"│ ○ build                              queued │",
+	"│ ✓ lint passed                          0:34 │",
+	"│▎⠹ tests running…                       1:12 │",
+	"╰─────────────────────────────────────────────╯",
+];
+
+test("short screens, 1-3 rows over: only changes leaves; CI stays (S77)", () => {
+	const passedRows = ["╭─ CI ────────────────────────────── e6f1ffd ─╮", `│ ✓ 3 checks passed                     ${hhmm(CI_ENDED)} │`, "╰─────────────────────────────────────────────╯"];
+	for (const [ci, rows] of [[passedCi(), passedRows], [failedCi(), S77_FAILED]] as const) {
+		const model = s77Model(ci);
+		const noLines = renderPanel(model, 47, { maxRows: renderPanel(model, 47).length - 1 });
+		for (const over of [1, 2, 3]) {
+			const lines = renderPanel(model, 47, { maxRows: noLines.length - over });
+			assert.deepEqual(belowLogo(lines), [...S77_TOP, ...rows, ...S77_TODO], `${over} over`);
+			assert.equal(lines.length, noLines.length - 3, "only the changes frame left");
+		}
+	}
+});
+
+test("short screens, more rows over: an all-passed CI leaves after changes; a running or failed CI is the last to go (S77)", () => {
+	const passedRows = ["╭─ CI ────────────────────────────── e6f1ffd ─╮", `│ ✓ 3 checks passed                     ${hhmm(CI_ENDED)} │`, "╰─────────────────────────────────────────────╯"];
+	// Three rows short: the changes frame leaves (a muted CI line alone would not do).
+	for (const [ci, rows] of [[passedCi(), passedRows], [failedCi(), S77_FAILED], [runningCi(), S77_RUNNING]] as const) {
+		const model = s77Model(ci);
+		const noChanges = renderPanel(model, 47, { maxRows: renderPanel(model, 47).length - 3 });
+		assert.deepEqual(belowLogo(noChanges), [...S77_TOP, ...rows, ...S77_TODO], "changes gone, the CI stays");
+		assert.deepEqual(belowLogo(renderPanel(model, 47, { maxRows: noChanges.length - 1 })), [...S77_TOP, ...S77_TODO], "then the CI, passed or live, is the last to go");
+	}
+});
+
+// --- S87: 4.6.0 subagent tasks next to the jobs ----------------------------------
+
+test("S87 a subagent task uses the job row shape: a waiting task gets an amber ! on a highlighted row; done, running and model labels as for jobs", () => {
+	const model: PanelModel = {
+		session: { project: "app" },
+		agents: [
+			{ name: "job-1", task: "npm test", state: "running", startedAt: 1 },
+			{ id: "task:t1", name: "explore", task: "map footer", state: "waiting", startedAt: 2, model: "anthropic/claude-opus-5-5", effort: "high" },
+			{ id: "task:t2", name: "verify", task: "check PR", state: "done", model: "anthropic/claude-sonnet-4-5" },
+		],
+	};
+	const lines = renderPanel(model, 47);
+	const rows = sectionBody(lines.map(plain), "agents").map((line) => line.replace(/ +│$/, " │").replace(/ {2,}/g, "  "));
+	assert.deepEqual(rows, ["│ ⠹ job-1 npm test │", "│▎! explore map footer  opus · high │", "│ ✓ verify check PR  sonnet │"]);
+	const waiting = lines.find((line) => plain(line).includes("explore"))!;
+	assert.ok(waiting.includes(`${fgCode(palette.amber)}!`), "amber ! like RDD's needs-your-OK row");
+	assert.ok(waiting.includes(HIGHLIGHT_BG), "highlighted");
+	assert.ok(!lines.find((line) => plain(line).includes("job-1"))!.includes(HIGHLIGHT_BG), "a running job row is not");
+});
+
+test("S87 the agents card lists waiting tasks with running ones, with the ! glyph, and counts both", () => {
+	const agents: PanelModel["agents"] = [
+		{ name: "job-1", task: "npm test", state: "running", startedAt: NOW - 61_000 },
+		{ id: "task:t1", name: "explore", task: "map footer", state: "waiting", startedAt: NOW - 5_000, model: "anthropic/claude-opus-5-5", effort: "high" },
+		{ id: "task:t2", name: "verify", task: "check PR", state: "done" },
+	];
+	const card = renderAgentsCard(agents, 53, 1, NOW).map(plain);
+	assert.match(card[0], /^╭─ agents ─+ 2 ─╮$/);
+	assert.match(card[1], /^│ ⠙ job-1 +npm test +1:01 │$/);
+	assert.match(card[2], /^│ ! explore +map footer +0:05 opus · high │$/);
+	assert.equal(card.length, 4);
+});

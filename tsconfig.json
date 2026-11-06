@@ -1,0 +1,16 @@
+{
+  // Type checking only (editors): Node runs the TypeScript sources directly.
+  "compilerOptions": {
+    "target": "ES2024",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    // Pi's own types come from the @earendil-works/pi-coding-agent devDependency, as in
+    // Gentle Shell; at run time Pi provides the package (optional peer dependency).
+    "types": ["node"]
+  },
+  "include": ["extensions", "lib", "tests", "scripts"]
+}
