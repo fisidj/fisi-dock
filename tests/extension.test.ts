@@ -37,7 +37,7 @@ type Custom = {
 // In-memory Pi, session and terminal with Gentle Shell's rail parts registered.
 function simulate(
 	cwd: string,
-	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[] } = {},
+	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[] } = {},
 ) {
 	const { ownsHost } = options;
 	// Pi's editor factory slot (setEditorComponent / getEditorComponent): Gentle Shell's marked factory when a test seeds one (S88).
@@ -85,8 +85,11 @@ function simulate(
 			get theme() {
 				return { name: currentTheme };
 			},
+			// Pi's lookup by name (ctx.ui.getTheme): undefined for a theme it does not know.
+			getTheme: (name: string) => (!options.knownThemes || options.knownThemes.includes(name) ? { name } : undefined),
 			setTheme: (name: string) => {
 				themes.push(name);
+				if (options.throwingThemes?.includes(name)) throw new Error(`theme ${name} broke`);
 				if (options.knownThemes && !options.knownThemes.includes(name)) return { success: false, error: `Theme not found: ${name}` };
 				currentTheme = name;
 				return { success: true };
@@ -635,7 +638,7 @@ function todoBranch(done: number, total: number): unknown[] {
 
 test("narrow: the strip without its todo segment, then Fisi Dock's framed todo card (S28, S8)", () => {
 	let wide = false;
-	const sim = simulate("E:\DEV\app", { ownsHost: () => wide, branch: () => todoBranch(8, 10) });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => wide, branch: () => todoBranch(8, 10) });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const strip = sim.widgets.get("fisi-dock-strip")!(sim.tui);
@@ -663,13 +666,13 @@ test("narrow: the strip without its todo segment, then Fisi Dock's framed todo c
 });
 
 test("narrow: a todo alone draws only the card; no todo keeps the strip and draws no card (S28)", () => {
-	const alone = simulate("E:\DEV\app", { ownsHost: () => false, branch: () => todoBranch(8, 10) });
+	const alone = simulate("E:\\DEV\\app", { ownsHost: () => false, branch: () => todoBranch(8, 10) });
 	alone.emit("session_start");
 	const card = alone.widgets.get("fisi-dock-strip")!(alone.tui).render(64).map(plain);
 	assert.match(card[0], /^╭─ todo ─+ 8\/10 ─╮$/, "no empty strip line above the card");
 	alone.emit("session_shutdown");
 
-	const none = simulate("E:\DEV\app", { ownsHost: () => false });
+	const none = simulate("E:\\DEV\\app", { ownsHost: () => false });
 	none.emit("session_start");
 	const strip = none.widgets.get("fisi-dock-strip")!(none.tui);
 	none.emitEvent("gentle-ai:jobs-sidebar", JOB);
@@ -700,7 +703,7 @@ test("no tasks: the rail draws the muted todo row; the narrow strip draws no tod
 
 test("the todo card repaints from the live store: a progress event moves it on (S28)", () => {
 	let renders = 0;
-	const sim = simulate("E:\DEV\app", { ownsHost: () => false, branch: () => todoBranch(8, 10) });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false, branch: () => todoBranch(8, 10) });
 	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
 	sim.emit("session_start");
 	const strip = sim.widgets.get("fisi-dock-strip")!(tui);
@@ -824,7 +827,7 @@ test("/dock on a short screen keeps every row on screen, scrolls with the arrows
 });
 
 test("/dock scrolls with the mouse wheel or a finger swipe; taps do nothing (S59)", async () => {
-	const sim = simulate("E:\DEV\app", { ownsHost: () => false });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false });
 	sim.emit("session_start");
 	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
 	const pending = Promise.resolve(sim.commands.get("dock")!.handler("", sim.ctx));
@@ -861,7 +864,7 @@ test("the fisi-dock marker is set at load and session_start, and cleared on sess
 	const marker = Symbol.for("fisi-dock");
 	const global = globalThis as Record<symbol, unknown>;
 	delete global[marker];
-	const sim = simulate("E:\DEV\app");
+	const sim = simulate("E:\\DEV\\app");
 	assert.equal(global[marker], true, "set at load (the welcome card reads it)");
 	sim.emit("session_shutdown");
 	assert.equal(global[marker], false, "a removed Fisi Dock never leaves Gentle Shell's cards hidden after /reload");
@@ -898,7 +901,7 @@ test("with Gentle Shell, the user's messages render boxed from session_start unt
 test("session_shutdown leaves a user frame hook that a newer Fisi Dock set (S45, reload order)", () => {
 	const HOOK = Symbol.for("fisi-dock.user-frame");
 	const scope = globalThis as Record<symbol, unknown>;
-	const sim = simulate("E:\DEV\app");
+	const sim = simulate("E:\\DEV\\app");
 	sim.emit("session_start");
 	assert.equal(typeof scope[HOOK], "function", "ours while the session runs");
 	const newer = () => ["newer"];
@@ -915,7 +918,7 @@ test("/dock and the rail list every todo task from the session (S26, S58)", asyn
 	const titles = [...Array.from({ length: 7 }, (_, index) => `Finished step ${index + 1}`), "Write the release notes"];
 	const tasks = titles.map((title, index) => ({ id: index + 1, title, status: index < 7 ? "done" : "in_progress" }));
 	const branch = () => [{ type: "message", message: { role: "toolResult", toolName: "todo", details: { gentleTodo: { tasks } } } }];
-	const sim = simulate("E:\DEV\app", { ownsHost: () => false, branch });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false, branch });
 	sim.emit("session_start");
 	const rail = sim.widgets.get("fisi-dock")!(sim.tui);
 	rail.render(47);
@@ -1275,7 +1278,7 @@ test("narrow: strip, then the agents card with each running agent's spinner, nam
 	let renders = 0;
 	const exec: Exec = async (command, args) =>
 		command === "git" && args.join(" ") === "status --porcelain=v1 -z" ? { code: 0, stdout: " M lib/panel.ts\0", stderr: "" } : { code: 1, stdout: "", stderr: "" };
-	const sim = simulate("E:\DEV\app", { ownsHost: () => wide, exec, branch: () => todoBranch(8, 10) });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => wide, exec, branch: () => todoBranch(8, 10) });
 	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(tui);
@@ -1387,7 +1390,7 @@ test("a real cost above 0 keeps the cost row as today even with tokens (S37)", (
 test("a new RDD row enters: the clock repaints at 75 ms only while the entrance plays; the todo there at load stays still (S54)", (t) => {
 	animated(t);
 	let renders = 0;
-	const sim = simulate("E:\DEV\app", { branch: () => todoBranch(1, 3) });
+	const sim = simulate("E:\\DEV\\app", { branch: () => todoBranch(1, 3) });
 	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(tui);
@@ -1442,7 +1445,7 @@ test("CI: gh runs show at session start; a failed read keeps them; an empty list
 		if (args[0] === "status" || args[0] === "diff") return { code: 0, stdout: "", stderr: "" };
 		return { code: 1, stdout: "", stderr: "" };
 	};
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, exec });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, exec });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const ci = () => {
@@ -1541,7 +1544,7 @@ function ciSim(t: TestContext) {
 		if (args[0] === "status" || args[0] === "diff") return { code: 0, stdout: "", stderr: "" };
 		return { code: 1, stdout: "", stderr: "" };
 	};
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, exec });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, exec });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const settle = async () => {
@@ -1879,7 +1882,7 @@ test("S95 /fisi-dock off gives Gentle Shell back its rail parts, top row, editor
 	const path = stateDir(t);
 	const gentle = gentleEditorFactory();
 	let wide = true;
-	const sim = simulate("E:\DEV\app", { ownsHost: () => wide, editor: gentle });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => wide, editor: gentle });
 	const command = sim.commands.get("fisi-dock");
 	assert.ok(command, "/fisi-dock registered");
 	assert.match(command.description ?? "", /on.*off|off.*on/);
@@ -1924,7 +1927,7 @@ test("S95 /fisi-dock off gives Gentle Shell back its rail parts, top row, editor
 test("S95 /fisi-dock on takes everything over again as at session start, with no duplicate listeners, and saves the choice", async (t) => {
 	const path = stateDir(t);
 	const gentle = gentleEditorFactory();
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, editor: gentle });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, editor: gentle });
 	sim.emit("session_start");
 	const listening = listenerCount(sim);
 	assert.ok(listening > 0);
@@ -1960,7 +1963,7 @@ test("S95 a restart with the state file off stays dormant from the start until /
 	const marker = Symbol.for("fisi-dock");
 	delete (globalThis as Record<symbol, unknown>)[marker];
 	const gentle = gentleEditorFactory();
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, editor: gentle });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, editor: gentle });
 	assert.equal((globalThis as Record<symbol, unknown>)[marker], false, "dormant at load");
 	sim.emit("session_start");
 	await Promise.resolve();
@@ -1991,7 +1994,7 @@ test("S95 a restart with the state file off stays dormant from the start until /
 
 test("S95 an unknown argument shows the usage and changes nothing", async (t) => {
 	const path = stateDir(t);
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	for (const args of ["maybe", "of", "on off"]) {
@@ -2019,7 +2022,7 @@ test("S95 an unknown argument shows the usage and changes nothing", async (t) =>
 test("S98 /fisi-dock alone opens an on/off picker, the change first, that switches like typing it; Esc changes nothing", async (t) => {
 	const path = stateDir(t);
 	const gentle = gentleEditorFactory();
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, editor: gentle });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, editor: gentle });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 
@@ -2058,7 +2061,7 @@ test("S98 /fisi-dock alone opens an on/off picker, the change first, that switch
 
 test("S98 without a UI, or when the picker fails, /fisi-dock alone says whether it is on as before", async (t) => {
 	const path = stateDir(t);
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	sim.ctx.hasUI = false;
@@ -2084,7 +2087,7 @@ function seedState(path: string, state: { enabled: boolean; theme?: string }) {
 
 test("S7 /fisi-dock on remembers the theme in use and off puts it back instead of Gentleman-Cute", async (t) => {
 	const path = stateDir(t, false);
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: "dark" });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "on");
 	assert.deepEqual(sim.themes, ["Fisi-Dock"]);
@@ -2101,7 +2104,7 @@ test("S7 /fisi-dock on remembers the theme in use and off puts it back instead o
 test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme remembered before", async (t) => {
 	const path = stateDir(t);
 	seedState(path, { enabled: false, theme: "light" });
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "on");
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "light" }, "Fisi-Dock is never remembered");
@@ -2116,7 +2119,7 @@ test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme reme
 
 	// Nothing remembered and Fisi-Dock in use: off falls back to Gentle Shell's theme.
 	const fresh = stateDir(t, false);
-	const other = simulate("E:\DEV\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	const other = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
 	other.emit("session_start");
 	await fisiDockCommand(other, "on");
 	assert.deepEqual(JSON.parse(readFileSync(fresh, "utf8")), { enabled: true });
@@ -2128,12 +2131,12 @@ test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme reme
 
 test("S7 the remembered theme survives a restart: a new session's /fisi-dock off restores it", async (t) => {
 	const path = stateDir(t, false);
-	const before = simulate("E:\DEV\app", { ownsHost: () => true, theme: "light" });
+	const before = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "light" });
 	before.emit("session_start");
 	await fisiDockCommand(before, "on");
 	before.emit("session_shutdown");
 
-	const after = simulate("E:\DEV\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	const after = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
 	after.emit("session_start");
 	after.widgets.get("fisi-dock")!(after.tui);
 	assertFisiDockOwns(after, "on after the restart");
@@ -2146,26 +2149,47 @@ test("S7 the remembered theme survives a restart: a new session's /fisi-dock off
 test("S7 a remembered theme that is gone falls back to Gentleman-Cute, and a missing Gentleman-Cute still warns", async (t) => {
 	const path = stateDir(t);
 	seedState(path, { enabled: true, theme: "removed-theme" });
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: "Fisi-Dock", knownThemes: ["Fisi-Dock", "Gentleman-Cute"] });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock", knownThemes: ["Fisi-Dock", "Gentleman-Cute"] });
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "off");
-	assert.deepEqual(sim.themes, ["removed-theme", "Gentleman-Cute"]);
+	assert.deepEqual(sim.themes, ["Gentleman-Cute"], "a theme Pi does not know is never tried, so Pi never falls to its system theme on the way");
 	assert.equal(sim.ctx.ui.theme.name, "Gentleman-Cute");
 	assert.equal(
 		sim.notices.at(-1),
-		"Fisi Dock off · Gentle Shell's panel and theme Gentleman-Cute are back; /fisi-dock on turns it back on · theme removed-theme not available: Theme not found: removed-theme",
+		"Fisi Dock off · Gentle Shell's panel and theme Gentleman-Cute are back; /fisi-dock on turns it back on · theme removed-theme not available",
 	);
 	assertGentleShellOwns(sim, "off");
 	sim.emit("session_shutdown");
 
 	seedState(path, { enabled: true, theme: "removed-theme" });
-	const bare = simulate("E:\DEV\app", { ownsHost: () => true, theme: "Fisi-Dock", knownThemes: ["Fisi-Dock"] });
+	const bare = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock", knownThemes: ["Fisi-Dock"] });
 	bare.emit("session_start");
 	await fisiDockCommand(bare, "off");
-	assert.deepEqual(bare.themes, ["removed-theme", "Gentleman-Cute"]);
-	assert.match(bare.notices.at(-1)!, /theme not changed: Theme not found: Gentleman-Cute/);
+	assert.deepEqual(bare.themes, ["Gentleman-Cute"]);
+	assert.equal(
+		bare.notices.at(-1),
+		"Fisi Dock off · Gentle Shell's panel is back; /fisi-dock on turns it back on · theme removed-theme not available · theme not changed: Theme not found: Gentleman-Cute",
+		"a theme that could not be set is never called back",
+	);
 	assertGentleShellOwns(bare, "off without any theme to restore");
 	bare.emit("session_shutdown");
+});
+
+test("S7 a theme setter that throws counts as not changed, on and off, and is never called back", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "dark" });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock", throwingThemes: ["dark", "Gentleman-Cute", "Fisi-Dock"] });
+	sim.emit("session_start");
+	await fisiDockCommand(sim, "off");
+	assert.deepEqual(sim.themes, ["dark", "Gentleman-Cute"]);
+	assert.equal(
+		sim.notices.at(-1),
+		"Fisi Dock off · Gentle Shell's panel is back; /fisi-dock on turns it back on · theme dark not available · theme not changed: unknown theme",
+	);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark" }, "the remembered theme is kept for the next off");
+	await fisiDockCommand(sim, "on");
+	assert.equal(sim.notices.at(-1), "Fisi Dock on · theme not changed: unknown theme");
+	sim.emit("session_shutdown");
 });
 
 test("S95 /fisi-dock offers on and off as completions", () => {

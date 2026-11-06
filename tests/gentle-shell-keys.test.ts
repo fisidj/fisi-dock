@@ -6,7 +6,7 @@
 // is GENTLE_SHELL_DIR when set, else gentle-pi in the global npm root (`npm root -g`).
 // Skipped when neither gives a folder on this PC.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
@@ -23,8 +23,12 @@ function gentleShellDir(env: Record<string, string | undefined>, npmRoot: () => 
 	}
 }
 
-// npm is npm.cmd on Windows, which runs only through a shell.
-const npmGlobalRoot = () => execFileSync("npm", ["root", "-g"], { encoding: "utf8", shell: process.platform === "win32", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 });
+// npm is npm.cmd on Windows, which runs only through a shell; there the fixed
+// command line goes as one string, since a shell with separate arguments is deprecated.
+const npmGlobalRoot = () => {
+	const options = { encoding: "utf8" as const, stdio: ["ignore", "pipe", "ignore"] as ("ignore" | "pipe")[], timeout: 15_000 };
+	return process.platform === "win32" ? execSync("npm root -g", options) : execFileSync("npm", ["root", "-g"], options);
+};
 const GENTLE_SHELL_DIR = gentleShellDir(process.env, npmGlobalRoot);
 const NO_GENTLE_SHELL = GENTLE_SHELL_DIR === undefined || !existsSync(GENTLE_SHELL_DIR) ? `no Gentle Shell package at ${GENTLE_SHELL_DIR ?? "the global npm root"} (set GENTLE_SHELL_DIR)` : false;
 const SOURCE_DIRS = ["extensions", "lib"];

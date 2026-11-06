@@ -815,21 +815,29 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			if (next && ctx.hasUI) start(ctx);
 			// A widget that never rendered left no release behind: remove ours here too.
 			if (!next) for (const key of [WIDGET_KEY, PROMPT_LINE_KEY, STRIP_KEY]) attempt(() => ctx.ui.setWidget(key, undefined));
+			// Pi's setter reports { success }; a setter that throws counts as not
+			// changed too. A remembered theme Pi no longer knows is not tried, since
+			// Pi's setter falls to its system theme on an unknown name.
+			const setTheme = (name: string) => attempt(() => ctx.ui.setTheme(name)) ?? { success: false };
+			const known = (name: string) => attempt(() => ctx.ui.getTheme(name)) !== undefined;
 			let themeName = next ? FISI_DOCK_THEME : (remembered ?? GENTLE_SHELL_THEME);
-			let theme = attempt(() => ctx.ui.setTheme(themeName));
 			let lost: string | undefined;
-			if (!next && themeName !== GENTLE_SHELL_THEME && theme?.success !== true) {
-				lost = `theme ${themeName} not available${theme?.error ? `: ${theme.error}` : ""}`;
+			let theme = !next && remembered !== undefined && !known(remembered) ? { success: false } : setTheme(themeName);
+			if (!next && themeName !== GENTLE_SHELL_THEME && !theme.success) {
+				lost = `theme ${themeName} not available${theme.error ? `: ${theme.error}` : ""}`;
 				themeName = GENTLE_SHELL_THEME;
-				theme = attempt(() => ctx.ui.setTheme(themeName));
+				theme = setTheme(themeName);
 			}
+			const back = themeName === remembered ? `your theme ${themeName}` : `theme ${themeName}`;
 			const notes = [
-				next ? `Fisi Dock on · theme ${FISI_DOCK_THEME}` : `Fisi Dock off · Gentle Shell's panel and ${themeName === remembered ? "your theme" : "theme"} ${themeName} are back; /fisi-dock on turns it back on`,
+				next
+					? `Fisi Dock on${theme.success ? ` · theme ${FISI_DOCK_THEME}` : ""}`
+					: `Fisi Dock off · Gentle Shell's panel ${theme.success ? `and ${back} are` : "is"} back; /fisi-dock on turns it back on`,
 				...(lost ? [lost] : []),
-				...(theme?.success === false ? [`theme not changed: ${theme.error ?? "unknown theme"}`] : []),
+				...(theme.success ? [] : [`theme not changed: ${theme.error ?? "unknown theme"}`]),
 				...(saved ? [] : [`not saved to ${path}, so a restart keeps the previous choice`]),
 			];
-			notify(notes.join(" · "), saved && !lost && theme?.success !== false ? "info" : "warning");
+			notify(notes.join(" · "), saved && !lost && theme.success ? "info" : "warning");
 		},
 	});
 

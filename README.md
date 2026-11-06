@@ -69,7 +69,7 @@ Try it for one session without installing:
 gentle-shell -e git:github.com/fisidj/fisi-dock
 ```
 
-Then start Gentle Shell as usual. Pick the theme once if you want it: `/settings` → Theme → `Fisi-Dock` (or `/gentle:customize` → Themes).
+Then start Gentle Shell as usual. Fisi Dock is on from the first session; the `Fisi-Dock` theme is optional. To get it while keeping a way back to your theme, run `/fisi-dock off` and then `/fisi-dock on`: on remembers your theme and off puts it back. Picking `Fisi-Dock` in `/settings` works too, but then off has no theme of yours to return to and sets Gentle Shell's `Gentleman-Cute`.
 
 As with any Pi package, Fisi Dock runs code on your machine: review the source before installing it.
 
