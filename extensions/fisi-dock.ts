@@ -702,6 +702,11 @@ export default function fisiDock(pi: ExtensionAPI): void {
 					if (drawn?.key !== key) drawn = { key, lines: renderPanel(session.store.model(), width, { maxRows: rows }) };
 					return drawn.lines;
 				},
+				// Gentle Shell main wraps rail parts in its own card on a transparent surface:
+				// it would take our first row as the card title and clip every row two columns
+				// short, cutting our right border. Loose rows skip the card and are only
+				// clipped to the rail, wider than we draw. The 4.6.0 release never asks.
+				cardGroups: (width: number) => ({ groups: [], loose: rail.render(width).map((_, index) => index) }),
 				invalidate() {},
 			};
 			// The top row shows only the path (S4) while our panel is on screen. In

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix: on Gentle Shell builds that card rail parts (its `main` branch, transparent surface) the panel no longer loses its right border to a `…`.
+
 ## 0.1.0
 
 First release.

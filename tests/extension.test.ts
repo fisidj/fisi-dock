@@ -701,6 +701,23 @@ test("no tasks: the rail draws the muted todo row; the narrow strip draws no tod
 	sim.emit("session_shutdown");
 });
 
+// Gentle Shell main wraps each rail part in its own card when the chrome surface is
+// transparent (lib/shell-sidebar-layout.ts): it takes row 0 as the card title and clips
+// body rows two columns short of the width it rendered at, so our right border became "…".
+// Rows a part's cardGroups() lists as loose skip that card and are only clipped to the rail.
+test("the rail marks every row loose so a carding Gentle Shell draws the panel as is, at the width it rendered", () => {
+	const sim = simulate("E:\\DEV\\app");
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = sim.parts.get("footer") as { render(width: number): string[]; cardGroups?(width: number): { groups: unknown[]; loose?: number[] } | undefined };
+	for (const width of [48, 46]) {
+		const lines = rail.render(width);
+		assert.deepEqual(rail.cardGroups?.(width), { groups: [], loose: lines.map((_, index) => index) }, `${width}`);
+		assert.ok(lines.every((line) => visibleWidth(line) <= width), `${width}: every row fits`);
+	}
+	sim.emit("session_shutdown");
+});
+
 test("the todo card repaints from the live store: a progress event moves it on (S28)", () => {
 	let renders = 0;
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false, branch: () => todoBranch(8, 10) });
