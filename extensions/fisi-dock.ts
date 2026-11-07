@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ciLive, gitPushTool, readCi, type CiRuns } from "../lib/ci.ts";
-import { dockStatePath, readDockEnabled, readDockTheme, writeDockEnabled } from "../lib/dock-state.ts";
+import { dockStatePath, readDockEnabled, readDockTheme, readDockThemeApplied, writeDockEnabled } from "../lib/dock-state.ts";
 import { headerPath, renderHeaderLine, renderNarrowHeader } from "../lib/header.ts";
 import { readHeadsUpGit, readOddPlans } from "../lib/heads-up.ts";
 import {
@@ -576,6 +576,12 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	let live: LiveSession | undefined;
 	// The prompt box (S88): Gentle Shell's editor factory wrapped while this session runs.
 	let promptBox: PromptBoxInstall | undefined;
+	// Gentle Shell is loaded when its banner command is registered. A host without
+	// getCommands cannot say, and counts as Gentle Shell, as before.
+	const gentleShellLoaded = () => {
+		const commands = attempt(() => pi.getCommands());
+		return !Array.isArray(commands) || commands.some((command) => command?.name === GENTLE_BANNER_COMMAND);
+	};
 	// Gives Pi's startup header back when the welcome card holds it.
 	let dropWelcome: (() => void) | undefined;
 
@@ -586,10 +592,8 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// a call made before its own header exists, so that one is tried again.
 	const installWelcome = (ctx: ExtensionContext, session: LiveSession) => {
 		// The card names Gentle Shell and stands in for its banner, so without Gentle
-		// Shell's banner command Pi keeps its own header. A host without getCommands
-		// cannot say, and gets the card as before.
-		const commands = attempt(() => pi.getCommands());
-		if (Array.isArray(commands) && !commands.some((command) => command?.name === GENTLE_BANNER_COMMAND)) return () => {};
+		// Shell Pi keeps its own header.
+		if (!gentleShellLoaded()) return () => {};
 		const home = agentHomeDir(process.env, attempt(() => homedir()) ?? "");
 		const version = shellVersion(attempt(() => readFileSync(join(dirname(home), "config.json"), "utf8")), home);
 		let card: object | undefined;
@@ -869,11 +873,32 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		});
 	};
 
+	// The first start applies Fisi Dock's theme once (T9), also on an install from
+	// before this step: the theme in use is remembered first, so off puts it back,
+	// and the step counts as done only once Pi took Fisi-Dock, so a theme picked
+	// later in /settings stays. A delegated child never touches the user's theme, and
+	// a state that cannot be written changes no theme it could not give back.
+	const applyThemeOnce = (ctx: ExtensionContext) => {
+		const path = statePath();
+		// Plain Pi gets no panel, so it keeps its theme; the step stays pending.
+		if (process.env.GENTLE_PI_AGENTS_CHILD === "1" || readDockThemeApplied(path) || !gentleShellLoaded()) return;
+		if (attempt(() => ctx.ui.getTheme(FISI_DOCK_THEME)) === undefined) return;
+		const inUse = attempt(() => ctx.ui.theme.name);
+		if (inUse === FISI_DOCK_THEME) return void writeDockEnabled(path, true, readDockTheme(path), true);
+		const remembered = typeof inUse === "string" && inUse !== "" ? inUse : readDockTheme(path);
+		if (!writeDockEnabled(path, true, remembered)) return;
+		if (!attempt(() => ctx.ui.setTheme(FISI_DOCK_THEME))?.success) return;
+		writeDockEnabled(path, true, remembered, true);
+		const back = remembered ? `your theme ${remembered}` : `theme ${GENTLE_SHELL_THEME}`;
+		attempt(() => ctx.ui.notify(`Fisi Dock applied its theme · /fisi-dock off puts ${back} back`, "info"));
+	};
+
 	pi.on("session_start", (_event, ctx) => {
 		stop();
 		enabled = readDockEnabled(statePath());
 		setLoaded(enabled);
 		if (!enabled || !ctx.hasUI) return;
+		applyThemeOnce(ctx);
 		start(ctx);
 	});
 
@@ -881,6 +906,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// so off is the unload path (stop) plus a dormant flag, and on is the
 	// session_start path again. The choice is saved; the theme follows it: on
 	// remembers the theme in use (never Fisi-Dock itself) and off puts it back (S7).
+	// An on that set Fisi-Dock also counts as the first start's theme step (T9).
 	pi.registerCommand("fisi-dock", {
 		description: "Turn Fisi Dock on or off (remembered across restarts; off gives Gentle Shell its panel and you your theme back); alone, pick on or off",
 		getArgumentCompletions: (prefix) => {
@@ -911,7 +937,8 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			const path = statePath();
 			const inUse = attempt(() => ctx.ui.theme.name);
 			const remembered = next && typeof inUse === "string" && inUse !== "" && inUse !== FISI_DOCK_THEME ? inUse : readDockTheme(path);
-			const saved = writeDockEnabled(path, next, remembered);
+			const applied = readDockThemeApplied(path);
+			const saved = writeDockEnabled(path, next, remembered, applied);
 			stop();
 			setLoaded(next);
 			if (next && ctx.hasUI) start(ctx);
@@ -930,6 +957,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 				themeName = GENTLE_SHELL_THEME;
 				theme = setTheme(themeName);
 			}
+			if (next && theme.success && !applied && saved) writeDockEnabled(path, next, remembered, true);
 			const back = themeName === remembered ? `your theme ${themeName}` : `theme ${themeName}`;
 			const notes = [
 				next

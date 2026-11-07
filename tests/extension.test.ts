@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test, { type TestContext } from "node:test";
+import test, { after, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import fisiDock from "../extensions/fisi-dock.ts";
@@ -17,9 +17,17 @@ const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
 // keeps these tests independent of the time they run at. The animated tests
 // below lift it and fake the clock.
 process.env.FISI_DOCK_ORBS = "off";
-// No MCP config unless a test writes one (S32): Pi's agent dir points at a missing folder.
+// No MCP config unless a test writes one (S32): Pi's agent dir is a fresh temp
+// folder holding only Fisi Dock's state, its first-start theme step already done
+// (T9), so a session_start writes nothing and sets no theme.
 const NO_AGENT_DIR = fileURLToPath(new URL("./fixtures/missing-config-home/agent", import.meta.url));
-process.env.PI_CODING_AGENT_DIR = NO_AGENT_DIR;
+const AGENT_DIR = mkdtempSync(join(tmpdir(), "fisi-dock-agent-default-"));
+mkdirSync(join(AGENT_DIR, "fisi-dock"));
+writeFileSync(join(AGENT_DIR, "fisi-dock", "state.json"), JSON.stringify({ enabled: true, themeApplied: true }));
+after(() => rmSync(AGENT_DIR, { recursive: true, force: true }));
+process.env.PI_CODING_AGENT_DIR = AGENT_DIR;
+// The tests are a parent session even when a delegated child runs them (T9).
+delete process.env.GENTLE_PI_AGENTS_CHILD;
 
 type Handler = (event: unknown, ctx: unknown) => void;
 type Factory = (tui: unknown) => { render(width: number): string[]; dispose?(): void };
@@ -38,7 +46,7 @@ type Custom = {
 // In-memory Pi, session and terminal with Gentle Shell's rail parts registered.
 function simulate(
 	cwd: string,
-	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; commands?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[] } = {},
+	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; commands?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[]; failingThemes?: string[] } = {},
 ) {
 	const { ownsHost } = options;
 	// Pi's editor factory slot (setEditorComponent / getEditorComponent): Gentle Shell's marked factory when a test seeds one (S88).
@@ -67,7 +75,8 @@ function simulate(
 	const customs: Custom[] = [];
 	const notices: string[] = [];
 	// Pi's theme setter (ctx.ui.setTheme), recorded by name (S95); the theme in use (ctx.ui.theme.name) follows
-	// each success. With knownThemes, any other name fails as Pi's does for a missing theme (S7).
+	// each success. With knownThemes, any other name fails as Pi's does for a missing theme (S7);
+	// failingThemes are known to the lookup but their setter reports { success: false } (T9).
 	const themes: string[] = [];
 	let currentTheme = options.theme;
 	// Pi's picker (ctx.ui.select), recorded; it answers from `picks` in order, undefined (Esc) when empty (S98).
@@ -97,6 +106,7 @@ function simulate(
 				themes.push(name);
 				if (options.throwingThemes?.includes(name)) throw new Error(`theme ${name} broke`);
 				if (options.knownThemes && !options.knownThemes.includes(name)) return { success: false, error: `Theme not found: ${name}` };
+				if (options.failingThemes?.includes(name)) return { success: false, error: `Theme ${name} failed` };
 				currentTheme = name;
 				return { success: true };
 			},
@@ -1302,7 +1312,7 @@ function mcpFolders(t: TestContext, global: unknown, project?: unknown): { cwd: 
 	const root = mkdtempSync(join(tmpdir(), "fisi-dock-mcp-"));
 	t.after(() => {
 		rmSync(root, { recursive: true, force: true });
-		process.env.PI_CODING_AGENT_DIR = NO_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = AGENT_DIR;
 	});
 	mkdirSync(join(root, "agent"));
 	writeFileSync(join(root, "agent", "mcp.json"), JSON.stringify(global));
@@ -1959,7 +1969,10 @@ const assertFisiDockOwns = (sim: Sim, why: string) => {
 	for (const key of RAIL_KEYS) assert.notEqual(sim.parts.get(key), gentleOriginal(sim, key), `${why}: ${key} is Fisi Dock's`);
 };
 
-/** Points Pi's agent dir, where /fisi-dock keeps its state, at a fresh temp folder; seeds the file when given. Returns the state file path. */
+/**
+ * Points Pi's agent dir, where /fisi-dock keeps its state, at a fresh temp folder; seeds the file when given,
+ * as a state after the first start (its theme step done, T9). Returns the state file path.
+ */
 function stateDir(t: TestContext, enabled?: boolean): string {
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-agent-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -1971,13 +1984,13 @@ function stateDir(t: TestContext, enabled?: boolean): string {
 	const path = join(dir, "fisi-dock", "state.json");
 	if (enabled !== undefined) {
 		mkdirSync(join(dir, "fisi-dock"));
-		writeFileSync(path, JSON.stringify({ enabled }));
+		writeFileSync(path, JSON.stringify({ enabled, themeApplied: true }));
 	}
 	return path;
 }
 
 test("S95 /fisi-dock off gives Gentle Shell back its rail parts, top row, editor and theme, stops painting, goes dormant and saves the choice", async (t) => {
-	const path = stateDir(t);
+	const path = stateDir(t, true);
 	const gentle = gentleEditorFactory();
 	let wide = true;
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => wide, editor: gentle });
@@ -2003,7 +2016,7 @@ test("S95 /fisi-dock off gives Gentle Shell back its rail parts, top row, editor
 	assert.equal((globalThis as Record<symbol, unknown>)[USER_FRAME_HOOK], undefined, "user messages back to Pi's own lines");
 	assert.equal((globalThis as Record<symbol, unknown>)[Symbol.for("fisi-dock")], false, "Gentle Shell's hidden lines show again");
 	assert.equal(listenerCount(sim), 0, "no pi.events listener left");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, themeApplied: true });
 	assert.deepEqual(sim.themes, ["Gentleman-Cute"], "Gentle Shell's own theme");
 	assert.match(sim.notices.at(-1)!, /^Fisi Dock off/);
 
@@ -2023,7 +2036,7 @@ test("S95 /fisi-dock off gives Gentle Shell back its rail parts, top row, editor
 });
 
 test("S95 /fisi-dock on takes everything over again as at session start, with no duplicate listeners, and saves the choice", async (t) => {
-	const path = stateDir(t);
+	const path = stateDir(t, true);
 	const gentle = gentleEditorFactory();
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, editor: gentle });
 	sim.emit("session_start");
@@ -2040,7 +2053,7 @@ test("S95 /fisi-dock on takes everything over again as at session start, with no
 	assert.equal(listenerCount(sim), listening, "the same listeners as at session start, none twice");
 	assert.equal((globalThis as Record<symbol, unknown>)[Symbol.for("fisi-dock")], true);
 	assert.equal(typeof (globalThis as Record<symbol, unknown>)[USER_FRAME_HOOK], "function");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "Gentleman-Cute" }, "on remembers the theme off had set (S7)");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "Gentleman-Cute", themeApplied: true }, "on remembers the theme off had set (S7)");
 	assert.deepEqual(sim.themes, ["Gentleman-Cute", "Fisi-Dock"]);
 	assert.match(sim.notices.at(-1)!, /^Fisi Dock on/);
 	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
@@ -2091,7 +2104,7 @@ test("S95 a restart with the state file off stays dormant from the start until /
 });
 
 test("S95 an unknown argument shows the usage and changes nothing", async (t) => {
-	const path = stateDir(t);
+	const path = stateDir(t, true);
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
@@ -2100,7 +2113,7 @@ test("S95 an unknown argument shows the usage and changes nothing", async (t) =>
 		assert.equal(sim.notices.at(-1), "Usage: /fisi-dock on | off (alone: pick on or off)");
 	}
 	assert.equal(sim.selects.length, 0, "an argument never opens the picker");
-	assert.equal(existsSync(path), false, "no state written");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true }, "no state written");
 	assert.deepEqual(sim.themes, []);
 	assertFisiDockOwns(sim, "after unknown arguments");
 	for (const key of WIDGET_KEYS) assert.equal(typeof sim.widgets.get(key), "function");
@@ -2111,14 +2124,14 @@ test("S95 an unknown argument shows the usage and changes nothing", async (t) =>
 	assert.equal(sim.notices.at(-1), "Usage: /fisi-dock on | off (alone: pick on or off)");
 	await fisiDockCommand(sim, "off");
 	assert.equal(sim.notices.at(-1), "Fisi Dock is already off");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, themeApplied: true });
 	assert.deepEqual(sim.themes, ["Gentleman-Cute"]);
 	assertGentleShellOwns(sim, "still off");
 	sim.emit("session_shutdown");
 });
 
 test("S98 /fisi-dock alone opens an on/off picker, the change first, that switches like typing it; Esc changes nothing", async (t) => {
-	const path = stateDir(t);
+	const path = stateDir(t, true);
 	const gentle = gentleEditorFactory();
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, editor: gentle });
 	sim.emit("session_start");
@@ -2128,7 +2141,7 @@ test("S98 /fisi-dock alone opens an on/off picker, the change first, that switch
 	await fisiDockCommand(sim, "");
 	assert.deepEqual(sim.selects, [{ title: "Fisi Dock is on", options: ["off", "on"] }]);
 	assert.deepEqual(sim.notices, []);
-	assert.equal(existsSync(path), false);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true });
 	assert.deepEqual(sim.themes, []);
 	assertFisiDockOwns(sim, "Esc while on");
 
@@ -2138,7 +2151,7 @@ test("S98 /fisi-dock alone opens an on/off picker, the change first, that switch
 	assertGentleShellOwns(sim, "picked off");
 	assert.equal(sim.ctx.ui.getEditorComponent(), gentle);
 	for (const key of WIDGET_KEYS) assert.equal(sim.widgets.get(key), undefined, `${key} removed`);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, themeApplied: true });
 	assert.deepEqual(sim.themes, ["Gentleman-Cute"]);
 	assert.match(sim.notices.at(-1)!, /^Fisi Dock off/);
 
@@ -2151,14 +2164,14 @@ test("S98 /fisi-dock alone opens an on/off picker, the change first, that switch
 	await fisiDockCommand(sim, "");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	assertFisiDockOwns(sim, "picked on");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "Gentleman-Cute" }, "on remembers the theme off had set (S7)");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "Gentleman-Cute", themeApplied: true }, "on remembers the theme off had set (S7)");
 	assert.deepEqual(sim.themes, ["Gentleman-Cute", "Fisi-Dock"]);
 	assert.match(sim.notices.at(-1)!, /^Fisi Dock on/);
 	sim.emit("session_shutdown");
 });
 
 test("S98 without a UI, or when the picker fails, /fisi-dock alone says whether it is on as before", async (t) => {
-	const path = stateDir(t);
+	const path = stateDir(t, true);
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
@@ -2172,13 +2185,13 @@ test("S98 without a UI, or when the picker fails, /fisi-dock alone says whether 
 	};
 	await fisiDockCommand(sim, "");
 	assert.equal(sim.notices.at(-1), "Fisi Dock is on · /fisi-dock off gives Gentle Shell its panel back");
-	assert.equal(existsSync(path), false);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true });
 	assertFisiDockOwns(sim, "still on");
 	sim.emit("session_shutdown");
 });
 
-/** Writes the state file stateDir points at, theme included. */
-function seedState(path: string, state: { enabled: boolean; theme?: string }) {
+/** Writes the state file stateDir points at, as given: theme included, and the first-start step (T9) done only with themeApplied. */
+function seedState(path: string, state: { enabled: boolean; theme?: string; themeApplied?: boolean }) {
 	mkdirSync(join(path, ".."), { recursive: true });
 	writeFileSync(path, JSON.stringify(state));
 }
@@ -2189,26 +2202,26 @@ test("S7 /fisi-dock on remembers the theme in use and off puts it back instead o
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "on");
 	assert.deepEqual(sim.themes, ["Fisi-Dock"]);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "dark" }, "the theme before Fisi-Dock is saved");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "dark", themeApplied: true }, "the theme before Fisi-Dock is saved");
 	await fisiDockCommand(sim, "off");
 	assert.deepEqual(sim.themes, ["Fisi-Dock", "dark"], "your own theme back");
 	assert.equal(sim.ctx.ui.theme.name, "dark");
 	assert.equal(sim.notices.at(-1), "Fisi Dock off · Gentle Shell's panel and your theme dark are back; /fisi-dock on turns it back on");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark" });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark", themeApplied: true });
 	assertGentleShellOwns(sim, "off");
 	sim.emit("session_shutdown");
 });
 
 test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme remembered before", async (t) => {
 	const path = stateDir(t);
-	seedState(path, { enabled: false, theme: "light" });
+	seedState(path, { enabled: false, theme: "light", themeApplied: true });
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "on");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "light" }, "Fisi-Dock is never remembered");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "light", themeApplied: true }, "Fisi-Dock is never remembered");
 	await fisiDockCommand(sim, "off");
 	await fisiDockCommand(sim, "on");
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "light" });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "light", themeApplied: true });
 	await fisiDockCommand(sim, "on");
 	assert.equal(sim.notices.at(-1), "Fisi Dock is already on");
 	await fisiDockCommand(sim, "off");
@@ -2220,7 +2233,7 @@ test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme reme
 	const other = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
 	other.emit("session_start");
 	await fisiDockCommand(other, "on");
-	assert.deepEqual(JSON.parse(readFileSync(fresh, "utf8")), { enabled: true });
+	assert.deepEqual(JSON.parse(readFileSync(fresh, "utf8")), { enabled: true, themeApplied: true });
 	await fisiDockCommand(other, "off");
 	assert.deepEqual(other.themes, ["Fisi-Dock", "Gentleman-Cute"]);
 	assert.equal(other.notices.at(-1), "Fisi Dock off · Gentle Shell's panel and theme Gentleman-Cute are back; /fisi-dock on turns it back on");
@@ -2240,13 +2253,13 @@ test("S7 the remembered theme survives a restart: a new session's /fisi-dock off
 	assertFisiDockOwns(after, "on after the restart");
 	await fisiDockCommand(after, "off");
 	assert.deepEqual(after.themes, ["light"]);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "light" });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "light", themeApplied: true });
 	after.emit("session_shutdown");
 });
 
 test("S7 a remembered theme that is gone falls back to Gentleman-Cute, and a missing Gentleman-Cute still warns", async (t) => {
 	const path = stateDir(t);
-	seedState(path, { enabled: true, theme: "removed-theme" });
+	seedState(path, { enabled: true, theme: "removed-theme", themeApplied: true });
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock", knownThemes: ["Fisi-Dock", "Gentleman-Cute"] });
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "off");
@@ -2259,7 +2272,7 @@ test("S7 a remembered theme that is gone falls back to Gentleman-Cute, and a mis
 	assertGentleShellOwns(sim, "off");
 	sim.emit("session_shutdown");
 
-	seedState(path, { enabled: true, theme: "removed-theme" });
+	seedState(path, { enabled: true, theme: "removed-theme", themeApplied: true });
 	const bare = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock", knownThemes: ["Fisi-Dock"] });
 	bare.emit("session_start");
 	await fisiDockCommand(bare, "off");
@@ -2275,7 +2288,7 @@ test("S7 a remembered theme that is gone falls back to Gentleman-Cute, and a mis
 
 test("S7 a theme setter that throws counts as not changed, on and off, and is never called back", async (t) => {
 	const path = stateDir(t);
-	seedState(path, { enabled: true, theme: "dark" });
+	seedState(path, { enabled: true, theme: "dark", themeApplied: true });
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock", throwingThemes: ["dark", "Gentleman-Cute", "Fisi-Dock"] });
 	sim.emit("session_start");
 	await fisiDockCommand(sim, "off");
@@ -2284,10 +2297,188 @@ test("S7 a theme setter that throws counts as not changed, on and off, and is ne
 		sim.notices.at(-1),
 		"Fisi Dock off · Gentle Shell's panel is back; /fisi-dock on turns it back on · theme dark not available · theme not changed: unknown theme",
 	);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark" }, "the remembered theme is kept for the next off");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark", themeApplied: true }, "the remembered theme is kept for the next off");
 	await fisiDockCommand(sim, "on");
 	assert.equal(sim.notices.at(-1), "Fisi Dock on · theme not changed: unknown theme");
 	sim.emit("session_shutdown");
+});
+
+// --- The first start applies the Fisi-Dock theme once (T9) -------------------
+
+const readState = (path: string) => JSON.parse(readFileSync(path, "utf8"));
+
+test("T9 the first start remembers the theme in use, applies Fisi-Dock and says so once; off puts that exact theme back", async (t) => {
+	const path = stateDir(t);
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	sim.emit("session_start");
+	assert.deepEqual(sim.themes, ["Fisi-Dock"]);
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true });
+	assert.deepEqual(sim.notices, ["Fisi Dock applied its theme · /fisi-dock off puts your theme dark back"]);
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	assertFisiDockOwns(sim, "the dock starts as before");
+	await fisiDockCommand(sim, "off");
+	assert.deepEqual(sim.themes, ["Fisi-Dock", "dark"], "exactly the theme you had");
+	assert.equal(sim.notices.at(-1), "Fisi Dock off · Gentle Shell's panel and your theme dark are back; /fisi-dock on turns it back on");
+	assert.deepEqual(readState(path), { enabled: false, theme: "dark", themeApplied: true }, "off keeps the step done");
+	sim.emit("session_shutdown");
+});
+
+test("T9 the step never repeats: a theme picked later in /settings stays on every following start", (t) => {
+	const path = stateDir(t);
+	const first = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	first.emit("session_start");
+	first.emit("session_shutdown");
+	const saved = readFileSync(path, "utf8");
+	for (const theme of ["light", "Fisi-Dock", undefined]) {
+		const next = simulate("E:\\DEV\\app", { ownsHost: () => true, theme });
+		next.emit("session_start");
+		assert.deepEqual(next.themes, [], `no theme set with ${theme} in use`);
+		assert.deepEqual(next.notices, [], `no notice with ${theme} in use`);
+		next.emit("session_shutdown");
+	}
+	assert.equal(readFileSync(path, "utf8"), saved, "later starts write nothing");
+});
+
+test("T9 a state from before the step (no themeApplied) gets it once on the next start; with no theme name the notice names Gentleman-Cute", (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "light" });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	sim.emit("session_start");
+	assert.deepEqual(sim.themes, ["Fisi-Dock"]);
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true }, "the theme in use now is the one off gives back");
+	assert.deepEqual(sim.notices, ["Fisi Dock applied its theme · /fisi-dock off puts your theme dark back"]);
+	sim.emit("session_shutdown");
+
+	seedState(path, { enabled: true, theme: "light" });
+	const unnamed = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	unnamed.emit("session_start");
+	assert.deepEqual(unnamed.themes, ["Fisi-Dock"]);
+	assert.deepEqual(readState(path), { enabled: true, theme: "light", themeApplied: true }, "no theme name in use keeps the one remembered");
+	assert.deepEqual(unnamed.notices, ["Fisi Dock applied its theme · /fisi-dock off puts your theme light back"]);
+	unnamed.emit("session_shutdown");
+
+	seedState(path, { enabled: true });
+	const bare = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	bare.emit("session_start");
+	assert.deepEqual(bare.themes, ["Fisi-Dock"]);
+	assert.deepEqual(readState(path), { enabled: true, themeApplied: true });
+	assert.deepEqual(bare.notices, ["Fisi Dock applied its theme · /fisi-dock off puts theme Gentleman-Cute back"]);
+	bare.emit("session_shutdown");
+});
+
+test("T9 a state that says off gets nothing at start; /fisi-dock on sets the theme and marks the step done", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: false });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	sim.emit("session_start");
+	assert.deepEqual(sim.themes, []);
+	assert.deepEqual(sim.notices, []);
+	assert.deepEqual(readState(path), { enabled: false }, "dormant: the step stays pending");
+	await fisiDockCommand(sim, "on");
+	assert.deepEqual(sim.themes, ["Fisi-Dock"]);
+	assert.equal(sim.notices.at(-1), "Fisi Dock on · theme Fisi-Dock");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true });
+	sim.emit("session_shutdown");
+
+	const later = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "light" });
+	later.emit("session_start");
+	assert.deepEqual(later.themes, [], "after on, a start applies nothing");
+	assert.deepEqual(later.notices, []);
+	later.emit("session_shutdown");
+
+	// An on whose theme could not be set leaves the step pending.
+	seedState(path, { enabled: false });
+	const failing = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark", failingThemes: ["Fisi-Dock"] });
+	failing.emit("session_start");
+	await fisiDockCommand(failing, "on");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark" });
+	failing.emit("session_shutdown");
+});
+
+test("T9 a start with Fisi-Dock already in use marks the step done without setting it again or remembering Fisi-Dock", (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "light" });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	sim.emit("session_start");
+	assert.deepEqual(sim.themes, []);
+	assert.deepEqual(sim.notices, []);
+	assert.deepEqual(readState(path), { enabled: true, theme: "light", themeApplied: true });
+	sim.emit("session_shutdown");
+
+	const fresh = stateDir(t);
+	const other = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	other.emit("session_start");
+	assert.deepEqual(other.themes, []);
+	assert.deepEqual(readState(fresh), { enabled: true, themeApplied: true });
+	other.emit("session_shutdown");
+});
+
+test("T9 a Fisi-Dock theme Pi does not know, or a setter that fails or throws, leaves the step pending for the next start", (t) => {
+	const path = stateDir(t);
+	const unknown = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark", knownThemes: ["dark"] });
+	unknown.emit("session_start");
+	assert.deepEqual(unknown.themes, [], "an unknown Fisi-Dock is never tried");
+	assert.equal(existsSync(path), false, "nothing written");
+	assert.deepEqual(unknown.notices, []);
+	for (const key of WIDGET_KEYS) assert.equal(typeof unknown.widgets.get(key), "function", `${key} set: the dock still starts`);
+	unknown.emit("session_shutdown");
+
+	for (const broken of [{ failingThemes: ["Fisi-Dock"] }, { throwingThemes: ["Fisi-Dock"] }]) {
+		const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark", ...broken });
+		assert.doesNotThrow(() => sim.emit("session_start"));
+		assert.deepEqual(sim.themes, ["Fisi-Dock"]);
+		assert.equal(sim.ctx.ui.theme.name, "dark");
+		assert.deepEqual(readState(path), { enabled: true, theme: "dark" }, "remembered, not marked");
+		assert.deepEqual(sim.notices, []);
+		for (const key of WIDGET_KEYS) assert.equal(typeof sim.widgets.get(key), "function", `${key} set`);
+		sim.emit("session_shutdown");
+	}
+
+	const working = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	working.emit("session_start");
+	assert.deepEqual(working.themes, ["Fisi-Dock"], "the next start tries again");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true });
+	assert.deepEqual(working.notices, ["Fisi Dock applied its theme · /fisi-dock off puts your theme dark back"]);
+	working.emit("session_shutdown");
+});
+
+test("T9 a state file that cannot be written never changes the theme, and the dock still starts", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-agent-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = dir;
+	t.after(() => {
+		process.env.PI_CODING_AGENT_DIR = previous;
+		rmSync(dir, { recursive: true, force: true });
+	});
+	writeFileSync(join(dir, "fisi-dock"), "");
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	assert.doesNotThrow(() => sim.emit("session_start"));
+	assert.deepEqual(sim.themes, []);
+	assert.deepEqual(sim.notices, []);
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	assertFisiDockOwns(sim, "the dock starts");
+	sim.emit("session_shutdown");
+});
+
+test("T9 a delegated child session (GENTLE_PI_AGENTS_CHILD=1) or a session without a UI never touches the theme or the state", (t) => {
+	const path = stateDir(t);
+	t.after(() => delete process.env.GENTLE_PI_AGENTS_CHILD);
+	process.env.GENTLE_PI_AGENTS_CHILD = "1";
+	const child = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	child.emit("session_start");
+	assert.deepEqual(child.themes, []);
+	assert.deepEqual(child.notices, []);
+	assert.equal(existsSync(path), false);
+	child.emit("session_shutdown");
+	delete process.env.GENTLE_PI_AGENTS_CHILD;
+
+	const headless = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	headless.ctx.hasUI = false;
+	headless.emit("session_start");
+	assert.deepEqual(headless.themes, []);
+	assert.equal(existsSync(path), false);
+	headless.emit("session_shutdown");
 });
 
 test("S95 /fisi-dock offers on and off as completions", () => {
@@ -2308,7 +2499,7 @@ test("S95 preserve: with the state file on, session_start takes over as before",
 	assert.notEqual(sim.ctx.ui.getEditorComponent(), gentle);
 	assert.equal((globalThis as Record<symbol, unknown>)[Symbol.for("fisi-dock")], true);
 	assert.deepEqual(sim.themes, []);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true }, "the state is only read");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true }, "the state is only read");
 	sim.emit("session_shutdown");
 });
 
@@ -2339,7 +2530,7 @@ test("S95 preserve: with the state file on, session_shutdown gives everything ba
 	assert.equal((globalThis as Record<symbol, unknown>)[Symbol.for("fisi-dock")], false);
 	assert.equal(listenerCount(sim), 0);
 	assert.deepEqual(sim.themes, []);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true });
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true });
 });
 
 // --- Welcome card instead of Gentle Shell's rose (S1) ------------------------
@@ -2536,4 +2727,13 @@ test("S6 the welcome card replaces only Gentle Shell's banner: without Gentle Sh
 	shell.emit("session_start");
 	assert.match(startCard(shell), /with Fisi Dock/);
 	shell.emit("session_shutdown");
+});
+
+test("T9 without Gentle Shell (no gentle:banner command) the first start leaves the theme alone and keeps the step pending", (t) => {
+	const path = stateDir(t);
+	const sim = simulate("E:\DEV\app", { theme: "dark", commands: () => [{ name: "skill:btw", source: "skill" }] });
+	sim.emit("session_start");
+	assert.deepEqual(sim.themes, [], "plain Pi keeps its theme");
+	assert.equal(existsSync(path) ? readState(path).themeApplied : undefined, undefined, "the step stays pending");
+	sim.emit("session_shutdown");
 });

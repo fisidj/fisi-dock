@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { dockStatePath, readDockEnabled, readDockTheme, writeDockEnabled } from "../lib/dock-state.ts";
+import { dockStatePath, readDockEnabled, readDockTheme, readDockThemeApplied, writeDockEnabled } from "../lib/dock-state.ts";
 
 test("S95 the state file lives under Pi's agent dir: PI_CODING_AGENT_DIR, else ~/.pi/agent", () => {
 	assert.equal(dockStatePath({ PI_CODING_AGENT_DIR: join("x", "agent") }, "home"), join("x", "agent", "fisi-dock", "state.json"));
@@ -54,4 +54,27 @@ test("S7 the state file also keeps the theme to restore at off; a missing, empty
 	}
 	assert.equal(writeDockEnabled(path, false), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false }, "no theme, no key");
+});
+
+test("T9 the state file says whether the first-start theme step is done: only `themeApplied: true`; it is written only when true", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "agent", "fisi-dock", "state.json");
+	assert.equal(readDockThemeApplied(path), false, "missing file");
+	assert.equal(writeDockEnabled(path, true, "dark", true), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "dark", themeApplied: true });
+	assert.equal(readDockThemeApplied(path), true);
+	assert.equal(readDockTheme(path), "dark");
+	assert.equal(readDockEnabled(path), true);
+	assert.equal(writeDockEnabled(path, false, undefined, true), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, themeApplied: true }, "no theme, no key");
+	assert.equal(readDockEnabled(path), false, "the step does not change what enabled means");
+	assert.equal(writeDockEnabled(path, true, "dark", false), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "dark" }, "not done, no key");
+	for (const content of ["not json", "null", "[]", '{"enabled":true}', '{"themeApplied":"yes"}', '{"themeApplied":1}', '{"themeApplied":false}']) {
+		writeFileSync(path, content);
+		assert.equal(readDockThemeApplied(path), false, content);
+	}
+	writeFileSync(path, '{"themeApplied":true}');
+	assert.equal(readDockThemeApplied(path), true);
 });

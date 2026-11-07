@@ -29,11 +29,19 @@ export function readDockTheme(path: string): string | undefined {
 	return typeof theme === "string" && theme !== "" ? theme : undefined;
 }
 
-/** Saves `{ "enabled": …, "theme": … }` (no theme key without one), creating its folder. False when it could not be written. */
-export function writeDockEnabled(path: string, enabled: boolean, theme?: string): boolean {
+/** Whether the first start already applied the Fisi-Dock theme once (T9): only `"themeApplied": true` says so. */
+export function readDockThemeApplied(path: string): boolean {
+	return readState(path)?.themeApplied === true;
+}
+
+/**
+ * Saves `{ "enabled": …, "theme": …, "themeApplied": true }` (no theme key without one, no
+ * themeApplied key unless true), creating its folder. False when it could not be written.
+ */
+export function writeDockEnabled(path: string, enabled: boolean, theme?: string, themeApplied = false): boolean {
 	try {
 		mkdirSync(dirname(path), { recursive: true });
-		writeFileSync(path, `${JSON.stringify(theme ? { enabled, theme } : { enabled })}\n`);
+		writeFileSync(path, `${JSON.stringify({ enabled, ...(theme ? { theme } : {}), ...(themeApplied ? { themeApplied } : {}) })}\n`);
 		return true;
 	} catch {
 		return false;

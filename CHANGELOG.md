@@ -29,6 +29,7 @@
 
 ### Fixes
 
+- The first start applies the `Fisi-Dock` theme once and remembers yours first, so `/fisi-dock off` gives back exactly the theme you had instead of `Gentleman-Cute`: `Fisi Dock applied its theme · /fisi-dock off puts your theme dark back`. Installs from before get it once on their next start; later starts keep any theme picked in `/settings`. The state file records it as `"themeApplied": true`. Skipped while off, in delegated child sessions, when Pi lacks the theme or cannot set it (tried again next start), and when the state file cannot be written.
 - On Gentle Shell builds that card rail parts (its `main` branch, transparent surface) the panel no longer loses its right border to a `…`.
 
 ### Tests and CI
