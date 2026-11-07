@@ -215,7 +215,7 @@ node scripts/preview.ts 58 --rows 28
 
 ## Contributing
 
-Issues and pull requests are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) covers what makes a good bug report, the test and docs rules, and how to try a checkout in Gentle Shell. Report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes.
+Issues and pull requests are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) covers what makes a good bug report, the test and docs rules, and how to try a checkout in Gentle Shell. Report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes. Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

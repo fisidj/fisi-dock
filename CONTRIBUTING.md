@@ -1,5 +1,7 @@
 # Contributing to Fisi Dock
 
+By taking part you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 Bug reports, ideas and pull requests are welcome. Fisi Dock is an unofficial community project: it is not part of Gentle Shell or Gentleman Programming, and its owner reviews and merges every change.
 
 ## Quick path
