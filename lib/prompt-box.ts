@@ -13,7 +13,7 @@
 // before it (S96); with the clock the wave sweeps both and the petal turns by
 // the same clock (S97).
 import { waveLabel, wavePetal } from "./label-wave.ts";
-import { fg, palette } from "./palette.ts";
+import { fg, palette, vivid } from "./palette.ts";
 import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
 
@@ -67,13 +67,13 @@ const join = (segments: Segment[], plain: string, styled = plain): Segment => ({
 	styled: segments.map((segment) => segment.styled).join(styled),
 });
 
-/** `● SUPER-YOLO  opus-5.5 · high`, or tight `● SUPER-YOLO opus-5.5·high`: the dot in red, the rest as the prompt line paints it. */
+/** `● SUPER-YOLO  opus-5.5 · high`, or tight `● SUPER-YOLO opus-5.5·high`: the dot in vivid red, the rest as the prompt line paints it. */
 function ownSegment(parts: PromptLinePart[], tight: boolean): Segment {
 	const mode = parts.find((part) => part.kind === "mode");
 	const rest = parts.filter((part) => part.kind !== "mode");
 	const dot = tight ? "·" : " · ";
 	const segments: Segment[] = [
-		...(mode ? [{ plain: `● ${mode.plain}`, styled: `${fg(palette.red, "●")} ${mode.styled}` }] : []),
+		...(mode ? [{ plain: `● ${mode.plain}`, styled: `${fg(vivid(palette.red), "●")} ${mode.styled}` }] : []),
 		...(rest.length ? [join(rest, dot, fg(palette.faint, dot))] : []),
 	];
 	return join(segments, tight ? " " : "  ");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createWaveClock, WAVE_STEP_MS, waveLabel, wavePetal } from "../lib/label-wave.ts";
-import { fgCode, palette } from "../lib/palette.ts";
+import { fgCode, palette, vivid } from "../lib/palette.ts";
 import { boxPromptRows, PROMPT_OWNER, wrapPromptFactory } from "../lib/prompt-box.ts";
 import { visibleWidth } from "../lib/text.ts";
 
@@ -41,13 +41,13 @@ test("waveLabel keeps the words, and the color depends only on the time (S90)", 
 
 test("waveLabel moves its head one character per step, and it reaches the end of a long label (S90)", () => {
 	const label = "x".repeat(40);
-	const headAt = (time: number) => waveLabel(label, time).split(fgCode(palette.pink)).length - 1;
+	const headAt = (time: number) => waveLabel(label, time).split(fgCode(vivid(palette.pink))).length - 1;
 	const seen = new Set<number>();
 	const brightest: number[] = [];
 	for (let step = 0; step < 60; step++) {
 		const painted = waveLabel(label, step * WAVE_STEP_MS);
 		const cells = painted.split("\x1b[39m").slice(0, 40);
-		const lit = cells.flatMap((cell, index) => (cell.includes(fgCode(palette.pink)) ? [index] : []));
+		const lit = cells.flatMap((cell, index) => (cell.includes(fgCode(vivid(palette.pink))) ? [index] : []));
 		for (const index of lit) seen.add(index);
 		if (lit.length) brightest.push(lit[lit.length - 1]);
 		assert.ok(headAt(step * WAVE_STEP_MS) <= 3);
@@ -203,7 +203,7 @@ test("S96 the clock wave sweeps `ODD ` and the phase as one text", () => {
 	const box = boxPromptRows(scanned(76, "implementing…", 9), 80, 0, LABELS, at);
 	assert.equal(box.scanning, true);
 	assert.ok(box.rows[0].includes(` ${waveLabel("ODD implementing…", at)} `), "one wave over `ODD implementing…`");
-	assert.ok(waveLabel("ODD implementing…", WAVE_STEP_MS * 3).startsWith(fgCode(palette.pink) + "O"), "the head lights `ODD` too");
+	assert.ok(waveLabel("ODD implementing…", WAVE_STEP_MS * 3).startsWith(fgCode(vivid(palette.pink)) + "O"), "the head lights `ODD` too, vivid");
 	assert.equal(visibleWidth(box.rows[0]), 80);
 });
 
@@ -228,7 +228,8 @@ const working = (width: number, label: string, tick: number) => {
 const petalOf = (row: string) => plain(row).slice(3, 4);
 
 test("S97 wavePetal turns through Gentle Shell's four flowers and its tones, one frame per wave step", () => {
-	const tones = [palette.deepPink, palette.lilac, palette.pink, palette.pink, palette.pink, palette.lilac, palette.deepPink, palette.deepPink];
+	// The vivid theme's tones (S4): the petal matches the one Gentle Shell paints from the Fisi-Dock theme.
+	const tones = [palette.deepPink, palette.lilac, palette.pink, palette.pink, palette.pink, palette.lilac, palette.deepPink, palette.deepPink].map(vivid);
 	for (let step = 0; step < 16; step++) {
 		const petal = wavePetal(step * WAVE_STEP_MS + 5);
 		assert.equal(plain(petal), ["✿", "❀", "❁", "✾"][step % 4]);

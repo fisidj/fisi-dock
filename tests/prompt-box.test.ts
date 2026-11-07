@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fgCode, palette } from "../lib/palette.ts";
+import { fgCode, palette, vivid } from "../lib/palette.ts";
 import { boxPromptRows, createPromptBox, FRAME_COLUMNS, MIN_BOX_WIDTH, PROMPT_OWNER, wrapPromptFactory } from "../lib/prompt-box.ts";
+import { WAVE_STEP_MS } from "../lib/label-wave.ts";
 import { SIDEBAR_STATE } from "../lib/slot.ts";
 import { visibleWidth } from "../lib/text.ts";
 
@@ -77,10 +78,10 @@ test("the rule row closes the box and carries Gentle Shell's label, then the mod
 	assert.ok(rule.startsWith(`${gray}╭─ `), "the frame in Fisi Dock's gray");
 	assert.ok(rule.includes(PETAL), "Gentle Shell's own petal, with its colour");
 	assert.ok(rule.includes(gsLabel("waiting for input")), "Gentle Shell's own label, as it painted it");
-	assert.ok(rule.includes(`${fgCode(palette.red)}●`), "a red dot before the mode");
-	assert.ok(rule.includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the mode bold in red, as the prompt line paints it");
+	assert.ok(rule.includes(`${fgCode(vivid(palette.red))}●`), "a vivid red dot before the mode");
+	assert.ok(rule.includes(`\x1b[1m${fgCode(vivid(palette.red))}SUPER-YOLO`), "the mode bold in vivid red, as the prompt line paints it");
 	assert.ok(rule.includes(`${fgCode(palette.muted)}opus-5.5`), "the model muted");
-	assert.ok(rule.includes(`${fgCode(palette.blue)}high`), "the effort in blue");
+	assert.ok(rule.includes(`${fgCode(vivid(palette.blue))}high`), "the effort in vivid blue");
 	assert.ok(rule.endsWith(`${gray}─╮\x1b[39m`) || rule.endsWith("─╮\x1b[39m"), JSON.stringify(rule.slice(-40)));
 });
 
@@ -475,7 +476,7 @@ test("phone: too tight for `waiting for input` and the labels, the idle label's 
 	assert.equal(box.boxed, true);
 	assert.equal(box.ruleShift, FRAME_COLUMNS / 2, "the rule row shifts clicks like a content row");
 	assert.ok(box.rows[0].includes(PETAL), "Gentle Shell's own petal, with its colour");
-	assert.ok(box.rows[0].includes(`${fgCode(palette.red)}●`), "the red dot before the mode");
+	assert.ok(box.rows[0].includes(`${fgCode(vivid(palette.red))}●`), "the vivid red dot before the mode");
 	for (const width of [39, 45, 50]) assert.equal(visibleWidth(phoneRule(width)), width);
 	for (const width of [45, 50]) assert.equal(visibleWidth(phoneRule(width, narrow)), width);
 });
@@ -557,10 +558,10 @@ test("S3 working: each step of the ladder at the width it starts", () => {
 	assert.equal(phoneRule(30, working), `╭─ ✿ working… ${"─".repeat(15)}╮`, "nothing of ours fits: the words stay");
 	for (let width = 26; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width, working)), width, `${width}`);
 	const box = boxPromptRows(gentleRows(36, working), 40, 0, LABELS);
-	assert.ok(box.rows[0].includes(`${fgCode(palette.red)}●`) && box.rows[0].includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the dot and the mode keep their colors");
+	assert.ok(box.rows[0].includes(`${fgCode(vivid(palette.red))}●`) && box.rows[0].includes(`\x1b[1m${fgCode(vivid(palette.red))}SUPER-YOLO`), "the dot and the mode keep their colors");
 	assert.ok(box.rows[0].includes(`${fgCode(palette.muted)}opus-5.5`), "the model muted");
 	const tight = boxPromptRows(gentleRows(41, working), 45, 0, LABELS).rows[0];
-	assert.ok(tight.includes(`${fgCode(palette.faint)}·`) && tight.includes(`${fgCode(palette.blue)}high`), "the tight dot faint, the effort blue");
+	assert.ok(tight.includes(`${fgCode(palette.faint)}·`) && tight.includes(`${fgCode(vivid(palette.blue))}high`), "the tight dot faint, the effort vivid blue");
 });
 
 test("S3 normal mode: the model and effort compact, then the model alone", () => {
@@ -598,4 +599,26 @@ test("S3 with Gentle Shell's hint: each step is tried beside it first; working, 
 	assert.equal(phoneRule(34, { label: "waiti…", button: true, hint: "INSERT" }), "╭─ ✿ ──── ● SUPER-YOLO opus-5.5 ─╮");
 	for (let width = 28; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width, working)), width, `${width}`);
 	for (let width = 36; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width, idle)), width, `${width}`);
+});
+
+// Vivid labels S3: the labels Fisi Dock paints on the rule take the vivid version of their color.
+test("the mode, its dot, the effort and the ODD wave draw vivid; the model, the frame and Gentle Shell's own colors stay (S3)", () => {
+	const box = boxPromptRows(gentleRows(56, { text: ["hello"] }), 60, 0, LABELS);
+	assert.equal(plain(box.rows[0]), "╭─ ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high ─╮", "the same words and layout");
+	const rule = box.rows[0];
+	assert.ok(rule.includes(`${fgCode(vivid(palette.red))}●`), "the dot vivid red");
+	assert.ok(rule.includes(`\x1b[1m${fgCode(vivid(palette.red))}SUPER-YOLO`), "the mode bold in vivid red");
+	assert.ok(rule.includes(`${fgCode(vivid(palette.blue))}high`), "the effort vivid blue");
+	assert.ok(!rule.includes(fgCode(palette.red)) && !rule.includes(fgCode(palette.blue)), "no pastel red or blue left");
+	assert.ok(rule.includes(`${fgCode(palette.muted)}opus-5.5`), "the gray model stays muted");
+	assert.ok(rule.startsWith(`${gray}╭─ `) && rule.includes(PETAL) && rule.includes(gsLabel("waiting for input")), "the frame, Gentle Shell's petal and label stay");
+	// The wave's head and its softer tone, at a moment the head is on `DD `.
+	const working = boxPromptRows(gentleRows(56, { label: "checking…", scan: true }), 60, 0, LABELS, WAVE_STEP_MS * 5).rows[0];
+	assert.ok(plain(working).startsWith("╭─ ") && plain(working).includes(" ODD checking… "), "the words stay");
+	assert.ok(working.includes(`${fgCode(vivid(palette.pink))}D`), "the wave's head vivid pink");
+	assert.ok(working.includes(`${fgCode(vivid(palette.lilac))}O`), "the wave's softer tone vivid lilac");
+	assert.ok(working.includes(`${fgCode(palette.muted)}c`), "the rest of the wave stays muted");
+	// Without the clock the ODD prefix stays muted beside Gentle Shell's own scan.
+	const still = boxPromptRows(gentleRows(56, { label: "checking…", scan: true }), 60, 0, LABELS).rows[0];
+	assert.ok(still.includes(`${fgCode(palette.muted)}ODD `) && still.includes(gsScan("checking…")), "Gentle Shell's scan as it painted it");
 });
