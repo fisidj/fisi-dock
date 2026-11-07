@@ -168,7 +168,7 @@ test("too tight for the right part: the mode, model and effort drop first, the b
 	const fits = boxPromptRows(gentleRows(53), 57, 0, LABELS);
 	assert.equal(plain(fits.rows[0]), "╭─ ✿ waiting for input ─ ● SUPER-YOLO  opus-5.5 · high ─╮");
 	const short = boxPromptRows(gentleRows(52), 56, 0, LABELS);
-	assert.equal(plain(short.rows[0]), `╭─ ✿ waiting for input ${"─".repeat(32)}╮`);
+	assert.equal(plain(short.rows[0]), `╭─ ✿ ${"─".repeat(18)} ● SUPER-YOLO  opus-5.5 · high ─╮`, "one column less: the idle label's words drop first");
 });
 
 test("content rows get `│ ` and ` │`, padded to the width; the blank last row closes the box; a selection label stays on it (S88)", () => {
@@ -214,7 +214,7 @@ test("Gentle Shell's hint stays after the labels; its `[ Panel ]` button is left
 	assert.equal(box.buttonDropped, true);
 	assert.equal(box.ruleShift, FRAME_COLUMNS / 2, "the rule shifts like a content row");
 	// A rule with only the button: nothing of Gentle Shell's is kept on the right.
-	const tight = boxPromptRows(gentleRows(36, { button: true }), 40, 0, LABELS);
+	const tight = boxPromptRows(gentleRows(36, { button: true }), 40, 0, {});
 	assert.equal(plain(tight.rows[0]), `╭─ ✿ waiting for input ${"─".repeat(16)}╮`);
 	assert.equal(tight.buttonDropped, true);
 	assert.equal(boxPromptRows(gentleRows(56), 60, 0, LABELS).ruleShift, FRAME_COLUMNS / 2, "without a button the rule shifts like a content row");
@@ -448,4 +448,52 @@ test("S96 without the clock (potato) `ODD ` is painted in Gentle Shell's label g
 	assert.ok(plain(box.rows[0]).startsWith("╭─ ✿ ODD checking… ─"), plain(box.rows[0]));
 	assert.ok(box.rows[0].includes(`${fgCode(palette.muted)}ODD \x1b[39m`), "`ODD ` in the gray of Gentle Shell's label role (muted)");
 	assert.ok(box.rows[0].includes(PETAL) && box.rows[0].includes(gsLabel("checking…")), "Gentle Shell's petal and label as painted");
+});
+
+// "en el movil no me sale super yolo ni el modelo ni el esfuerso … cuando no estas haciendo nada no
+// aparece y cuando empezas a trabjar aparece": Gentle Shell's idle label (lib/shell-prompt.ts
+// panelPromptRule, `waiting for input`) is long, so on a phone it pushed the labels off the rule.
+
+const phoneRule = (width: number, options: GentleOptions = {}, labels: object = LABELS) => plain(boxPromptRows(gentleRows(width - FRAME_COLUMNS, options), width, 0, labels).rows[0]);
+
+test("phone: too tight for `waiting for input` and the labels, the idle label's words drop and the petal keeps the labels", () => {
+	assert.equal(phoneRule(45), `╭─ ✿ ${"─".repeat(7)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
+	assert.equal(phoneRule(50), `╭─ ✿ ${"─".repeat(12)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
+	assert.equal(phoneRule(39), "╭─ ✿ ─ ● SUPER-YOLO  opus-5.5 · high ─╮", "one fill column is enough");
+	// Gentle Shell's hint stays when it fits too, after the labels; the `[ Panel ]` button is still left out.
+	const narrow = { button: true, hint: "INSERT" };
+	assert.equal(phoneRule(50, narrow), `╭─ ✿ ${"─".repeat(4)} ● SUPER-YOLO  opus-5.5 · high  INSERT ─╮`);
+	assert.equal(phoneRule(45, narrow), `╭─ ✿ ${"─".repeat(7)} ● SUPER-YOLO  opus-5.5 · high ─╮`, "the hint drops before the labels");
+	const box = boxPromptRows(gentleRows(41), 45, 0, LABELS);
+	assert.equal(box.boxed, true);
+	assert.equal(box.ruleShift, FRAME_COLUMNS / 2, "the rule row shifts clicks like a content row");
+	assert.ok(box.rows[0].includes(PETAL), "Gentle Shell's own petal, with its colour");
+	assert.ok(box.rows[0].includes(`${fgCode(palette.red)}●`), "the red dot before the mode");
+	for (const width of [39, 45, 50]) assert.equal(visibleWidth(phoneRule(width)), width);
+	for (const width of [45, 50]) assert.equal(visibleWidth(phoneRule(width, narrow)), width);
+});
+
+test("phone: `working…` keeps its words; the labels drop or show exactly as before", () => {
+	assert.equal(phoneRule(45, { label: "working…" }), `╭─ ✿ working… ${"─".repeat(30)}╮`);
+	assert.equal(phoneRule(47, { label: "working…" }), `╭─ ✿ working… ${"─".repeat(32)}╮`);
+	assert.equal(phoneRule(48, { label: "working…" }), "╭─ ✿ working… ─ ● SUPER-YOLO  opus-5.5 · high ─╮");
+	assert.equal(phoneRule(50, { label: "working…" }), `╭─ ✿ working… ${"─".repeat(3)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
+	assert.equal(phoneRule(45, { label: "queued" }), `╭─ ✿ queued ${"─".repeat(32)}╮`, "queued is a working state: its word stays");
+	assert.equal(phoneRule(45, { label: "exploring…" }), `╭─ ✿ ODD exploring… ${"─".repeat(24)}╮`);
+});
+
+test("`waiting for input` keeps its words when the labels fit beside it, and with no labels to keep", () => {
+	assert.equal(phoneRule(57), "╭─ ✿ waiting for input ─ ● SUPER-YOLO  opus-5.5 · high ─╮");
+	assert.equal(phoneRule(60), "╭─ ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high ─╮");
+	assert.equal(phoneRule(45, {}, {}), `╭─ ✿ waiting for input ${"─".repeat(21)}╮`, "no model: nothing to make room for");
+	// Labels and hint fit beside it: the bytes are the ones painted before.
+	const box = boxPromptRows(gentleRows(76, { hint: "esc again to clear" }), 80, 0, LABELS);
+	assert.ok(box.rows[0].includes(gsLabel("waiting for input")), "Gentle Shell's label as it painted it");
+	assert.equal(plain(box.rows[0]), "╭─ ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high  esc again to clear ─╮");
+});
+
+test("too tight even for the petal and the labels: `waiting for input` stays and the labels drop, as before", () => {
+	assert.equal(phoneRule(38), `╭─ ✿ waiting for input ${"─".repeat(14)}╮`);
+	assert.equal(phoneRule(30), "╭─ ✿ waiting for input ──────╮");
+	assert.equal(phoneRule(38, { hint: "INSERT" }), `╭─ ✿ waiting for input ${"─".repeat(5)} INSERT ─╮`);
 });

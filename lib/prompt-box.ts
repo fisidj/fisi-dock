@@ -34,6 +34,8 @@ const SELECTION_LABEL = /chars? selected - Del deletes - Alt\+a select all/;
 /** Gentle Shell's ODD phase labels: lib/odd-phase.ts ODD_PHASES, written `${phase}…` by oddPhaseLabel. */
 const ODD_PHASE_LABEL = /^(?:authorizing|exploring|researching|deciding|planning|implementing|checking|closing)…$/;
 const ODD_PREFIX = "ODD ";
+/** Gentle Shell's idle label (lib/shell-prompt.ts panelPromptRule): too tight for it and the labels, its words drop first. */
+const IDLE_LABEL = "waiting for input";
 const ESCAPES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[_P^X][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 const strip = (text: string) => text.replace(ESCAPES, "");
@@ -84,6 +86,7 @@ function ownRight(labels: PromptLineModel): Segment | undefined {
  * words and takes its color from that moment (S90), and its petal that moment's
  * frame (S97). An ODD phase label gets `ODD ` before it, inside the wave; without
  * `waveAt` in Gentle Shell's label gray (S96). Too tight for `ODD ` the bare label stays.
+ * Too tight for `waiting for input` and the labels, the petal alone keeps them.
  */
 export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number): PromptBox {
 	const unchanged: PromptBox = { rows, boxed: false, ruleShift: 0, buttonDropped: false, scanning: false };
@@ -129,31 +132,32 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	const gentleRight: Segment | undefined = tailMatch && tailText !== "" ? { plain: tailText, styled: sliceColumns(rule, tailFrom, tailFrom + visibleWidth(tailText)) } : undefined;
 	const own = ownRight(labels);
 	// The labels drop first, then Gentle Shell's hint; the bare rule last.
+	const withOwn = own ? [...(gentleRight ? [join([own, gentleRight], "  ")] : []), own] : [];
 	const candidates: (Segment | undefined)[] = [
-		...(own && gentleRight ? [join([own, gentleRight], "  ")] : []),
+		...withOwn.slice(0, -1),
 		...(gentleRight ? [gentleRight] : []),
-		...(own ? [own] : []),
+		...withOwn.slice(-1),
 		undefined,
 	];
 	let head = bare;
 	let right: Segment | undefined;
 	let fill = -1;
-	for (const left of prefixed ? [prefixed, bare] : [bare]) {
-		const headWidth = 3 + glyphWidth + 1 + visibleWidth(left.plain) + 1;
-		for (const candidate of candidates) {
-			fill = columns - headWidth - (candidate ? visibleWidth(candidate.plain) + 4 : 2);
-			if (fill >= 1) {
-				right = candidate;
-				break;
+	/** Takes the first of `choices` that fits after `left` (the petal alone when empty). */
+	const fit = (left: Segment, choices: (Segment | undefined)[]): boolean => {
+		const headWidth = 3 + glyphWidth + 1 + (left.plain === "" ? 0 : visibleWidth(left.plain) + 1);
+		for (const candidate of choices) {
+			const rest = columns - headWidth - (candidate ? visibleWidth(candidate.plain) + 4 : 2);
+			if (rest >= 1) {
+				[head, right, fill] = [left, candidate, rest];
+				return true;
 			}
 		}
-		if (fill >= 1) {
-			head = left;
-			break;
-		}
-	}
-	if (fill < 1) return unchanged;
-	const ruleRow = `${frame("╭─ ")}${petal} ${head.styled} ${frame("─".repeat(fill))}${right ? ` ${right.styled} ${frame("─╮")}` : frame("─╮")}`;
+		return false;
+	};
+	if (!(prefixed ? [prefixed, bare] : [bare]).some((left) => fit(left, candidates))) return unchanged;
+	// The idle label's words drop before the labels: the petal alone keeps them, with the hint when it fits too.
+	if (label === IDLE_LABEL && withOwn.length > 0 && !(right && withOwn.includes(right))) fit({ plain: "", styled: "" }, withOwn);
+	const ruleRow = `${frame("╭─ ")}${petal} ${head.plain === "" ? "" : `${head.styled} `}${frame("─".repeat(fill))}${right ? ` ${right.styled} ${frame("─╮")}` : frame("─╮")}`;
 	const ruleShift = LEFT_COLUMNS;
 
 	const inner = columns - FRAME_COLUMNS;
