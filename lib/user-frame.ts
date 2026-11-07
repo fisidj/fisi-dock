@@ -3,7 +3,7 @@
 // top rule. Pi is never imported: the live UserMessageComponent class is found
 // in the TUI tree and its render goes through a global hook, so a removed or
 // reloaded Fisi Dock leaves Pi's own lines.
-import { fg, palette } from "./palette.ts";
+import { fg, palette, vivid } from "./palette.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
 
 export const USER_FRAME_HOOK = Symbol.for("fisi-dock.user-frame");
@@ -48,7 +48,7 @@ export function frameUserLines(render: Render, width: number): string[] {
 	if (first > last) return render(width);
 	const side = fg(palette.frame, "│");
 	return [
-		`${ZONE_START}${fg(palette.frame, "╭─ ")}${fg(palette.pink, "you")}${fg(palette.frame, ` ${"─".repeat(width - TOP_RULE_CHROME)}╮`)}`,
+		`${ZONE_START}${fg(palette.frame, "╭─ ")}${fg(vivid(palette.pink), "you")}${fg(palette.frame, ` ${"─".repeat(width - TOP_RULE_CHROME)}╮`)}`,
 		...rows.slice(first, last + 1).map((row) => `${side}${padEnd(truncateToWidth(row, inner), inner)}${side}`),
 		`${ZONE_END}${fg(palette.frame, `╰${"─".repeat(inner)}╯`)}`,
 	];

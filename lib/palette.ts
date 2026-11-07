@@ -76,6 +76,15 @@ export function vivid(color: Rgb): Rgb {
 	return withLightness(color, 0.8);
 }
 
+/** How far the side panel's titles and counters go from their own color toward its vivid one: a little calmer than the prompt labels. */
+export const PANEL_VIVIDNESS = 0.75;
+
+/** `color` PANEL_VIVIDNESS of the way to `vivid(color)`: the side panel's titles and counters. */
+export function panelVivid(color: Rgb): Rgb {
+	const target = vivid(color);
+	return color.map((channel, index) => Math.round(channel + (target[index] - channel) * PANEL_VIVIDNESS)) as unknown as Rgb;
+}
+
 export const fgCode = ([r, g, b]: Rgb) => `\x1b[38;2;${r};${g};${b}m`;
 export const bgCode = ([r, g, b]: Rgb) => `\x1b[48;2;${r};${g};${b}m`;
 

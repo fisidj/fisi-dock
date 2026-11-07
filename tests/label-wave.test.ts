@@ -39,15 +39,24 @@ test("waveLabel keeps the words, and the color depends only on the time (S90)", 
 	assert.notEqual(waveLabel("exploring…", at), waveLabel("exploring…", at + WAVE_STEP_MS), "the next step moves it");
 });
 
+test("the wave passes in the soft pastel tones, never the vivid ones: the box's text stays calm", () => {
+	// "en la caja de texto esta muy fuerte los colores que psan con el efeto"
+	const painted = Array.from({ length: 15 }, (_, step) => waveLabel("exploring…", step * WAVE_STEP_MS)).join("");
+	assert.ok(painted.includes(fgCode(palette.pink)), "the head in the pastel pink");
+	assert.ok(painted.includes(fgCode(palette.lilac)), "its softer tone in the pastel lilac");
+	assert.ok(!painted.includes(fgCode(vivid(palette.pink))), "no vivid pink");
+	assert.ok(!painted.includes(fgCode(vivid(palette.lilac))), "no vivid lilac");
+});
+
 test("waveLabel moves its head one character per step, and it reaches the end of a long label (S90)", () => {
 	const label = "x".repeat(40);
-	const headAt = (time: number) => waveLabel(label, time).split(fgCode(vivid(palette.pink))).length - 1;
+	const headAt = (time: number) => waveLabel(label, time).split(fgCode(palette.pink)).length - 1;
 	const seen = new Set<number>();
 	const brightest: number[] = [];
 	for (let step = 0; step < 60; step++) {
 		const painted = waveLabel(label, step * WAVE_STEP_MS);
 		const cells = painted.split("\x1b[39m").slice(0, 40);
-		const lit = cells.flatMap((cell, index) => (cell.includes(fgCode(vivid(palette.pink))) ? [index] : []));
+		const lit = cells.flatMap((cell, index) => (cell.includes(fgCode(palette.pink)) ? [index] : []));
 		for (const index of lit) seen.add(index);
 		if (lit.length) brightest.push(lit[lit.length - 1]);
 		assert.ok(headAt(step * WAVE_STEP_MS) <= 3);
@@ -203,7 +212,7 @@ test("S96 the clock wave sweeps `ODD ` and the phase as one text", () => {
 	const box = boxPromptRows(scanned(76, "implementing…", 9), 80, 0, LABELS, at);
 	assert.equal(box.scanning, true);
 	assert.ok(box.rows[0].includes(` ${waveLabel("ODD implementing…", at)} `), "one wave over `ODD implementing…`");
-	assert.ok(waveLabel("ODD implementing…", WAVE_STEP_MS * 3).startsWith(fgCode(vivid(palette.pink)) + "O"), "the head lights `ODD` too, vivid");
+	assert.ok(waveLabel("ODD implementing…", WAVE_STEP_MS * 3).startsWith(fgCode(palette.pink) + "O"), "the head lights `ODD` too, vivid");
 	assert.equal(visibleWidth(box.rows[0]), 80);
 });
 

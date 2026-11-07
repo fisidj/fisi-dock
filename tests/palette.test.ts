@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { vivid, type Rgb } from "../lib/palette.ts";
+import { panelVivid, vivid, type Rgb } from "../lib/palette.ts";
 
 const rgb = (hex: string): Rgb => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16)) as unknown as Rgb;
 
@@ -21,4 +21,21 @@ test("vivid keeps the hue and takes saturation 90%, lightness 59% or lighter up 
 		["#ff76c3", "#f538a2"], // rose
 	];
 	for (const [pastel, expected] of examples) assert.deepEqual([...vivid(rgb(pastel))], [...rgb(expected)], `${pastel} -> ${expected}`);
+});
+
+// "aora lo veo en la barra lateral podemos bajar la intensidad un poco?": the side panel's
+// titles and counters take 75% of the way from their own color to its vivid one.
+test("panelVivid goes 75% of the way from a color to its vivid one", () => {
+	const examples: [string, string][] = [
+		["#e0af68", "#f0aa44"], // amber
+		["#c3a6ff", "#a075f9"], // lilac
+		["#ff9b85", "#f86a4b"], // coral
+		["#5fd4e0", "#42dff0"], // teal
+		["#f2a7c9", "#f4549d"], // pink
+		["#8fc98f", "#4eea4e"], // green
+		["#7b9cff", "#5880f8"], // blue
+		["#ff6b6b", "#f84545"], // red
+		["#ff76c3", "#f848aa"], // rose
+	];
+	for (const [pastel, expected] of examples) assert.deepEqual([...panelVivid(rgb(pastel))], [...rgb(expected)], `${pastel} -> ${expected}`);
 });
