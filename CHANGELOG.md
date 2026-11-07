@@ -1,12 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 ### Vivid labels
 
 - The labels take the vividness of the cover title `#F43888`, each on its own hue: HSL saturation 90% and lightness 59%, lighter in steps of 0.01 (at most 0.80) only where a hue would read under 4.5:1 on the `#161616` background. One helper, `vivid` in `lib/palette.ts`.
 - Panel section titles (`session`, `heads-up`, `ODD`, `RDD`, `CI`, `agents`, `todo`, `changes`) and the counters on their top rule (`3/7`, `on`, the agents card's count) draw vivid on the rail, in `/dock` and on the narrow-screen todo and agents cards. Frames stay gray, rows keep their colors, and gray counters (`1 to commit`, the CI sha, `off`) stay muted.
-- On the prompt box, the permission mode and its dot (vivid red), the effort (vivid blue) and the clock wave on the working label (`ODD checking…`, vivid pink and lilac) draw vivid; the model stays muted. The line under the prompt paints the same labels. Gentle Shell's own label, petal and hint keep its colors; words, compaction and layout are unchanged.
+- On the prompt box, the permission mode and its dot (vivid red), the effort (vivid blue) and the clock wave on the working label (`ODD checking…`, vivid pink and lilac) draw vivid; the model stays muted. The line under the prompt paints the same labels, and the petal Fisi Dock turns with the wave takes the vivid theme tones, like the one Gentle Shell paints from the theme. Gentle Shell's own label and hint keep its colors; words, compaction and layout are unchanged.
 - The `Fisi-Dock` theme's accents `pink`, `deepPink`, `teal`, `coral`, `amber`, `lilac`, `green`, `blue` and `red` take their vivid values (amber `#e0af68` -> `#f5a838`, blue `#7b9cff` -> `#4c76f6`, and the rest); neutrals and backgrounds stay.
 
 ## 0.2.1
