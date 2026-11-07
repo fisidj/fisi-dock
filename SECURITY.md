@@ -23,4 +23,4 @@ Every file it reads is listed in [How it works](README.md#how-it-works).
 
 ## Supported versions
 
-Fixes land on `main`. Once releases are tagged, the latest release gets them too.
+Fixes land on `main` and in the latest release.
