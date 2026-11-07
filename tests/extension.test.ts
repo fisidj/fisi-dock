@@ -414,7 +414,7 @@ test("heads-up from fake git output, a fake todo and fixture ODD plans (S14, S8)
 		"! ODD plan fisi-dock: 2 open",
 	]);
 	const project = rail().render(47).map(plain).find((line) => line.includes("project"))!;
-	assert.match(project, /project +heads-up-project feat\/fisi-dock +│$/, "no ↑4 in the session row");
+	assert.match(project, /project +heads-up-project  feat\/fisi-dock +│$/, "no ↑4 in the session row");
 	console.log(`--- simulated heads-up, session start\n${first.join("\n")}`);
 
 	// The run ends with todo tasks still open; a new request clears the warning.
@@ -1100,7 +1100,11 @@ test("short terminal: the rail panel keeps the logo and agents; the digest follo
 	terminal.rows = full.length + 2;
 	assert.deepEqual(rail.render(58).map(plain), full, "it fits: unchanged");
 	terminal.rows = full.length + 1;
-	assert.deepEqual(rail.render(58).map(plain), full, "no odd or changes to drop: logo and agents stay, the rail scrolls");
+	const label = (line: string) => /^│ (where|usage|connections) ──/.test(line);
+	assert.ok(full.some(label), "the session's group labels");
+	assert.deepEqual(rail.render(58).map(plain), full.filter((line) => !label(line)), "the session's group labels drop first (artboard 02)");
+	terminal.rows = full.filter((line) => !label(line)).length + 1;
+	assert.deepEqual(rail.render(58).map(plain), full.filter((line) => !label(line)), "no odd or changes to drop: logo and agents stay, the rail scrolls");
 	assert.notEqual(rail.digest(), tall, "the rail memo key follows the rows");
 	terminal.rows = 6;
 	const tiny = rail.render(58).map(plain);
@@ -1190,16 +1194,69 @@ const sessionRows = (lines: string[]) => {
 	return lines.slice(start + 1, lines.findIndex((line, index) => index > start && line.startsWith("╰")));
 };
 
-test("no MCP config: no mcp row, cost in session and no footer under the panel (S32, S8)", async () => {
+test("no MCP config: a muted `mcp none configured` row, cost in session and no footer under the panel (S32, S8, artboard 02)", async () => {
 	const sim = simulate("E:\\DEV\\app");
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	await new Promise((resolve) => setTimeout(resolve, 20));
+	await waitFor(() => railOf(sim)(58).some((line) => line.startsWith("│ mcp")));
 	const lines = railOf(sim)(58);
-	assert.ok(!lines.some((line) => line.includes("mcp")), "no mcp row");
-	assert.match(sessionRows(lines).at(-1)!, /^│ cost +\$0\.000 +│$/, "the cost row is the last session row");
+	assert.deepEqual(sessionRows(lines).map((line) => line.replace(/ +│$/, "")), [
+		"│ where ──",
+		"│ project  app",
+		"│ usage ──",
+		"│ cost     $0.000",
+		"│ connections ──",
+		"│ memory   ○ engram  not installed",
+		"│ mcp      none configured",
+	]);
+	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => plain(line).startsWith("│ mcp"))!;
+	assert.ok(raw.includes("\x1b[38;2;108;108;108mnone configured"), "muted");
 	assert.match(lines.at(-1)!, /^╰─+╯$/, "the panel ends with the last section");
 	assert.ok(!lines.some((line) => /^─+$/.test(line)), "no footer separator");
+	sim.emit("session_shutdown");
+});
+
+// --- memory (Engram) in the session's connections group (artboard 02) -------------
+
+test("engram memory row from gentle-engram's mem_* tools: not installed, connected · N saved from tool ends, unreachable after a failed call, connected again after a success; nothing spawned", async () => {
+	const calls: string[] = [];
+	const exec: Exec = async (command, args) => {
+		calls.push([command, ...args].join(" "));
+		return { code: 1, stdout: "", stderr: "" };
+	};
+	const tools: { name: string }[] = [{ name: "read" }];
+	const sim = simulate("E:\\DEV\\app", { exec, tools: () => tools });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const row = () => sessionRows(railOf(sim)(47)).find((line) => line.startsWith("│ memory"));
+	const raw = () => (sim.parts.get("footer") as { render(width: number): string[] }).render(47).find((line) => plain(line).startsWith("│ memory"))!;
+	const toolEnd = (toolName: string, isError = false) => {
+		for (const handler of sim.handlers.get("tool_execution_end") ?? []) handler({ type: "tool_execution_end", toolCallId: `c-${toolName}`, toolName, result: { content: [] }, isError }, sim.ctx);
+	};
+	assert.match(row()!, /^│ memory   ○ engram  not installed +│$/, "no mem_save tool: not installed");
+	assert.ok(raw().includes("\x1b[38;2;74;74;74m○"), "faint ○");
+	toolEnd("mem_save");
+	assert.match(row()!, /not installed/, "a call without the tool loaded changes nothing drawn");
+
+	// gentle-engram loaded: its tools show on the next Pi read.
+	tools.push({ name: "mem_save" }, { name: "mem_search" }, { name: "mem_context" });
+	sim.emit("turn_end");
+	assert.match(row()!, /^│ memory   ● engram  connected · 1 saved +│$/, "the earlier successful save counts");
+	assert.ok(raw().includes("\x1b[38;2;143;201;143m●"), "green ●");
+	toolEnd("mem_save");
+	toolEnd("mem_search");
+	toolEnd("bash", true);
+	assert.match(row()!, /connected · 2 saved/, "each mem_save that ended without error, at its tool end");
+
+	toolEnd("mem_save", true);
+	assert.match(row()!, /^│ memory   ✗ engram  unreachable +│$/, "the last mem_* call failed");
+	assert.ok(raw().includes("\x1b[38;2;255;107;107munreachable"), "red");
+	sim.emit("turn_end");
+	assert.match(row()!, /unreachable/, "stays until a mem_* call succeeds");
+	toolEnd("mem_context");
+	assert.match(row()!, /^│ memory   ● engram  connected · 2 saved +│$/, "a later success: connected again");
+
+	assert.ok(!calls.some((call) => /engram|mem_/.test(call)), `no process asked about Engram: ${calls.join(", ")}`);
 	sim.emit("session_shutdown");
 });
 
@@ -1223,7 +1280,7 @@ test("the session section shows Gentle Shell's profile and follows a switch on t
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const profileRow = () => sessionRows(railOf(sim)(58)).find((line) => line.startsWith("│ profile"));
 	await waitFor(() => profileRow() !== undefined);
-	assert.match(profileRow()!, /^│ profile +claude +│$/);
+	assert.match(profileRow()!, /^│ profile +claude +\$0\.000 │$/, "the cost flush right on the profile row");
 
 	// Use in this session (/gentle:profiles): the next idle tick reads it.
 	bindings.set("s1", { name: "fast", origin: "user", modelProfiles: {} });
@@ -1257,7 +1314,7 @@ function mcpFolders(t: TestContext, global: unknown, project?: unknown): { cwd: 
 const mcpTool = (name: string, extra: Record<string, unknown> = {}) => ({ name, description: "", parameters: {}, exposure: "deferred", sourceInfo: {}, ...extra });
 const dotBefore = (color: readonly number[], name: string) => `\x1b[38;2;${color.join(";")}m●\x1b[39m \x1b[38;2;225;225;225m${name}`;
 
-test("MCP servers from Pi's mcp.json and the project's: green with tools, muted while connecting, red after ~10 s (S32)", async (t) => {
+test("MCP servers from Pi's mcp.json and the project's: one row each, green with tools, amber while connecting, red after ~10 s (S32, artboard 02)", async (t) => {
 	t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
 	const { cwd } = mcpFolders(
 		t,
@@ -1268,23 +1325,33 @@ test("MCP servers from Pi's mcp.json and the project's: green with tools, muted 
 	const sim = simulate(cwd, { tools: () => tools });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	const row = () => railOf(sim)(58).find((line) => line.startsWith("│ mcp"));
-	await waitFor(() => row() !== undefined);
-	assert.match(row()!, /^│ mcp      ● engram ● context7 ● rea ● local +│$/);
-	const raw = () => (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => plain(line).startsWith("│ mcp"))!;
-	assert.ok(raw().includes(dotBefore([0x8f, 0xc9, 0x8f], "engram")), "engram green");
-	assert.ok(raw().includes(dotBefore([0x8f, 0xc9, 0x8f], "context7")), "context7 green (namespace)");
-	assert.ok(raw().includes(dotBefore([0x4a, 0x4a, 0x4a], "rea")), "rea muted while connecting");
-	assert.ok(raw().includes(dotBefore([0x4a, 0x4a, 0x4a], "local")), "local muted while connecting");
+	const connections = () => {
+		const rows = sessionRows(railOf(sim)(58));
+		return rows.slice(rows.findIndex((line) => line.startsWith("│ connections")) + 1).map((line) => line.replace(/ +│$/, ""));
+	};
+	await waitFor(() => connections().some((line) => line.startsWith("│ mcp")));
+	assert.deepEqual(connections(), [
+		"│ memory   ○ engram    not installed",
+		"│ mcp      ● engram    connected",
+		"│          ● context7  connected",
+		"│          ◌ rea       connecting",
+		"│          ◌ local     connecting",
+	], "an MCP server named engram is not gentle-engram's mem_save tool");
+	const raw = (name: string) => (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => /^│ (mcp| ) +[●◌✗] /.test(plain(line)) && plain(line).includes(` ${name} `))!;
+	const glyphBefore = (color: readonly number[], glyph: string, name: string) => `\x1b[38;2;${color.join(";")}m${glyph}\x1b[39m \x1b[38;2;225;225;225m${name}`;
+	assert.ok(raw("engram").includes(glyphBefore([0x8f, 0xc9, 0x8f], "●", "engram")), "engram green");
+	assert.ok(raw("context7").includes(glyphBefore([0x8f, 0xc9, 0x8f], "●", "context7")), "context7 green (namespace)");
+	assert.ok(raw("rea").includes(glyphBefore([0xe0, 0xaf, 0x68], "◌", "rea")), "rea amber while connecting");
+	assert.ok(raw("local").includes(glyphBefore([0xe0, 0xaf, 0x68], "◌", "local")), "local amber while connecting");
 	const rows = sessionRows(railOf(sim)(58));
-	assert.ok(rows.at(-1)!.startsWith("│ mcp") && /^│ cost +\$0\.000 +│$/.test(rows.at(-2)!), "mcp after the cost row");
+	assert.ok(rows.findIndex((line) => line.startsWith("│ mcp")) > rows.findIndex((line) => /^│ cost +\$0\.000 +│$/.test(line)), "mcp after the cost row");
 
 	// A server that connects late turns green on the next refresh; one that never does turns red.
 	t.mock.timers.tick(10_000);
 	tools.push(mcpTool("mcp__local__ping"));
 	sim.emit("turn_end");
-	assert.ok(raw().includes(dotBefore([0xff, 0x6b, 0x6b], "rea")), "rea red after the grace period");
-	assert.ok(raw().includes(dotBefore([0x8f, 0xc9, 0x8f], "local")), "local green once its tools exist");
+	assert.ok(raw("rea").includes(glyphBefore([0xff, 0x6b, 0x6b], "✗", "rea")) && plain(raw("rea")).includes("failed"), "rea red after the grace period");
+	assert.ok(raw("local").includes(glyphBefore([0x8f, 0xc9, 0x8f], "●", "local")), "local green once its tools exist");
 	const all = railOf(sim)(58).join("\n");
 	assert.ok(!all.includes("s3cr3t") && !all.includes("example.invalid") && !/\boff\b/.test(all), "only enabled server names are drawn");
 	for (const width of [58, 55, 47, 30, 20]) for (const line of railOf(sim)(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
@@ -1382,7 +1449,8 @@ test("claude-bridge replies at cost 0: session row and narrow header show tokens
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const rows = sessionRows(railOf(sim)(58));
 	// 2 × (0.4 + 4 + 1.14 + 1) = $13.08 at Anthropic's catalog price.
-	assert.equal(rows.at(-1), `│ cost     12.4M tok · ≈$13${" ".repeat(29)} │`);
+	const costRow = rows.find((row) => row.startsWith("│ cost"));
+	assert.equal(costRow, `│ cost     12.4M tok · ≈$13${" ".repeat(29)} │`);
 	assert.ok(!rows.some((row) => row.includes("$0.000")), "no $0.000 while tokens are known");
 	assert.ok(asked.includes("claude-bridge/claude-opus-5-5") && asked.includes("anthropic/claude-opus-5-5"), "own provider first, then anthropic");
 	for (const width of [58, 47, 30, 20]) for (const line of railOf(sim)(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
@@ -1390,7 +1458,7 @@ test("claude-bridge replies at cost 0: session row and narrow header show tokens
 	const header = sim.parts.get("header") as { render(width: number): string[] };
 	assert.ok(plain(header.render(64)[0]).includes("  12.4M tok · ≈$13"), plain(header.render(64)[0]));
 	for (const width of [64, 53, 40, 20]) for (const line of header.render(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
-	console.log(`--- S37 session row at 58 and narrow header at 64\n${rows.at(-1)}\n${plain(header.render(64)[0])}`);
+	console.log(`--- S37 session row at 58 and narrow header at 64\n${costRow}\n${plain(header.render(64)[0])}`);
 	sim.emit("session_shutdown");
 });
 
@@ -1400,7 +1468,7 @@ test("claude-bridge replies with no priced model: tokens only, no estimate (S37)
 	(sim.ctx as Record<string, unknown>).modelRegistry = { find: () => undefined };
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	assert.match(sessionRows(railOf(sim)(58)).at(-1)!, /^│ cost     12\.4M tok +│$/);
+	assert.match(sessionRows(railOf(sim)(58)).find((row) => row.startsWith("│ cost"))!, /^│ cost     12\.4M tok +│$/);
 	sim.emit("session_shutdown");
 });
 
@@ -1411,7 +1479,7 @@ test("a real cost above 0 keeps the cost row as today even with tokens (S37)", (
 	(sim.ctx as Record<string, unknown>).modelRegistry = fakeRegistry();
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	assert.match(sessionRows(railOf(sim)(58)).at(-1)!, /^│ cost     \$0\.012 +│$/);
+	assert.match(sessionRows(railOf(sim)(58)).find((row) => row.startsWith("│ cost"))!, /^│ cost     \$0\.012 +│$/);
 	sim.emit("session_shutdown");
 });
 

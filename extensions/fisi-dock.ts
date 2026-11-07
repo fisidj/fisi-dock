@@ -21,6 +21,7 @@ import {
 import { createLiveStore, createSerialRefresh, createSpinnerClock, readGit, type LiveStore } from "../lib/live-store.ts";
 import { installLoadedBox } from "../lib/loaded-box.ts";
 import { MCP_GRACE_MS, mcpConfigPaths, mcpServerStates, readMcpServerNames } from "../lib/mcp.ts";
+import { memoryCallEnd, memoryInfo, NO_MEMORY_CALLS } from "../lib/memory.ts";
 import { readSessionProfile } from "../lib/profile.ts";
 import { createOddTracker, type OddTracker } from "../lib/odd-timeline.ts";
 import { readOrbMotion } from "../lib/orbs.ts";
@@ -179,7 +180,7 @@ interface LiveSession {
 	readGit(): void;
 	/** Unfinished plans in the project's odd/tasks (heads-up). */
 	readPlans(): void;
-	/** MCP server names from Pi's mcp.json files, then their state (S32). */
+	/** MCP server names from Pi's mcp.json files, then their state (S32); none configured when there is no config. */
 	readMcp(): void;
 	/** Asks Gentle Shell for its permission-mode adapter once, then re-reads the mode (S84). */
 	readMode(): void;
@@ -368,7 +369,8 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 		apply({ plans: await readOddPlans(cwd) });
 	});
 	// MCP (S32): names from the config files, state from Pi's tool list, which is
-	// cheap to read, so every Pi read refreshes it. Pi connects the servers.
+	// cheap to read, so every Pi read refreshes it. Pi connects the servers. No
+	// config is no server: the muted `mcp none configured` row.
 	let mcpNames: string[] | undefined;
 	const mcpState = () => {
 		if (!mcpNames) return;
@@ -376,10 +378,15 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 	};
 	const mcp = createSerialRefresh(async () => {
 		if (disposed) return;
-		mcpNames = await readMcpServerNames(mcpConfigPaths(cwd, attempt(() => homedir()) ?? "", process.env));
-		if (!mcpNames) apply({ mcp: undefined });
+		mcpNames = (await readMcpServerNames(mcpConfigPaths(cwd, attempt(() => homedir()) ?? "", process.env))) ?? [];
 		mcpState();
 	});
+	// Memory (design session-section/02): Engram is gentle-engram's mem_* tools,
+	// not an MCP server. Installed from Pi's tool list; saves and failures from
+	// the tool ends Pi sends. "connected" means the tools are loaded and the last
+	// mem_* call did not fail: nothing is spawned and no server is asked.
+	let memoryCalls = NO_MEMORY_CALLS;
+	const memoryState = () => apply({ memory: memoryInfo(attempt(() => pi.getAllTools()), memoryCalls) });
 	// User message box (S45): Pi's class is patched as soon as one user message
 	// is in the tree (a new session has none until the first prompt), retried on
 	// setHost, agent_start, turn_start and message_end. The patch is per class,
@@ -399,7 +406,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 	const readProfile = () => apply({ profile: attempt(() => readSessionProfile(sessionId)) });
 	// Idle refresh (S34a): with no run active and our panel, strip or header on
 	// screen (Gentle Shell's sidebar state on the host terminal), git changes,
-	// heads-up git data, plans and MCP state are re-read. Through the same serial
+	// heads-up git data, plans and the MCP and Engram state are re-read. Through the same serial
 	// helpers as the run triggers, so reads never overlap.
 	const idle = setInterval(() => {
 		if (disposed || store.runActive()) return;
@@ -407,6 +414,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 		git();
 		plans();
 		mcpState();
+		memoryState();
 		readProfile();
 		pruneAgents();
 	}, IDLE_REFRESH_MS);
@@ -475,6 +483,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 			});
 			readProfile();
 			mcpState();
+			memoryState();
 		},
 		readTodo: () => {
 			const manager = ctx.sessionManager as { getBranch?(): unknown[]; getEntries(): unknown[] };
@@ -518,6 +527,11 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 			if (pushed && !disposed) afterPush();
 			const state = attempt(() => todoStateFromToolEnd(event));
 			if (state) apply({ todo: todoFromState(state) });
+			const calls = attempt(() => memoryCallEnd(memoryCalls, event)) ?? memoryCalls;
+			if (calls !== memoryCalls) {
+				memoryCalls = calls;
+				memoryState();
+			}
 			attempt(() => followTrail(trailEnd(trail, event?.toolName ?? "", (event?.result as { details?: unknown } | undefined)?.details, event?.isError)));
 			// The subagent result names the task id and its agent, label, model and effort; one without a task id ends its call (S87).
 			if (attempt(() => subagents.result(event?.toolName, event?.result, event?.isError, typeof event?.toolCallId === "string" ? event.toolCallId : undefined)) === true) syncAgents();

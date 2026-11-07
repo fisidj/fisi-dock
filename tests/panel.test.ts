@@ -91,7 +91,7 @@ test("sections follow the approved order: logo, session, odd, rdd, agents, todo,
 	const order = ["╭─ session", "╭─ ODD", "╭─ RDD", "╭─ agents", "╭─ todo", "╭─ changes"].map((title) => lines.findIndex((line) => line.startsWith(title)));
 	for (const index of order) assert.ok(index > 0);
 	assert.deepEqual(order, order.toSorted((a, b) => a - b));
-	const cost = lines.findIndex((line) => line.includes("cost"));
+	const cost = lines.findIndex((line) => line.includes("$0.000"));
 	assert.ok(cost > order[0] && cost < order[1], "cost inside session");
 	assert.match(lines.at(-1)!, /^╰─+╯$/, "no footer below the last section");
 	assert.ok(!lines.some((line) => /^─+$/.test(line)), "no footer separator");
@@ -100,9 +100,14 @@ test("sections follow the approved order: logo, session, odd, rdd, agents, todo,
 test("sample sections show design 07 content", () => {
 	const lines = renderPanel(samplePanelModel, 47).map(plain);
 	const session = sectionBody(lines, "session");
-	assert.match(session[0], /^│ project  my-sample-app main ↑1 +│$/);
-	assert.match(session[1], /^│ context +6% used │$/);
-	assert.match(session[2], /^│ ━+┼━+┼━+ │$/);
+	assert.deepEqual(session.map((line) => line.replace(/ +│$/, "").replace(/(?<=context  )[━─┼]+/, "<meter>")), [
+		"│ where ──",
+		"│ project  my-sample-app  main ↑1",
+		"│ usage ──",
+		"│ context  <meter> 6% · 12.1k/200k",
+		"│ profile  claude                      $0.000",
+	]);
+	assert.match(session[3], /^│ context  [━─┼]{18} 6% · 12\.1k\/200k │$/);
 	assert.ok(lines.find((line) => line.startsWith("╭─ todo"))!.includes(" 3/7 ─╮"));
 	assert.deepEqual(sectionBody(lines, "agents").map((line) => line.replace(/ +│$/, "")), ["│ ✓ explore Map CI workflow", "│ ⠹ verify Check PR 265 checks"]);
 	const changes = sectionBody(lines, "changes");
@@ -218,9 +223,9 @@ test("session cost row: `cost` on the left with the dollars, no review text nor 
 	assert.ok(!session.includes("RDD") && !session.includes("review") && !session.includes("Approved"), session);
 });
 
-test("the cost row sits in session after the context rows and fits every rail width", () => {
+test("the cost row sits in session after the context row and fits every rail width", () => {
 	const lines = renderPanel({ session: { project: "p", contextPercent: 5, tokensUsed: 53_500, tokensMax: 1_000_000 }, footer: { cost: 0.012, rdd: "on" } }, 47).map(plain);
-	assert.deepEqual(sectionBody(lines, "session").map((line) => line.replace(/ +/g, " ")), ["│ project p │", "│ context 5% used │", `│ ${"━".repeat(25)}┼${"━".repeat(10)}┼${"━".repeat(6)} │`, "│ cost $0.012 │"]);
+	assert.deepEqual(sectionBody(lines, "session").map((line) => line.replace(/ +/g, " ")), ["│ where ── │", "│ project p │", "│ usage ── │", `│ context ━${"─".repeat(11)}┼${"─".repeat(4)}┼── 5% · 53.5k/1M │`, "│ cost $0.012 │"]);
 	for (const width of [58, 55, 47, 30, 20, 12, 5, 1]) {
 		for (const line of renderPanel({ session: { project: "p" }, footer: { cost: 123.456, rdd: "off", review: "Reviewers running…" } }, width)) assert.ok(visibleWidth(line) <= width, `width ${width}`);
 	}
@@ -387,73 +392,348 @@ test("RDD rows fit 47, 30 and 20 columns, the watching row included (S50)", () =
 	}
 });
 
-test("session profile row: Gentle Shell's label after the context, before the cost; none without one (S99)", () => {
-	const session = (profile?: string) => {
-		const lines = renderPanel({ session: { project: "p", contextPercent: 40, ...(profile ? { profile } : {}) }, footer: { cost: 0.012 } }, 47).map(plain);
-		const start = lines.findIndex((line) => line.startsWith("╭─ session"));
-		return lines.slice(start + 1, lines.findIndex((line, index) => index > start && line.startsWith("╰")));
-	};
+test("session profile row: Gentle Shell's label with the cost flush right; without a profile the cost keeps its own row (S99)", () => {
+	const session = (profile?: string) => sectionBody(renderPanel({ session: { project: "p", contextPercent: 40, ...(profile ? { profile } : {}) }, footer: { cost: 0.012 } }, 47), "session");
 	const rows = session("claude (session)");
-	assert.match(rows[3], /^│ profile  claude \(session\) +│$/);
-	assert.match(rows[4], /^│ cost +\$0\.012 +│$/);
-	assert.ok(!session().some((line) => line.includes("profile")), "no profile, no row");
+	assert.match(rows[4], /^│ profile  claude \(session\) +\$0\.012 │$/);
+	assert.ok(!rows.some((line) => line.startsWith("│ cost")), "the cost rides the profile row");
+	assert.ok(!session().some((line) => line.includes("profile")), "no profile, no profile row");
+	assert.match(session().at(-1)!, /^│ cost +\$0\.012 +│$/);
 	for (const width of [20, 30, 47]) {
 		const line = renderPanel({ session: { project: "p", profile: "a-very-long-profile-name-that-never-ends (session)" } }, width).find((row) => plain(row).includes("profile"))!;
 		assert.equal(visibleWidth(line), width, JSON.stringify(plain(line)));
 	}
+	const long = sectionBody(renderPanel({ session: { project: "p", profile: "a-very-long-profile-name-that-never-ends (session)" }, footer: { cost: 0.127 } }, 47), "session");
+	assert.match(long.find((line) => line.includes("profile"))!, /^│ profile  a-very-long-profile-name-t… \$0\.127 │$/, "the profile is cut before the cost");
 });
 
-const mcpRow = (servers: NonNullable<PanelModel["session"]["mcp"]>, width = 47) =>
-	renderPanel({ session: { project: "p", mcp: servers } }, width).find((line) => plain(line).includes("mcp "));
+// --- the grouped session section (design session-section/02, artboard 02) -----------------
 
-test("session mcp row: one dot and name per server, green connected, red failing, muted unknown (S32)", () => {
-	const row = mcpRow([{ name: "engram", state: "connected" }, { name: "context7", state: "failing" }, { name: "rea", state: "unknown" }])!;
-	assert.match(plain(row), /^│ mcp      ● engram ● context7 ● rea +│$/);
-	assert.ok(row.includes(`${fgCode(palette.green)}●`), "green dot");
-	assert.ok(row.includes(`${fgCode(palette.red)}●`), "red dot");
-	assert.ok(row.includes(`${fgCode(palette.faint)}●`), "muted dot");
-	const lines = renderPanel({ session: { project: "p", mcp: [{ name: "engram", state: "connected" }] }, footer: { cost: 0, rdd: "on" } }, 47).map(plain);
-	const body = sectionBody(lines, "session");
-	assert.ok(body.at(-1)!.includes("mcp") && body.at(-2)!.startsWith("│ cost "), "mcp is the last session row, after cost");
+/** The artboard's states (a)-(e), as its script draws them; (a) is the user's setup with 3 saves. */
+const ART_SESSION: PanelModel["session"] = { project: "fisi-dock", branch: "main", contextPercent: 5, tokensUsed: 53_500, tokensMax: 1_000_000, profile: "claude", memory: { state: "connected", saved: 3 }, mcp: [] };
+const ART_STATES: Record<string, PanelModel["session"]> = {
+	a: ART_SESSION,
+	b: { ...ART_SESSION, ahead: 2, mcp: [{ name: "context7", state: "connected" }, { name: "github", state: "unknown" }, { name: "sentry", state: "failing" }] },
+	c: { ...ART_SESSION, memory: { state: "unreachable" } },
+	d: { ...ART_SESSION, contextPercent: 87, tokensUsed: 870_000 },
+	e: { ...ART_SESSION, memory: { state: "missing" } },
+};
+/** The session box, frame included, of `session` with the artboard's $0.127 at `width`. */
+const sessionBox = (session: PanelModel["session"], width: number, raw = false, options: Parameters<typeof renderPanel>[2] = {}) => {
+	const lines = renderPanel({ session, footer: { cost: 0.127 } }, width, options);
+	const start = lines.findIndex((line) => plain(line).startsWith("╭─ session"));
+	const end = lines.findIndex((line, index) => index > start && plain(line).startsWith("╰"));
+	const box = lines.slice(start, end + 1);
+	return raw ? box : box.map(plain);
+};
+/** A row's cells as `<color letter><glyph>` pairs for the meter glyphs ━ ─ ┼; "?" for any other color. */
+const meterCells = (line: string) => {
+	const letters: [readonly number[], string][] = [[palette.teal, "T"], [palette.amber, "A"], [palette.red, "R"], [palette.faint, "f"]];
+	const cells: string[] = [];
+	let color = "?";
+	for (const match of line.matchAll(/\[38;2;(\d+);(\d+);(\d+)m|\[[0-?]*[ -/]*[@-~]|([━─┼])/g)) {
+		if (match[1]) color = letters.find(([rgb]) => rgb.join(";") === `${match[1]};${match[2]};${match[3]}`)?.[1] ?? "?";
+		else if (match[4]) cells.push(color + match[4]);
+	}
+	return cells.join("");
+};
+const cellRun = (letter: string, count: number, glyph = "━") => `${letter}${glyph}`.repeat(count);
+/** The raw row of `box` whose plain text starts with `start`. */
+const sessionRow = (box: string[], start: string) => box.find((line) => plain(line).startsWith(start))!;
+
+const ARTBOARD: Record<string, string[]> = {
+	"a@55": [
+		"╭─ session ───────────────────────────────────────────╮",
+		"│ where ──                                            │",
+		"│ project  fisi-dock  main                            │",
+		"│ usage ──                                            │",
+		"│ context  ━───────────────┼──────┼──── 5% · 53.5k/1M │",
+		"│ profile  claude                              $0.127 │",
+		"│ connections ──                                      │",
+		"│ memory   ● engram  connected · 3 saved              │",
+		"│ mcp      none configured                            │",
+		"╰─────────────────────────────────────────────────────╯",
+	],
+	"b@55": [
+		"╭─ session ───────────────────────────────────────────╮",
+		"│ where ──                                            │",
+		"│ project  fisi-dock  main ↑2                         │",
+		"│ usage ──                                            │",
+		"│ context  ━───────────────┼──────┼──── 5% · 53.5k/1M │",
+		"│ profile  claude                              $0.127 │",
+		"│ connections ──                                      │",
+		"│ memory   ● engram    connected · 3 saved            │",
+		"│ mcp      ● context7  connected                      │",
+		"│          ◌ github    connecting                     │",
+		"│          ✗ sentry    failed                         │",
+		"╰─────────────────────────────────────────────────────╯",
+	],
+	"c@55": [
+		"╭─ session ───────────────────────────────────────────╮",
+		"│ where ──                                            │",
+		"│ project  fisi-dock  main                            │",
+		"│ usage ──                                            │",
+		"│ context  ━───────────────┼──────┼──── 5% · 53.5k/1M │",
+		"│ profile  claude                              $0.127 │",
+		"│ connections ──                                      │",
+		"│ memory   ✗ engram  unreachable                      │",
+		"│ mcp      none configured                            │",
+		"╰─────────────────────────────────────────────────────╯",
+	],
+	"d@55": [
+		"╭─ session ───────────────────────────────────────────╮",
+		"│ where ──                                            │",
+		"│ project  fisi-dock  main                            │",
+		"│ usage ──                                            │",
+		"│ context  ━━━━━━━━━━━━━━━━━━━━━━━━──── 87% · 870k/1M │",
+		"│ profile  claude                              $0.127 │",
+		"│ connections ──                                      │",
+		"│ memory   ● engram  connected · 3 saved              │",
+		"│ mcp      none configured                            │",
+		"╰─────────────────────────────────────────────────────╯",
+	],
+	"e@55": [
+		"╭─ session ───────────────────────────────────────────╮",
+		"│ where ──                                            │",
+		"│ project  fisi-dock  main                            │",
+		"│ usage ──                                            │",
+		"│ context  ━───────────────┼──────┼──── 5% · 53.5k/1M │",
+		"│ profile  claude                              $0.127 │",
+		"│ connections ──                                      │",
+		"│ memory   ○ engram  not installed                    │",
+		"│ mcp      none configured                            │",
+		"╰─────────────────────────────────────────────────────╯",
+	],
+	"a@47": [
+		"╭─ session ───────────────────────────────────╮",
+		"│ where ──                                    │",
+		"│ project  fisi-dock  main                    │",
+		"│ usage ──                                    │",
+		"│ context  ━───────────┼────┼── 5% · 53.5k/1M │",
+		"│ profile  claude                      $0.127 │",
+		"│ connections ──                              │",
+		"│ memory   ● engram  connected · 3 saved      │",
+		"│ mcp      none configured                    │",
+		"╰─────────────────────────────────────────────╯",
+	],
+	"b@47": [
+		"╭─ session ───────────────────────────────────╮",
+		"│ where ──                                    │",
+		"│ project  fisi-dock  main ↑2                 │",
+		"│ usage ──                                    │",
+		"│ context  ━───────────┼────┼── 5% · 53.5k/1M │",
+		"│ profile  claude                      $0.127 │",
+		"│ connections ──                              │",
+		"│ memory   ● engram    connected · 3 saved    │",
+		"│ mcp      ● context7  connected              │",
+		"│          ◌ github    connecting             │",
+		"│          ✗ sentry    failed                 │",
+		"╰─────────────────────────────────────────────╯",
+	],
+	"c@47": [
+		"╭─ session ───────────────────────────────────╮",
+		"│ where ──                                    │",
+		"│ project  fisi-dock  main                    │",
+		"│ usage ──                                    │",
+		"│ context  ━───────────┼────┼── 5% · 53.5k/1M │",
+		"│ profile  claude                      $0.127 │",
+		"│ connections ──                              │",
+		"│ memory   ✗ engram  unreachable              │",
+		"│ mcp      none configured                    │",
+		"╰─────────────────────────────────────────────╯",
+	],
+	"d@47": [
+		"╭─ session ───────────────────────────────────╮",
+		"│ where ──                                    │",
+		"│ project  fisi-dock  main                    │",
+		"│ usage ──                                    │",
+		"│ context  ━━━━━━━━━━━━━━━━━┼── 87% · 870k/1M │",
+		"│ profile  claude                      $0.127 │",
+		"│ connections ──                              │",
+		"│ memory   ● engram  connected · 3 saved      │",
+		"│ mcp      none configured                    │",
+		"╰─────────────────────────────────────────────╯",
+	],
+	"e@47": [
+		"╭─ session ───────────────────────────────────╮",
+		"│ where ──                                    │",
+		"│ project  fisi-dock  main                    │",
+		"│ usage ──                                    │",
+		"│ context  ━───────────┼────┼── 5% · 53.5k/1M │",
+		"│ profile  claude                      $0.127 │",
+		"│ connections ──                              │",
+		"│ memory   ○ engram  not installed            │",
+		"│ mcp      none configured                    │",
+		"╰─────────────────────────────────────────────╯",
+	],
+	"a@34": [
+		"╭─ session ──────────────────────╮",
+		"│ where ──                       │",
+		"│ project  fisi-dock  main       │",
+		"│ usage ──                       │",
+		"│ context  ━───────────┼────┼─── │",
+		"│                  5% · 53.5k/1M │",
+		"│ profile  claude         $0.127 │",
+		"│ connections ──                 │",
+		"│ memory   ● engram  connected   │",
+		"│ mcp      none configured       │",
+		"╰────────────────────────────────╯",
+	],
+	"b@34": [
+		"╭─ session ──────────────────────╮",
+		"│ where ──                       │",
+		"│ project  fisi-dock  main ↑2    │",
+		"│ usage ──                       │",
+		"│ context  ━───────────┼────┼─── │",
+		"│                  5% · 53.5k/1M │",
+		"│ profile  claude         $0.127 │",
+		"│ connections ──                 │",
+		"│ memory   ● engram   connected  │",
+		"│ mcp      ● context7 connected  │",
+		"│          ◌ github   connecting │",
+		"│          ✗ sentry   failed     │",
+		"╰────────────────────────────────╯",
+	],
+	"c@34": [
+		"╭─ session ──────────────────────╮",
+		"│ where ──                       │",
+		"│ project  fisi-dock  main       │",
+		"│ usage ──                       │",
+		"│ context  ━───────────┼────┼─── │",
+		"│                  5% · 53.5k/1M │",
+		"│ profile  claude         $0.127 │",
+		"│ connections ──                 │",
+		"│ memory   ✗ engram  unreachable │",
+		"│ mcp      none configured       │",
+		"╰────────────────────────────────╯",
+	],
+};
+
+test("the grouped session section is artboard 02 at 55 and 47 columns, states (a) to (e), and at 34 columns for (a) to (c)", () => {
+	for (const [key, expected] of Object.entries(ARTBOARD)) {
+		const [state, width] = key.split("@");
+		assert.deepEqual(sessionBox(ART_STATES[state], Number(width)), expected, key);
+	}
 });
 
-test("servers that do not fit drop from the right with +N; a lone long name is ellipsized (S32)", () => {
-	const names = ["engram", "context7", "rea", "supabase", "codegraph", "github"].map((name) => ({ name, state: "connected" as const }));
-	assert.match(plain(mcpRow(names, 30)!), /^│ mcp      ● engram \+5 +│$/);
-	assert.match(plain(mcpRow(names, 47)!), /^│ mcp      ● engram ● context7 ● rea \+3 +│$/);
-	assert.match(plain(mcpRow(names, 58)!), /^│ mcp      ● engram ● context7 ● rea ● supabase \+2 +│$/);
-	assert.match(plain(mcpRow([{ name: "a-server-name-far-too-long-for-the-row", state: "connected" }], 30)!), /^│ mcp      ● a-server-name-… │$/);
-	for (const width of [58, 47, 30, 20, 12, 5, 1]) for (const line of renderPanel({ session: { project: "p", mcp: names } }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+test("group labels are muted with a faint ── stub, no full-width rule; keys muted in one column (artboard 02)", () => {
+	const box = sessionBox(ART_STATES.b, 47, true);
+	for (const label of ["where", "usage", "connections"]) {
+		const row = sessionRow(box, `│ ${label} ──`);
+		assert.ok(row.includes(`${fgCode(palette.muted)}${label}`), `${label} muted`);
+		assert.ok(row.includes(`${fgCode(palette.faint)} ──`), `${label} faint stub`);
+		assert.match(plain(row), new RegExp(`^│ ${label} ── +│$`), `${label}: a stub, not a rule`);
+	}
+	for (const key of ["project  ", "context  ", "profile  ", "memory   ", "mcp      "]) assert.ok(sessionRow(box, `│ ${key.trim()}`).includes(`${fgCode(palette.muted)}${key}`), `${key.trim()} key muted`);
+	const where = sessionRow(box, "│ project");
+	assert.ok(where.includes(`\x1b[1m${fgCode(palette.text)}fisi-dock`), "project bold");
+	assert.ok(where.includes(`${fgCode(palette.green)}main ↑2`), "branch and ↑N green");
+	const unpushed = renderPanel({ session: ART_STATES.b, headsUp: [{ kind: "unpushed", text: "2 commits not pushed" }] }, 47).map(plain);
+	assert.match(sectionBody(unpushed, "session")[1], /^│ project  fisi-dock  main +│$/, "the heads-up already says ↑N (S8)");
+	assert.match(sectionBody(renderPanel({ session: { ...ART_SESSION, branch: undefined } }, 47), "session")[1], /^│ project  fisi-dock +│$/, "no branch, no gap");
 });
 
-test("no mcp servers: no mcp row", () => {
-	assert.equal(mcpRow([]), undefined);
-	assert.ok(!renderPanel({ session: { project: "p" } }, 47).some((line) => plain(line).includes("mcp")));
+test("context meter: filled ━ in the state color, empty thin faint ─ with faint ┼ on the 60% and 85% cells; the readout bold percent, muted ·, tokens (artboard 02)", () => {
+	const row = (percent: number, used = 53_500) => sessionRow(sessionBox({ ...ART_SESSION, contextPercent: percent, tokensUsed: used }, 47, true), "│ context");
+	const empty = (from: number) => cellRun("f", 12 - from, "─") + cellRun("f", 1, "┼") + cellRun("f", 4, "─") + cellRun("f", 1, "┼") + cellRun("f", 2, "─");
+	assert.equal(meterCells(row(5)), cellRun("T", 1) + empty(1));
+	assert.equal(meterCells(row(16, 870_000)), cellRun("T", 3) + empty(3), "a readout of 13 columns leaves 20 cells");
+	assert.equal(meterCells(row(0)), empty(0));
+	assert.equal(meterCells(row(65, 870_000)), cellRun("A", 13) + cellRun("f", 4, "─") + cellRun("f", 1, "┼") + cellRun("f", 2, "─"), "amber from 60%, the passed mark filled");
+	assert.equal(meterCells(row(87, 870_000)), cellRun("R", 17) + cellRun("f", 1, "┼") + cellRun("f", 2, "─"), "(d) 87%: red");
+	assert.equal(meterCells(row(100, 1_000_000)), cellRun("R", 20));
+	for (const [percent, color] of [[5, palette.teal], [65, palette.amber], [87, palette.red]] as const) {
+		const line = row(percent);
+		assert.ok(line.includes(`\x1b[1m${fgCode(color)}${percent}%`), `${percent}% bold in its color`);
+		assert.ok(line.includes(`${fgCode(palette.muted)} · `), "muted ·");
+		assert.ok(line.includes(`${fgCode(palette.text)}53.5k/1M`), "tokens in the text color");
+	}
+	assert.match(plain(row(87, 870_000)), /^│ context  ━{17}┼── 87% · 870k\/1M │$/);
+	assert.match(plain(row(16)), /^│ context  [━─┼]{19} 16% · 53\.5k\/1M │$/, "a wider readout takes its columns from the bar, never past the frame");
 });
 
-test("pinned layout without MCP config and footer data: logo, session, the ODD ready row and changes, nothing after the last frame (S32, S52)", () => {
-	const model: PanelModel = {
-		session: { project: "Año Nuevo Demo Project", branch: "main", contextPercent: 5, tokensUsed: 53_500, tokensMax: 1_000_000 },
-		changes: [{ status: "M", path: "lib/panel.ts", added: 3, removed: 1 }],
-	};
-	const lines = renderPanel(model, 47).map(plain);
-	assert.deepEqual(lines.slice(3), [
-		`╭─ session ${"─".repeat(35)}╮`,
-		`│ project  Año Nuevo Demo Project main${" ".repeat(8)}│`,
-		`│ context${" ".repeat(29)}5% used │`,
-		`│ ${"━".repeat(25)}┼${"━".repeat(10)}┼${"━".repeat(6)} │`,
-		`╰${"─".repeat(45)}╯`,
-		`╭─ ODD ${"─".repeat(39)}╮`,
-		`│ ○ ready · phases show while I work${" ".repeat(10)}│`,
-		`╰${"─".repeat(45)}╯`,
-		`╭─ todo ${"─".repeat(38)}╮`,
-		`│ ○ no tasks · the list shows while I plan${" ".repeat(4)}│`,
-		`╰${"─".repeat(45)}╯`,
-		`╭─ changes ${"─".repeat(21)} 1 to commit ─╮`,
-		`│ ● panel.ts lib/${" ".repeat(23)}+3 -1 │`,
-		`╰${"─".repeat(45)}╯`,
-	]);
-	assert.equal(lines.length, 17, "three logo rows on top");
+test("the readout shares the meter row while the bar keeps 16 cells, else it moves right-aligned under the bar (artboard 02, 34 columns)", () => {
+	const body = (width: number) => sectionBody(renderPanel({ session: ART_SESSION }, width), "session");
+	assert.match(body(43).find((line) => line.startsWith("│ context"))!, /^│ context  [━─┼]{16} 5% · 53\.5k\/1M │$/, "16 cells: one row");
+	const narrow = body(42);
+	const at = narrow.findIndex((line) => line.startsWith("│ context"));
+	assert.match(narrow[at], /^│ context  [━─┼]{29} │$/, "15 cells would be too short: the bar takes the row");
+	assert.match(narrow[at + 1], /^│ +5% · 53\.5k\/1M │$/, "the readout under it, flush right");
+	const plainPercent = sectionBody(renderPanel({ session: { project: "p", contextPercent: 42 } }, 47), "session").find((line) => line.startsWith("│ context"))!;
+	assert.match(plainPercent, /^│ context  [━─┼]{20} +42% used │$/, "no token counts: the percent and a muted used");
+	for (const width of [58, 55, 47, 43, 42, 34, 30, 20, 14, 12]) {
+		const lines = renderPanel({ session: { ...ART_SESSION, contextPercent: 42, tokensUsed: 199_999, tokensMax: 200_000 } }, width);
+		for (const line of lines) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+	}
+});
+
+test("memory row: ● engram connected green with a muted · N saved, ✗ unreachable red, ○ not installed muted; the saved count drops first (artboard 02)", () => {
+	const memory = (info: NonNullable<PanelModel["session"]["memory"]>, width = 47) => sessionRow(sessionBox({ ...ART_SESSION, memory: info }, width, true), "│ memory");
+	const connected = memory({ state: "connected", saved: 0 });
+	assert.match(plain(connected), /^│ memory   ● engram  connected · 0 saved +│$/, "0 saves still say so");
+	assert.ok(connected.includes(`${fgCode(palette.green)}●`) && connected.includes(`${fgCode(palette.green)}connected`), "green glyph and word");
+	assert.ok(connected.includes(`${fgCode(palette.text)}engram`), "name in the text color");
+	assert.ok(connected.includes(`${fgCode(palette.muted)} · 0 saved`), "muted saved count");
+	const unreachable = memory({ state: "unreachable" });
+	assert.match(plain(unreachable), /^│ memory   ✗ engram  unreachable +│$/);
+	assert.ok(unreachable.includes(`${fgCode(palette.red)}✗`) && unreachable.includes(`${fgCode(palette.red)}unreachable`), "red glyph and word");
+	const missing = memory({ state: "missing" });
+	assert.match(plain(missing), /^│ memory   ○ engram  not installed +│$/);
+	assert.ok(missing.includes(`${fgCode(palette.faint)}○`), "faint ○");
+	assert.ok(missing.includes(`${fgCode(palette.muted)}engram`) && missing.includes(`${fgCode(palette.muted)}not installed`), "muted name and words");
+	assert.match(plain(memory({ state: "connected", saved: 12 }, 34)), /^│ memory   ● engram  connected +│$/, "34 columns: the count drops before the words");
+	assert.ok(!sectionBody(renderPanel({ session: { project: "p" } }, 47), "session").some((line) => line.includes("memory")), "unknown: no memory row");
+});
+
+test("mcp rows: `none configured` muted without a server; one row per server with ● connected, ◌ connecting (unknown), ✗ failed; names and words in columns (artboard 02)", () => {
+	const none = sessionBox({ project: "p", mcp: [] }, 47, true);
+	const row = sessionRow(none, "│ mcp");
+	assert.match(plain(row), /^│ mcp      none configured +│$/);
+	assert.ok(row.includes(`${fgCode(palette.muted)}none configured`), "muted");
+	assert.ok(!sessionBox({ project: "p" }, 47).some((line) => line.includes("mcp")), "not read yet: no mcp row");
+	const box = sessionBox(ART_STATES.b, 47, true);
+	const servers = box.filter((line) => /^│ (mcp {6}| {9})[●◌✗]/.test(plain(line)));
+	assert.deepEqual(servers.map(plain), ["│ mcp      ● context7  connected              │", "│          ◌ github    connecting             │", "│          ✗ sentry    failed                 │"]);
+	assert.ok(servers[0].includes(`${fgCode(palette.green)}●`) && servers[0].includes(`${fgCode(palette.green)}connected`), "connected green");
+	assert.ok(servers[1].includes(`${fgCode(palette.amber)}◌`) && servers[1].includes(`${fgCode(palette.amber)}connecting`), "connecting amber");
+	assert.ok(servers[2].includes(`${fgCode(palette.red)}✗`) && servers[2].includes(`${fgCode(palette.red)}failed`), "failed red");
+	const alone = sectionBody(renderPanel({ session: { project: "p", mcp: [{ name: "rea", state: "connected" }] } }, 47), "session");
+	assert.match(alone.at(-1)!, /^│ mcp      ● rea  connected +│$/, "without a memory row the names are the servers' own column");
+	const long = sectionBody(renderPanel({ session: { project: "p", mcp: [{ name: "a-server-name-far-too-long-for-the-row", state: "connected" }, { name: "rea", state: "failing" }] } }, 47), "session");
+	assert.deepEqual(long.slice(-2), ["│ mcp      ● a-server-na…  connected          │", "│          ✗ rea           failed             │"], "a long name is cut so the words keep their column");
+	for (const width of [58, 47, 34, 30, 20, 12, 5, 1]) for (const line of renderPanel({ session: ART_STATES.b }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+test("the user's setup: fisi-dock on main, 5%, 53.5k/1M, claude, $0.127, engram connected with 0 saved, no MCP config", () => {
+	const real = { ...ART_SESSION, memory: { state: "connected" as const, saved: 0 } };
+	for (const width of [55, 47]) {
+		const box = sessionBox(real, width);
+		assert.deepEqual(box, ARTBOARD[`a@${width}`].map((line) => line.replace("connected · 3 saved", "connected · 0 saved")), `${width}`);
+		console.log(`--- the session section at ${width} columns, the user's setup\n${box.join("\n")}`);
+	}
+});
+
+test("one group only: no label row; the labels name groups apart from each other", () => {
+	assert.deepEqual(sectionBody(renderPanel({ session: { project: "p", branch: "main" } }, 47), "session"), [`│ project  p  main${" ".repeat(27)} │`]);
+	const two = sectionBody(renderPanel({ session: { project: "p" }, footer: { cost: 0.012 } }, 47), "session").map((line) => line.replace(/ +│$/, ""));
+	assert.deepEqual(two, ["│ where ──", "│ project  p", "│ usage ──", "│ cost     $0.012"]);
+});
+
+test("short screens drop the session's 3 group labels first, before any spacer row (artboard 02, S34)", () => {
+	const model: PanelModel = { session: ART_STATES.b, footer: { cost: 0.127 }, odd: samplePanelModel.odd, changes: samplePanelModel.changes };
+	const full = renderPanel(model, 47).map(plain);
+	const labels = (lines: string[]) => sectionBody(lines, "session").filter((line) => /^│ (where|usage|connections) ──/.test(line));
+	assert.equal(labels(full).length, 3);
+	const noLabels = renderPanel(model, 47, { maxRows: full.length - 1 }).map(plain);
+	assert.equal(noLabels.length, full.length - 3, "the 3 label rows, nothing else");
+	assert.deepEqual(labels(noLabels), []);
+	assert.equal(noLabels.filter(isSpacer).length, full.filter(isSpacer).length, "the ODD spacers stay");
+	assert.deepEqual(sectionBody(noLabels, "session"), sectionBody(full, "session").filter((line) => !labels(full).includes(line)), "every other session row stays");
+	const noSpacers = renderPanel(model, 47, { maxRows: noLabels.length - 1 }).map(plain);
+	assert.ok(!noSpacers.some(isSpacer), "then the spacers");
+	assert.deepEqual(labels(noSpacers), [], "the labels stay out");
+	assert.deepEqual(renderPanel(model, 47, { maxRows: full.length }).map(plain), full, "it fits: labels drawn");
+	assert.deepEqual(labels(renderDock(model, DOCK_WIDTH + 2, 200).lines.map((line) => plain(line).slice(1, -1))).length, 3, "/dock keeps them: it scrolls");
 });
 
 for (const total of [3, 7, 50]) {
@@ -763,54 +1043,15 @@ test("every section frame is the same neutral gray; only titles keep their color
 	}
 });
 
-// S55: the context rows of artboard 18 option B.
-const contextRows = (percent: number, width = 47) => {
-	const lines = renderPanel({ session: { project: "p", contextPercent: percent, tokensUsed: 12_100, tokensMax: 200_000 } }, width);
-	const index = lines.findIndex((line) => plain(line).startsWith("│ context"));
-	return [lines[index], lines[index + 1]];
-};
-const COLOR_LETTER: [readonly number[], string][] = [[palette.teal, "T"], [palette.amber, "A"], [palette.red, "R"], [palette.faint, "f"]];
-/** The line's cells as `<color letter><glyph>` pairs, e.g. "T━" or "f┼"; "?" for any other color. */
-const lineCells = (line: string) => {
-	const cells: string[] = [];
-	let color = "?";
-	for (const match of line.matchAll(/\[38;2;(\d+);(\d+);(\d+)m|\[[0-?]*[ -/]*[@-~]|([━┼])/g)) {
-		if (match[1]) color = COLOR_LETTER.find(([rgb]) => rgb.join(";") === `${match[1]};${match[2]};${match[3]}`)?.[1] ?? "?";
-		else if (match[4]) cells.push(color + match[4]);
-	}
-	return cells.join("");
-};
-const run = (letter: string, count: number, glyph = "━") => `${letter}${glyph}`.repeat(count);
-
-test("context row: muted key, the percent bold in its context color, then a muted `used`; no token count (S55)", () => {
+// S55 drew two context rows; artboard 02 puts the meter and its readout on one row (tests above).
+test("context row: muted key, the meter, then the percent bold in its context color, a muted · and the tokens (S55, artboard 02)", () => {
 	for (const [percent, color] of [[16, palette.teal], [65, palette.amber], [90, palette.red]] as const) {
-		const [row] = contextRows(percent);
-		assert.equal(plain(row), `│ context${" ".repeat(43 - 7 - `${percent}% used`.length)}${percent}% used │`);
+		const lines = renderPanel({ session: { project: "p", contextPercent: percent, tokensUsed: 12_100, tokensMax: 200_000 } }, 47);
+		const row = lines.find((line) => plain(line).startsWith("│ context"))!;
+		assert.match(plain(row), new RegExp(`^│ context  [━─┼]{17} ${percent}% · 12\\.1k/200k │$`));
 		assert.ok(row.includes(`${fgCode(palette.muted)}context`), `${percent}% key muted`);
-		assert.ok(row.includes(`[1m${fgCode(color)}${percent}%[39m[22m`), `${percent}% bold in its color`);
-		assert.ok(row.includes(`${fgCode(palette.muted)} used`), `${percent}% used muted`);
-	}
-	const session = sectionBody(renderPanel(samplePanelModel, 47), "session").join("\n");
-	assert.ok(!session.includes("12.1k") && !session.includes("200k") && !session.includes("·"), session);
-});
-
-test("context line: each filled cell in the color of its own position, faint when empty, ┼ at the empty 60% and 85% cells (S55)", () => {
-	assert.equal(lineCells(contextRows(16)[1]), run("T", 7) + run("f", 18) + run("f", 1, "┼") + run("f", 10) + run("f", 1, "┼") + run("f", 6));
-	assert.equal(lineCells(contextRows(65)[1]), run("T", 26) + run("A", 2) + run("f", 8) + run("f", 1, "┼") + run("f", 6));
-	assert.equal(lineCells(contextRows(90)[1]), run("T", 26) + run("A", 11) + run("R", 2) + run("f", 4));
-	assert.equal(lineCells(contextRows(0)[1]), run("f", 25) + run("f", 1, "┼") + run("f", 10) + run("f", 1, "┼") + run("f", 6));
-	assert.equal(lineCells(contextRows(100)[1]), run("T", 26) + run("A", 11) + run("R", 6));
-});
-
-test("context rows: the percent row above the line; the line fills the inner width at every rail width (S55)", () => {
-	for (const width of [58, 55, 47, 30, 20]) {
-		const lines = renderPanel({ session: { project: "p", contextPercent: 42 } }, width);
-		for (const line of lines) assert.ok(visibleWidth(line) <= width, `width ${width}`);
-		const body = sectionBody(lines, "session");
-		const index = body.findIndex((line) => line.startsWith("│ context"));
-		assert.ok(index > 0, `width ${width} context row`);
-		assert.match(body[index], /42% used │$/);
-		assert.match(body[index + 1], new RegExp(`^│ [━┼]{${width - 4}} │$`), `width ${width} line cells`);
+		assert.ok(row.includes(`\x1b[1m${fgCode(color)}${percent}%\x1b[39m\x1b[22m`), `${percent}% bold in its color`);
+		assert.ok(row.includes(`${fgCode(palette.text)}12.1k/200k`), `${percent}% tokens`);
 	}
 });
 
@@ -1300,7 +1541,7 @@ test("a panel that fits the rows is unchanged; no row limit is the old output (S
 	assert.deepEqual(renderPanel(samplePanelModel, 47, { maxRows: 500 }), full);
 });
 
-test("short screens keep the logo, session, heads-up, ODD, todo and agents; drop odd and rdd spacers, then changes, then rdd with a running ODD cut to its active row (S38, S34, S50, S52)", () => {
+test("short screens keep the logo, session, heads-up, ODD, todo and agents; drop the session's group labels, then odd and rdd spacers, then changes, then rdd with a running ODD cut to its active row (S38, S34, S50, S52)", () => {
 	const model: PanelModel = { ...clone(samplePanelModel), headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
 	const full = renderPanel(model, 58).map(plain);
 	const logo = full.findIndex((line) => line.startsWith("╭─ session"));
@@ -1309,9 +1550,15 @@ test("short screens keep the logo, session, heads-up, ODD, todo and agents; drop
 	assert.equal(spacers, 4, "three odd spacers and one rdd spacer");
 	const has = (lines: string[], title: string) => lines.some((line) => line.startsWith(`╭─ ${title}`));
 
-	// (1) The odd and rdd spacer rows go first.
-	const noSpacers = renderPanel(model, 58, { maxRows: full.length - 1 }).map(plain);
-	assert.equal(noSpacers.length, full.length - spacers);
+	// (0) The session's group labels go first (artboard 02): where and usage here.
+	const noLabels = renderPanel(model, 58, { maxRows: full.length - 1 }).map(plain);
+	assert.equal(noLabels.length, full.length - 2);
+	assert.ok(!noLabels.some((line) => /^│ (where|usage|connections) ──/.test(line)), "no group labels");
+	assert.equal(noLabels.filter(isSpacer).length, spacers, "spacers kept");
+
+	// (1) Then the odd and rdd spacer rows.
+	const noSpacers = renderPanel(model, 58, { maxRows: noLabels.length - 1 }).map(plain);
+	assert.equal(noSpacers.length, noLabels.length - spacers);
 	assert.deepEqual(noSpacers.slice(0, logo), full.slice(0, logo), "logo kept");
 	assert.ok(!noSpacers.some(isSpacer), "no spacer rows");
 	assert.deepEqual(sectionBody(noSpacers, "ODD").map((line) => line.replace(/^│[ ▎]/, "").replace(/ +│$/, "").replace(/ +/g, " ")), ["✓ exploring 0:31", "✓ implementing 1:12", "✓ exploring 0:20", "⡿ checking 0:42"]);

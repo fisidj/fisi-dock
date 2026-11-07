@@ -282,11 +282,17 @@ test("session snapshot combines the live parts into a panel model", () => {
 	assert.equal("odd" in model, false);
 });
 
-test("session snapshot carries the MCP servers in session, none when empty or unknown (S32)", () => {
+test("session snapshot carries the MCP servers in session, [] for no MCP config, none while unknown (S32, artboard 02)", () => {
 	const mcp = [{ name: "engram", state: "connected" as const }];
 	assert.deepEqual(sessionSnapshot({ project: "app", mcp }).session.mcp, mcp);
-	assert.equal("mcp" in sessionSnapshot({ project: "app", mcp: [] }).session, false);
+	assert.deepEqual(sessionSnapshot({ project: "app", mcp: [] }).session.mcp, [], "read, no server: the muted none configured row");
 	assert.equal("mcp" in sessionSnapshot({ project: "app" }).session, false);
+});
+
+test("session snapshot carries the memory (Engram) state in session, none while unknown (artboard 02)", () => {
+	assert.deepEqual(sessionSnapshot({ project: "app", memory: { state: "connected", saved: 2 } }).session.memory, { state: "connected", saved: 2 });
+	assert.deepEqual(sessionSnapshot({ project: "app", memory: { state: "missing" } }).session.memory, { state: "missing" });
+	assert.equal("memory" in sessionSnapshot({ project: "app" }).session, false);
 });
 
 test("session snapshot carries the RDD switch from gentle-ai in the footer (S19, S85)", () => {

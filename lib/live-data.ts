@@ -2,7 +2,7 @@ import { ciRunning, ciView, type CiRuns } from "./ci.ts";
 import { entranceSteps } from "./entrance.ts";
 import { headsUpWarnings, type PlanInfo } from "./heads-up.ts";
 import { SHIMMER_STEP_MS } from "./orbs.ts";
-import type { AgentInfo, ChangeInfo, McpServerInfo, OddInfo, PanelModel, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
+import type { AgentInfo, ChangeInfo, McpServerInfo, MemoryInfo, OddInfo, PanelModel, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { rddLabel } from "./panel.ts";
 import { rddLive, rddView, type RddRow } from "./rdd.ts";
 
@@ -276,8 +276,10 @@ export interface LiveParts {
 	reviews?: RddRow[];
 	/** CI runs of the branch's last pushed commit (S64), from lib/ci.ts readCi; undefined: no section. */
 	ci?: CiRuns;
-	/** Configured MCP servers and their state (S32); undefined without MCP config. */
+	/** Configured MCP servers and their state (S32); [] without MCP config, undefined until the config was read. */
 	mcp?: McpServerInfo[];
+	/** Engram from gentle-engram's mem_* tools and calls (lib/memory.ts); undefined while Pi's tool list cannot be read. */
+	memory?: MemoryInfo;
 	/** The running spinner's frame from the wall clock (S31); drawn only while something runs. */
 	spinner?: number;
 }
@@ -396,7 +398,8 @@ function snapshotOf(parts: LiveParts, now: number): PanelModel {
 		...(parts.ahead !== undefined ? { ahead: parts.ahead } : {}),
 		...parts.usage,
 		...(parts.profile ? { profile: parts.profile } : {}),
-		...(parts.mcp?.length ? { mcp: parts.mcp } : {}),
+		...(parts.mcp ? { mcp: parts.mcp } : {}),
+		...(parts.memory ? { memory: parts.memory } : {}),
 	};
 	const todo = parts.todo;
 	const openTodo = todo ? todo.more + (todo.active !== undefined ? 1 : 0) + (todo.next !== undefined ? 1 : 0) : 0;

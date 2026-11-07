@@ -14,8 +14,17 @@ export interface SessionInfo {
 	tokensMax?: number;
 	/** Gentle Shell's agent-model profile label (S99, lib/profile.ts); no row when absent. */
 	profile?: string;
-	/** Configured MCP servers in config order (S32); no row when absent or empty. */
+	/** Configured MCP servers in config order (S32): one row each; [] is no MCP config (a muted `none configured` row); no row while absent (not read yet). */
 	mcp?: McpServerInfo[];
+	/** Engram, the memory row of the connections group (lib/memory.ts); no row while absent (Pi's tool list unreadable). */
+	memory?: MemoryInfo;
+}
+
+export interface MemoryInfo {
+	/** Missing: no mem_save tool, gentle-engram is not installed. Connected: its tools are loaded and the last mem_* call did not fail. */
+	state: "connected" | "unreachable" | "missing";
+	/** Connected only: mem_save calls that ended without error in this session. */
+	saved?: number;
 }
 
 export interface McpServerInfo {

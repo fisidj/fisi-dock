@@ -8,12 +8,15 @@ Fisi Dock is a Pi package (an extension and a theme) that paints its own panel i
 
 ```text
 ╭─ session ───────────────────────────────────╮
-│ project  my-sample-app main ↑1              │
-│ context                             6% used │
-│ ━━━━━━━━━━━━━━━━━━━━━━━━━┼━━━━━━━━━━┼━━━━━━ │
-│ profile  claude                             │
-│ cost     $0.012                             │
-│ mcp      ● engram ● context7 ● github       │
+│ where ──                                    │
+│ project  my-sample-app  main ↑1             │
+│ usage ──                                    │
+│ context  ━─────────┼────┼── 6% · 12.1k/200k │
+│ profile  claude                      $0.012 │
+│ connections ──                              │
+│ memory   ● engram    connected · 3 saved    │
+│ mcp      ● context7  connected              │
+│          ● github    connected              │
 ╰─────────────────────────────────────────────╯
 ╭─ ODD ───────────────────────────────────────╮
 │ ✓ exploring                            0:31 │
@@ -35,7 +38,7 @@ Fisi Dock is a Pi package (an extension and a theme) that paints its own panel i
 
 ## What you get
 
-- **Side panel** in the fullscreen rail, one framed section each: `session` (project, branch, context meter, model profile, cost, MCP servers), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent sections step aside first.
+- **Side panel** in the fullscreen rail, one framed section each: `session` (project and branch; context meter, model profile and cost; Engram memory and MCP servers), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent sections step aside first.
 - **Prompt box**: Gentle Shell's prompt framed, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.
 - **`/dock`**: the whole panel over the screen, scrollable with the arrows, the mouse wheel or a swipe.

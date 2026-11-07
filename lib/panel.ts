@@ -110,66 +110,131 @@ export function contextColor(percent: number): Rgb {
 	return palette.teal;
 }
 
-/** Where the context line puts its marks: the percents at which its color turns. */
+// The session section is design session-section/02 (Grouped): three groups
+// named by a muted label and a faint stub (where, usage, connections), one
+// muted key column so every value starts at the same place, and only the meter
+// readout and the cost flush right.
+
+/** Where the context meter puts its marks: the percents at which its color turns. */
 const CONTEXT_MARKS = [60, 85];
+/** Session keys (`project`, `context`, …) take this many columns. */
+const KEY_CELLS = 9;
+/** The meter readout (`5% · 53.5k/1M`) keeps at least this many columns, so the bar does not move with every token. */
+const READOUT_CELLS = 13;
+/** A bar shorter than this takes its row alone and the readout moves under it. */
+const MIN_METER_CELLS = 16;
+/** Connection names past this many cells are cut, so the state words keep one column. */
+const CONNECTION_NAME_CAP = 12;
+
+const sessionKey = (label: string) => muted(label.padEnd(KEY_CELLS));
+
+/** A group's name: muted, with a short faint stub instead of a full-width rule. */
+const groupLabel = (label: string): Row => ({ text: muted(label) + fg(palette.faint, " ──") });
 
 /**
- * The thin context line (S55): one cell per column; a filled cell wears the color of
- * its own position, an empty one is faint, with `┼` on the empty cells at the marks.
+ * The context meter: one cell per column; filled cells a heavy `━` in `color`,
+ * empty ones a thin faint `─`, with a faint `┼` on the cells holding 60% and 85%.
  */
-function contextLine(percent: number, cells: number): string {
-	let line = "";
+function contextMeter(percent: number, cells: number, color: Rgb): string {
+	let filled = 0;
+	let empty = "";
 	for (let index = 0; index < cells; index++) {
-		const at = ((index + 0.5) / cells) * 100;
-		if (at <= percent) line += fg(contextColor(at), "━");
-		else line += fg(palette.faint, CONTEXT_MARKS.some((mark) => Math.abs(at - mark) < 100 / cells / 2) ? "┼" : "━");
+		if (((index + 0.5) / cells) * 100 <= percent) filled++;
+		else empty += CONTEXT_MARKS.some((mark) => Math.floor((mark / 100) * cells) === index) ? "┼" : "─";
 	}
-	return line;
+	return fg(color, "━".repeat(filled)) + fg(palette.faint, empty);
 }
 
-const sessionKey = (label: string) => muted(label.padEnd(9));
+/** The context row: the meter, then `5% · 53.5k/1M` (`5% used` without token counts) flush right, or under the bar when the bar would be too short. */
+function contextRows(session: SessionInfo, width: number): Row[] {
+	const percent = Math.max(0, Math.min(100, session.contextPercent ?? 0));
+	const rounded = Math.round(percent);
+	const color = contextColor(rounded);
+	const used = session.tokensUsed;
+	const tokens = used !== undefined && session.tokensMax ? muted(" · ") + plainText(`${formatTokens(used)}/${formatTokens(session.tokensMax)}`) : muted(" used");
+	const readout = bold(fg(color, `${rounded}%`)) + tokens;
+	const readoutWidth = visibleWidth(readout);
+	const cells = width - KEY_CELLS - 1 - Math.max(READOUT_CELLS, readoutWidth);
+	if (cells >= MIN_METER_CELLS) return [{ text: sessionKey("context") + padEnd(contextMeter(percent, cells, color), width - KEY_CELLS - readoutWidth) + readout }];
+	return [{ text: sessionKey("context") + contextMeter(percent, Math.max(0, width - KEY_CELLS), color) }, { text: " ".repeat(Math.max(0, width - readoutWidth)) + readout }];
+}
 
 /** Session cost, or tokens and the ≈ estimate (S37); the review state lives in the RDD section (S50). */
-function costRow(footer: FooterInfo, width: number): Row {
+function costText(footer: FooterInfo): string {
 	const dollars = Number.isFinite(footer.cost) ? footer.cost : 0;
 	const usage = usageParts(footer);
-	const cost = usage ? usage.map((part, index) => (index % 2 ? muted(part) : plainText(part))).join("") : plainText(`$${dollars.toFixed(3)}`);
-	return { text: ellipsize(sessionKey("cost") + cost, width) };
+	return usage ? usage.map((part, index) => (index % 2 ? muted(part) : plainText(part))).join("") : plainText(`$${dollars.toFixed(3)}`);
 }
 
-const MCP_DOT: Record<McpServerInfo["state"], Rgb> = { connected: palette.green, failing: palette.red, unknown: palette.faint };
+/** The profile with the cost flush right; without a profile the cost keeps a row of its own. */
+function profileRows(session: SessionInfo, width: number, footer?: FooterInfo): Row[] {
+	const cost = footer ? costText(footer) : "";
+	if (session.profile) return [{ text: spread(sessionKey("profile") + plainText(session.profile), cost, width) }];
+	return footer ? [{ text: ellipsize(sessionKey("cost") + cost, width) }] : [];
+}
 
-/** One dot and name per server, in order; the ones that do not fit drop from the right as `+N` (S32). */
-function mcpRow(servers: McpServerInfo[], width: number): Row {
-	const room = width - 9;
-	const items = servers.map((server) => `${fg(MCP_DOT[server.state] ?? palette.faint, "●")} ${plainText(server.name)}`);
-	const more = (count: number) => (count < items.length ? muted(` +${items.length - count}`) : "");
-	const row = (shown: string): Row => ({ text: ellipsize(sessionKey("mcp") + shown, width) });
-	for (let count = items.length; count > 0; count--) {
-		const line = items.slice(0, count).join(" ") + more(count);
-		if (visibleWidth(line) <= room) return row(line);
+type ConnectionState = "connected" | "connecting" | "failed" | "unreachable" | "missing";
+
+// One glyph per state, so a state never rests on color alone.
+const CONNECTION: Record<ConnectionState, { glyph: string; color: Rgb; word: string }> = {
+	connected: { glyph: "●", color: palette.green, word: "connected" },
+	connecting: { glyph: "◌", color: palette.amber, word: "connecting" },
+	failed: { glyph: "✗", color: palette.red, word: "failed" },
+	unreachable: { glyph: "✗", color: palette.red, word: "unreachable" },
+	missing: { glyph: "○", color: palette.faint, word: "not installed" },
+};
+
+/** Today's MCP states: `unknown` is a server still connecting (or Pi cannot tell), `failing` one with no tools after the grace period. */
+const MCP_CONNECTION: Record<McpServerInfo["state"], ConnectionState> = { connected: "connected", unknown: "connecting", failing: "failed" };
+
+/**
+ * The memory row (Engram, lib/memory.ts), then one row per MCP server (S32), or
+ * a muted `mcp none configured` without MCP config. Names and state words form
+ * their own columns; the gap between them closes to one space when two would
+ * not fit; the saved count drops before anything else.
+ */
+function connectionRows(session: SessionInfo, width: number): Row[] {
+	const items: { key: string; name: string; state: ConnectionState; tail?: string }[] = [];
+	const memory = session.memory;
+	if (memory) {
+		const state: ConnectionState = Object.hasOwn(CONNECTION, memory.state) ? memory.state : "missing";
+		items.push({ key: "memory", name: "engram", state, ...(state === "connected" && memory.saved !== undefined ? { tail: muted(` · ${memory.saved} saved`) } : {}) });
 	}
-	// Not even the first one fits whole: its name is cut.
-	return row(ellipsize(items[0], Math.max(0, room - visibleWidth(more(1)))) + more(1));
+	(session.mcp ?? []).forEach((server, index) => {
+		items.push({ key: index === 0 ? "mcp" : "", name: server.name, state: Object.hasOwn(MCP_CONNECTION, server.state) ? MCP_CONNECTION[server.state] : "connecting" });
+	});
+	const nameWidth = Math.min(CONNECTION_NAME_CAP, Math.max(0, ...items.map((item) => visibleWidth(item.name))));
+	const wordWidth = Math.max(0, ...items.map((item) => CONNECTION[item.state].word.length));
+	const gap = KEY_CELLS + 2 + nameWidth + 2 + wordWidth <= width ? "  " : " ";
+	const rows = items.map((item): Row => {
+		const look = CONNECTION[item.state];
+		const off = item.state === "missing";
+		const name = fg(off ? palette.muted : palette.text, ellipsize(item.name, nameWidth));
+		const lead = `${sessionKey(item.key)}${fg(look.color, look.glyph)} ${padEnd(name, nameWidth)}${gap}${fg(off ? palette.muted : look.color, look.word)}`;
+		const whole = item.tail ? lead + item.tail : lead;
+		return { text: ellipsize(visibleWidth(whole) <= width ? whole : lead, width) };
+	});
+	if (session.mcp?.length === 0) rows.push({ text: ellipsize(sessionKey("mcp") + muted("none configured"), width) });
+	return rows;
 }
 
-/** `unpushed`: the heads-up already says how many commits are ahead, so ↑N is left out (S8). */
-function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo): Section {
-	const key = sessionKey;
-	const rows: Row[] = [];
+/**
+ * `unpushed`: the heads-up already says how many commits are ahead, so ↑N is
+ * left out (S8). `labels` false leaves out the group labels (short screens);
+ * one group alone never has one: a label tells groups apart.
+ */
+function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, labels = true): Section {
 	const ahead = session.ahead && !unpushed ? ` ↑${session.ahead}` : "";
-	const branch = session.branch ? ` ${fg(palette.green, session.branch + ahead)}` : "";
-	rows.push({ text: ellipsize(key("project") + bold(plainText(session.project)) + branch, width) });
-	if (session.contextPercent !== undefined) {
-		const percent = Math.max(0, Math.min(100, session.contextPercent));
-		const rounded = Math.round(percent);
-		rows.push({ text: spread(muted("context"), bold(fg(contextColor(rounded), `${rounded}%`)) + muted(" used"), width) });
-		rows.push({ text: contextLine(percent, width) });
-	}
-	if (session.profile) rows.push({ text: ellipsize(key("profile") + plainText(session.profile), width) });
-	if (footer) rows.push(costRow(footer, width));
-	if (session.mcp?.length) rows.push(mcpRow(session.mcp, width));
-	return { title: "session", color: palette.teal, rows };
+	const branch = session.branch ? `  ${fg(palette.green, session.branch + ahead)}` : "";
+	const where: Row = { text: ellipsize(sessionKey("project") + bold(plainText(session.project)) + branch, width) };
+	const groups: [string, Row[]][] = [
+		["where", [where]],
+		["usage", [...(session.contextPercent !== undefined ? contextRows(session, width) : []), ...profileRows(session, width, footer)]],
+		["connections", connectionRows(session, width)],
+	];
+	const shown = groups.filter(([, rows]) => rows.length > 0);
+	const named = labels && shown.length > 1;
+	return { title: "session", color: palette.teal, rows: shown.flatMap(([label, rows]) => (named ? [groupLabel(label), ...rows] : rows)) };
 }
 
 // `!` is one column in every terminal; `⚠` is ambiguous-width and could push a line past the rail.
@@ -613,11 +678,13 @@ export interface PanelOptions {
 	listsExpanded?: boolean;
 	/** /dock only (S52): every kept ODD step after the request settled, instead of the summary row. */
 	oddExpanded?: boolean;
-	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
+	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the session's group labels, then the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
 	maxRows?: number;
 }
 
 interface Shape {
+	/** The session's group labels (`where ──`, `usage ──`, `connections ──`), the first rows to go (design session-section/02). */
+	sessionLabels: boolean;
 	/** The `│` rows between ODD steps and between RDD reviews. */
 	spacers: boolean;
 	/** The muted line under each finished ODD step (S60); the active step keeps its own until `rdd` drops. */
@@ -638,12 +705,13 @@ interface Shape {
 
 /** Full panel first, then one more part left out per step; the logo, session, heads-up, ODD, todo (even empty, S94) and agents never drop (S38, S52). */
 const SHAPES: Shape[] = [
-	{ spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: true, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
+	{ sessionLabels: true, spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
+	{ sessionLabels: false, spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
+	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
+	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: true, ci: true, rdd: true },
+	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: true, rdd: true },
+	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: true },
+	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
 ];
 
 /** Every rail line for `model`, none wider than `width` visible columns. */
@@ -656,7 +724,7 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const draw = (shape: Shape) => {
 		const sections = [
-			sessionSection(model.session, inner, unpushed, model.footer),
+			sessionSection(model.session, inner, unpushed, model.footer, shape.sessionLabels),
 			model.headsUp && headsUpSection(model.headsUp, inner),
 			oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
 			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails) : undefined,

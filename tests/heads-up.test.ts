@@ -212,7 +212,7 @@ test("ahead count becomes a warning and leaves the session row (S8)", () => {
 	assert.deepEqual(model.headsUp?.map((warning) => warning.text), ["4 commits not pushed"]);
 	const lines = renderPanel(model, 47).map(plain);
 	const project = lines.find((line) => line.includes("project"))!;
-	assert.match(project, /project +app main +│$/);
+	assert.match(project, /project +app  main +│$/);
 	assert.ok(!lines.some((line) => line.includes("↑")), "no ↑N anywhere once the warning shows");
 	assert.ok(lines.some((line) => line.includes("! 4 commits not pushed")));
 	const synced = renderPanel(sessionSnapshot({ project: "app", branch: "main", ahead: 0 }), 47).map(plain);
