@@ -5,7 +5,7 @@ import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
-import { RESET, bgCode, bold, dim, fg, palette, vivid, type Rgb } from "./palette.ts";
+import { RESET, bgCode, bold, dim, fg, palette, panelVivid, type Rgb } from "./palette.ts";
 import { ellipsize, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
 // Pure model-to-lines renderer for the rail (design 07, S2/S8/S9). Gentle Shell
@@ -362,7 +362,7 @@ function emptyTodoSection(width: number): Section {
 function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: number, compact = false): Section | undefined {
 	if (todo.total <= 0) return undefined;
 	const color = palette.coral;
-	const right = fg(vivid(color), `${todo.done}/${todo.total}`);
+	const right = fg(panelVivid(color), `${todo.done}/${todo.total}`);
 	if (expanded && todo.tasks?.length) return { title: "todo", color, right, rows: taskRows(todo.tasks, width, spinner, todo.entrance) };
 	if (!compact && todo.tasks?.length) {
 		// S58: the listed rail keeps the progress bar, on the title before done/total.
@@ -476,7 +476,7 @@ function rddRow(review: RddReview, width: number, spinner?: number): Row {
 function rddSection(rdd: RddInfo | undefined, mode: FooterInfo["rdd"], width: number, spacers = true, spinner?: number, doneDetails = true): Section | undefined {
 	const reviews = rdd?.reviews ?? [];
 	if (reviews.length === 0 && !mode) return undefined;
-	const right = mode === "on" ? bold(fg(vivid(palette.green), "on")) : mode === "off" ? bold(fg(palette.muted, "off")) : undefined;
+	const right = mode === "on" ? bold(fg(panelVivid(palette.green), "on")) : mode === "off" ? bold(fg(palette.muted, "off")) : undefined;
 	const section = (rows: Row[]): Section => ({ title: "RDD", color: palette.rose, ...(right ? { right } : {}), rows });
 	if (reviews.length === 0) {
 		// One-column dot (S57): the 🌹 emoji has no fixed width across terminals and broke the frame.
@@ -669,8 +669,8 @@ function changesSection(changes: ChangeInfo[], width: number, cap = LIST_CAP): S
 
 function topBorder(section: Section, width: number): string {
 	const frame = palette.frame;
-	// Titles wear the cover title's vividness on their own hue (vivid labels S2).
-	const title = (text: string) => bold(fg(vivid(section.color), text));
+	// Titles wear 75% of the cover title's vividness on their own hue (vivid labels S2, L10).
+	const title = (text: string) => bold(fg(panelVivid(section.color), text));
 	const titleWidth = visibleWidth(section.title);
 	// "╭─ " title " " fill [" " right " ─"] "╮", with at least one fill dash.
 	const bare = 3 + titleWidth + 1 + 1 + 1;
@@ -816,7 +816,7 @@ export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number,
 	});
 	const hidden = running.length - shown.length;
 	if (hidden > 0) rows.push({ text: item(" ", (rest) => spread(muted(`+${hidden} more`), `${plainText("/dock")}${muted(" all")}`, rest), inner) });
-	const section: Section = { title: "agents", color: palette.lilac, right: fg(vivid(palette.lilac), String(running.length)), rows };
+	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelVivid(palette.lilac), String(running.length)), rows };
 	return drawSection(section, columns).map((line) => truncateToWidth(line, columns));
 }
 

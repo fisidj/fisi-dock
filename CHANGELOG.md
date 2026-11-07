@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The clock wave on the prompt box's working label (`ODD checking…`) passes in its pastel tones again (pink `#f2a7c9` at the head, lilac `#c3a6ff` beside it): the vivid ones were too strong inside the box. The mode, its dot, the effort and the petal stay vivid.
+- `you` on the top rule of your messages draws in vivid pink.
+- The side panel's section titles and counters (rail, `/dock`, the narrow-screen todo and agents cards) are a little calmer: 75% of the way from their own color to the vivid one (`panelVivid`), so pink is `#f4549d` instead of `#f5388e`. The prompt labels and the theme stay fully vivid.
+
 ## 0.3.0
 
 ### Vivid labels

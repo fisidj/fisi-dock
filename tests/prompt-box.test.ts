@@ -602,7 +602,7 @@ test("S3 with Gentle Shell's hint: each step is tried beside it first; working, 
 });
 
 // Vivid labels S3: the labels Fisi Dock paints on the rule take the vivid version of their color.
-test("the mode, its dot, the effort and the ODD wave draw vivid; the model, the frame and Gentle Shell's own colors stay (S3)", () => {
+test("the mode, its dot and the effort draw vivid, the ODD wave passes in pastel; the model, the frame and Gentle Shell's own colors stay (S3)", () => {
 	const box = boxPromptRows(gentleRows(56, { text: ["hello"] }), 60, 0, LABELS);
 	assert.equal(plain(box.rows[0]), "╭─ ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high ─╮", "the same words and layout");
 	const rule = box.rows[0];
@@ -615,8 +615,8 @@ test("the mode, its dot, the effort and the ODD wave draw vivid; the model, the 
 	// The wave's head and its softer tone, at a moment the head is on `DD `.
 	const working = boxPromptRows(gentleRows(56, { label: "checking…", scan: true }), 60, 0, LABELS, WAVE_STEP_MS * 5).rows[0];
 	assert.ok(plain(working).startsWith("╭─ ") && plain(working).includes(" ODD checking… "), "the words stay");
-	assert.ok(working.includes(`${fgCode(vivid(palette.pink))}D`), "the wave's head vivid pink");
-	assert.ok(working.includes(`${fgCode(vivid(palette.lilac))}O`), "the wave's softer tone vivid lilac");
+	assert.ok(working.includes(`${fgCode(palette.pink)}D`), "the wave's head pastel pink (L9)");
+	assert.ok(working.includes(`${fgCode(palette.lilac)}O`), "the wave's softer tone pastel lilac (L9)");
 	assert.ok(working.includes(`${fgCode(palette.muted)}c`), "the rest of the wave stays muted");
 	// Without the clock the ODD prefix stays muted beside Gentle Shell's own scan.
 	const still = boxPromptRows(gentleRows(56, { label: "checking…", scan: true }), 60, 0, LABELS).rows[0];

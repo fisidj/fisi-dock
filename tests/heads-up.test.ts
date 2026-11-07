@@ -14,7 +14,7 @@ import {
 import { sessionSnapshot } from "../lib/live-data.ts";
 import type { GitExec } from "../lib/live-store.ts";
 import type { PanelModel } from "../lib/panel-model.ts";
-import { palette, vivid } from "../lib/palette.ts";
+import { palette, panelVivid } from "../lib/palette.ts";
 import { renderPanel } from "../lib/panel.ts";
 import { visibleWidth } from "../lib/text.ts";
 
@@ -241,7 +241,7 @@ test("heads-up sits right after session, before ODD, with a vivid red title and 
 	for (const index of titles) assert.ok(index > 0);
 	assert.deepEqual(titles, titles.toSorted((a, b) => a - b));
 	const top = lines[titles[1]];
-	const [r, g, b] = vivid(palette.red);
+	const [r, g, b] = panelVivid(palette.red);
 	assert.ok(top.includes(`\x1b[1m\x1b[38;2;${r};${g};${b}mheads-up`), "title in bold vivid red");
 	assert.ok(!top.startsWith(`\x1b[38;2;${r};${g};${b}m`), "frame is dimmed, not full red");
 	assert.equal(plain(lines[titles[1] + 1]), `│ ! 2 worktrees open${" ".repeat(47 - 4 - 18)} │`);

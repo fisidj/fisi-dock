@@ -2,7 +2,8 @@
 // wave one step per render, so it races while text streams and nearly stops during
 // a quiet tool run. The box repaints the same words by the clock instead, with the
 // same shape: the head and its two neighbors in the theme's accent, its
-// softer tone one further out, muted elsewhere; both tones vivid (vivid labels S3).
+// softer tone one further out, muted elsewhere; both tones pastel, not vivid, so
+// the passing color stays calm inside the box (vivid labels S3, L9).
 // Only while Gentle Shell itself scans, in quality and performance (S93: there
 // Gentle Shell steps its wave once a second).
 // The petal before the label turns on the same clock (S97).
@@ -10,8 +11,8 @@ import type { OrbMotion } from "./orbs.ts";
 import { bold, fg, palette, vivid } from "./palette.ts";
 
 export const WAVE_STEP_MS = 120;
-const WAVE_HEAD = vivid(palette.pink);
-const WAVE_SOFT = vivid(palette.lilac);
+const WAVE_HEAD = palette.pink;
+const WAVE_SOFT = palette.lilac;
 /** Gentle Shell's wave enters three columns before the label; a short label rests between sweeps. */
 const ENTRY_STEPS = 3;
 const MIN_STEPS = 15;

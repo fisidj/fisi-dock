@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fgCode, palette } from "../lib/palette.ts";
+import { fgCode, palette, vivid } from "../lib/palette.ts";
 import { visibleWidth } from "../lib/text.ts";
 import { frameUserLines, installUserFrame, USER_FRAME_HOOK } from "../lib/user-frame.ts";
 
@@ -34,7 +34,7 @@ test("a user message is boxed in gray with `you` on the top rule; padding rows g
 	const gray = fgCode(palette.frame);
 	assert.ok(lines[0].startsWith(`${ZONE_START}${gray}╭─ `), "the prompt zone opens with the box");
 	assert.ok(lines[2].startsWith(`${ZONE_END}${gray}╰`), "and closes with it");
-	assert.ok(lines[0].includes(`${fgCode(palette.pink)}you`), "`you` in the brand pink");
+	assert.ok(lines[0].includes(`${fgCode(vivid(palette.pink))}you`), "`you` in the vivid brand pink");
 	assert.ok(lines[1].startsWith(`${gray}│\x1b[39m${BG}`), "the message keeps its own background inside the gray sides");
 	assert.ok(lines[1].endsWith(`${gray}│\x1b[39m`));
 	assert.equal(lines.filter((line) => line.includes("\x1b]133;")).length, 2, "each mark once");
