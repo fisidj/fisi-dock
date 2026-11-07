@@ -14,7 +14,7 @@ import {
 import { sessionSnapshot } from "../lib/live-data.ts";
 import type { GitExec } from "../lib/live-store.ts";
 import type { PanelModel } from "../lib/panel-model.ts";
-import { palette } from "../lib/palette.ts";
+import { palette, vivid } from "../lib/palette.ts";
 import { renderPanel } from "../lib/panel.ts";
 import { visibleWidth } from "../lib/text.ts";
 
@@ -235,14 +235,14 @@ test("heads-up section is absent without warnings", () => {
 	assert.ok(!renderPanel({ ...base, headsUp: [] }, 47).map(plain).some((line) => line.includes("heads-up")));
 });
 
-test("heads-up sits right after session, before ODD, with a red title and frame", () => {
+test("heads-up sits right after session, before ODD, with a vivid red title and a gray frame", () => {
 	const lines = renderPanel({ ...base, headsUp: [{ kind: "worktrees", text: "2 worktrees open" }] }, 47);
 	const titles = ["╭─ session", "╭─ heads-up", "╭─ ODD", "╭─ agents", "╭─ todo", "╭─ changes"].map((title) => lines.map(plain).findIndex((line) => line.startsWith(title)));
 	for (const index of titles) assert.ok(index > 0);
 	assert.deepEqual(titles, titles.toSorted((a, b) => a - b));
 	const top = lines[titles[1]];
-	const [r, g, b] = palette.red;
-	assert.ok(top.includes(`\x1b[1m\x1b[38;2;${r};${g};${b}mheads-up`), "title in bold #ff6b6b");
+	const [r, g, b] = vivid(palette.red);
+	assert.ok(top.includes(`\x1b[1m\x1b[38;2;${r};${g};${b}mheads-up`), "title in bold vivid red");
 	assert.ok(!top.startsWith(`\x1b[38;2;${r};${g};${b}m`), "frame is dimmed, not full red");
 	assert.equal(plain(lines[titles[1] + 1]), `│ ! 2 worktrees open${" ".repeat(47 - 4 - 18)} │`);
 });
