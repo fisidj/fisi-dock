@@ -36,7 +36,7 @@ test("the theme defines every color role and each one resolves to a hex color", 
 
 test("selection is pink-tinted so the chosen option stands out (S10)", () => {
 	assert.equal(theme.vars[theme.colors.selectedBg], "#2a2228");
-	assert.equal(theme.vars[theme.colors.accent], "#f2a7c9");
+	assert.equal(theme.vars[theme.colors.accent], "#f5388e", "the vivid pink (S4)");
 });
 
 test("the package ships the theme folder like Gentle Shell does", () => {
@@ -44,14 +44,30 @@ test("the package ships the theme folder like Gentle Shell does", () => {
 });
 
 // S47: Grok palette measured from the user's screenshot (text, muted, amber, frame).
-test("Grok palette: theme and panel share text #e1e1e1, muted #6c6c6c, amber #e0af68; frames #454545 (S47)", async () => {
+// Vivid labels S4: the theme's amber is the panel's amber made vivid.
+test("Grok palette: theme and panel share text #e1e1e1, muted #6c6c6c; the theme's amber #f5a838 is the panel's #e0af68 made vivid; frames #454545 (S47, S4)", async () => {
 	const { palette } = await import("../lib/palette.ts");
 	const theme = JSON.parse((await import("node:fs")).readFileSync(new URL("../themes/Fisi-Dock.json", import.meta.url), "utf8"));
 	assert.equal(theme.vars.text, "#e1e1e1");
 	assert.equal(theme.vars.muted, "#6c6c6c");
-	assert.equal(theme.vars.amber, "#e0af68");
+	assert.equal(theme.vars.amber, "#f5a838");
 	assert.deepEqual([...palette.text], [0xe1, 0xe1, 0xe1]);
 	assert.deepEqual([...palette.muted], [0x6c, 0x6c, 0x6c]);
 	assert.deepEqual([...palette.amber], [0xe0, 0xaf, 0x68]);
 	assert.deepEqual([...palette.frame], [0x45, 0x45, 0x45]);
+});
+
+// Vivid labels S4: the theme's accents are the panel's pastels made vivid (S1); neutrals and backgrounds stay.
+test("theme accents are the vivid version of the panel's pastels; neutrals and backgrounds stay (S4)", async () => {
+	const { palette, vivid } = await import("../lib/palette.ts");
+	const hex = (rgb: readonly number[]) => `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+	const accents = { pink: "#f5388e", deepPink: "#f53894", teal: "#38e3f5", coral: "#f55a38", amber: "#f5a838", lilac: "#9464f7", green: "#38f538", blue: "#4c76f6", red: "#f53838" } as const;
+	for (const [name, value] of Object.entries(accents)) {
+		assert.equal(theme.vars[name], value, name);
+		assert.equal(theme.vars[name], hex(vivid(palette[name as keyof typeof accents])), `${name} is vivid(${hex(palette[name as keyof typeof accents])})`);
+	}
+	assert.deepEqual(
+		Object.fromEntries(Object.entries(theme.vars).filter(([name]) => !(name in accents))),
+		{ bg: "#161616", bgBar: "#1f1f1f", bgHighlight: "#262626", border: "#2a2a2a", borderSubtle: "#222222", text: "#e1e1e1", muted: "#6c6c6c", dim: "#6b6b6b", pinkSelection: "#2a2228", diffAddedBg: "#24321f", toolErrorBg: "#2e1a1d" },
+	);
 });
