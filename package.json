@@ -1,6 +1,6 @@
 {
   "name": "fisi-dock",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Side panel for Gentle Shell: session, ODD, RDD, CI, agents, todo and changes at a glance (Pi extension and theme)",
   "type": "module",
   "license": "MIT",
