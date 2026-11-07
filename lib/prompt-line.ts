@@ -1,4 +1,4 @@
-import { bold, fg, palette } from "./palette.ts";
+import { bold, fg, palette, vivid } from "./palette.ts";
 import { ellipsize, visibleWidth } from "./text.ts";
 
 // Design 07 shows the model and effort beside the prompt. The prompt editor is
@@ -38,8 +38,9 @@ export interface PromptLinePart {
 }
 
 /**
- * The labels in order, each plain and styled: the mode bold in red, like its dot (only when
- * it is not normal), the model muted, the effort in blue. Nothing without a model.
+ * The labels in order, each plain and styled: the mode bold in vivid red, like its dot (only
+ * when it is not normal), the model muted, the effort in vivid blue (vivid labels S3).
+ * Nothing without a model.
  * The line under the prompt and the prompt box (S88) paint the same parts.
  */
 export function promptLineParts(model: PromptLineModel): PromptLinePart[] {
@@ -47,9 +48,9 @@ export function promptLineParts(model: PromptLineModel): PromptLinePart[] {
 	const mode = permissionModeLabel(model.mode);
 	const name = shortModelName(model.modelId);
 	return [
-		...(mode ? [{ kind: "mode" as const, plain: mode, styled: bold(fg(palette.red, mode)) }] : []),
+		...(mode ? [{ kind: "mode" as const, plain: mode, styled: bold(fg(vivid(palette.red), mode)) }] : []),
 		{ kind: "model" as const, plain: name, styled: fg(palette.muted, name) },
-		...(model.effort ? [{ kind: "effort" as const, plain: model.effort, styled: fg(palette.blue, model.effort) }] : []),
+		...(model.effort ? [{ kind: "effort" as const, plain: model.effort, styled: fg(vivid(palette.blue), model.effort) }] : []),
 	];
 }
 

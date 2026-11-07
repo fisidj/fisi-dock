@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fgCode, palette } from "../lib/palette.ts";
+import { fgCode, palette, vivid } from "../lib/palette.ts";
 import { permissionModeLabel, renderPromptLine, shortAgentModel, shortModelName } from "../lib/prompt-line.ts";
 import { visibleWidth } from "../lib/text.ts";
 
@@ -42,7 +42,7 @@ test("prompt line puts a non-default permission mode first: `SUPER-YOLO · opus-
 	assert.equal(lines.length, 1);
 	assert.equal(visibleWidth(lines[0]), 60);
 	assert.ok(plain(lines)[0].endsWith("SUPER-YOLO · opus-5.5 · high "), plain(lines)[0]);
-	assert.ok(lines[0].includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the mode bold in red, like the fork build painted it");
+	assert.ok(lines[0].includes(`\x1b[1m${fgCode(vivid(palette.red))}SUPER-YOLO`), "the mode bold in vivid red, the prompt box's label (vivid labels S3)");
 	assert.ok(plain(renderPromptLine({ mode: "yolo", modelId: "gpt-5" }, 40))[0].endsWith("YOLO · gpt-5 "), "no effort: mode and model");
 	// Gentle Shell's status bar shows the mode only when it is not NORMAL (lib/shell-bar.ts): the same rule here.
 	assert.deepEqual(renderPromptLine({ mode: "normal", modelId: "claude-opus-5-5", effort: "high" }, 60), renderPromptLine({ modelId: "claude-opus-5-5", effort: "high" }, 60));
@@ -87,8 +87,8 @@ test("S3 prompt line compacts its labels before it cuts them", () => {
 	assert.equal(line(13, normal), "    opus-5.5 ");
 	assert.equal(line(9, normal), "opus-5.5 ");
 	const [styled] = renderPromptLine(labels, 25);
-	assert.ok(styled.includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the mode bold in red");
-	assert.ok(styled.includes(`${fgCode(palette.faint)}·`) && styled.includes(`${fgCode(palette.blue)}high`), "the tight dot faint, the effort blue");
+	assert.ok(styled.includes(`\x1b[1m${fgCode(vivid(palette.red))}SUPER-YOLO`), "the mode bold in vivid red");
+	assert.ok(styled.includes(`${fgCode(palette.faint)}·`) && styled.includes(`${fgCode(vivid(palette.blue))}high`), "the tight dot faint, the effort vivid blue");
 	for (let width = 0; width <= 40; width++) {
 		for (const model of [labels, normal]) for (const row of renderPromptLine(model, width)) assert.ok(visibleWidth(row) <= width, `${width}: ${JSON.stringify(row)}`);
 	}
