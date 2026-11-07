@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import fisiDock from "../extensions/fisi-dock.ts";
 import { SIDEBAR_CACHE, SIDEBAR_STATE } from "../lib/slot.ts";
 import { visibleWidth } from "../lib/text.ts";
@@ -2316,4 +2317,139 @@ test("S1 /fisi-dock off gives the startup header back to Pi and stops reclaiming
 	await Promise.resolve();
 	assert.equal(startCard(sim), "rose", "a dormant start leaves the header alone");
 	sim.emit("session_shutdown");
+});
+
+// --- Loaded box under the welcome card (design start-screen/02) --------------
+
+/** Pi's ExpandableText (interactive-mode.js): a ThemedText whose build follows `state.expanded`. */
+class PiSection extends Text {
+	state: { expanded: boolean };
+	build: () => string;
+	constructor(collapsed: string, expanded: string) {
+		super("", 0, 0);
+		const state = { expanded: false };
+		this.state = state;
+		this.build = () => (state.expanded ? expanded : collapsed);
+	}
+	setExpanded(expanded: boolean): void {
+		this.state.expanded = expanded;
+		this.invalidate();
+	}
+	override render(width: number): string[] {
+		this.setText(this.build());
+		return super.render(width);
+	}
+}
+
+/**
+ * Pi's tree around the simulated header slot: TUI > document > [header (spacer,
+ * the current custom header, spacer), loaded resources, chat]. The loaded
+ * resources hold Pi's three listing sections and a skill warning, each followed
+ * by a spacer, as showLoadedResources adds them.
+ */
+function mountPi(sim: Sim) {
+	const before = new Spacer(1);
+	const after = new Spacer(1);
+	const header = { get children() { return [before, sim.startHeader.current ?? { render: () => ["pi header"] }, after]; }, render: () => [] };
+	const loaded = new Container();
+	for (const [name, names] of [["Skills", "btw, go-testing"], ["Prompts", "/skill-creation"], ["Extensions", "fisi-dock.ts, gentle-ai.ts"]]) {
+		loaded.addChild(new PiSection(`[${name}]\n  ${names}`, `[${name}]\n  user\n    ${names.split(", ").join("\n    ")}`));
+		loaded.addChild(new Spacer(1));
+	}
+	loaded.addChild(new Text("[Skill warnings]\n  duplicate skill name: skill-creator", 0, 0));
+	loaded.addChild(new Spacer(1));
+	const document = { children: [header, loaded, new Container()], render: () => [] };
+	(sim.tui as { children?: unknown[] }).children = [document];
+	return loaded;
+}
+
+const listing = (loaded: Container, width = 100) => loaded.render(width).map((line) => plain(line).trimEnd());
+const piListing = (loaded: Container, width = 100) => Container.prototype.render.call(loaded, width).map((line) => plain(line).trimEnd());
+
+test("S1 S2 under the welcome card Pi's listing is the loaded box; Pi's warning stays under it", (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\DEV\projects\my-app");
+	sim.emit("session_start");
+	const loaded = mountPi(sim);
+	startCard(sim);
+	const lines = listing(loaded);
+	const indent = " ".repeat(18);
+	const row = (content: string) => `${indent}│  ${content.padEnd(57)}  │`;
+	assert.deepEqual(lines, [
+		`${indent}╭─ loaded ────────────────────────────────────────────────────╮`,
+		row("skills      2  btw, go-testing"),
+		row("prompts     1  /skill-creation"),
+		row("extensions  2  fisi-dock.ts, gentle-ai.ts"),
+		`${indent}╰───────────────────────────────────────── ctrl+o lists them ─╯`,
+		"",
+		"[Skill warnings]",
+		"  duplicate skill name: skill-creator",
+		"",
+	]);
+	sim.emit("session_shutdown");
+});
+
+test("S3 Pi's expand toggle (the sections expanded) shows Pi's full listing; collapsed, the box is back", (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\DEV\projects\my-app");
+	sim.emit("session_start");
+	const loaded = mountPi(sim);
+	startCard(sim);
+	for (const child of loaded.children) (child as Partial<PiSection>).setExpanded?.(true);
+	assert.deepEqual(listing(loaded), piListing(loaded));
+	assert.ok(listing(loaded).includes("    gentle-ai.ts"), "names and scopes reachable");
+	for (const child of loaded.children) (child as Partial<PiSection>).setExpanded?.(false);
+	assert.ok(listing(loaded)[0].includes("╭─ loaded "));
+	sim.emit("session_shutdown");
+});
+
+test("S4 S5 /fisi-dock off and session shutdown give Pi's listing back; Container.prototype is never touched", async (t) => {
+	stateDir(t, true);
+	const prototypeRender = Container.prototype.render;
+	const sim = simulate("E:\DEV\projects\my-app");
+	sim.emit("session_start");
+	const loaded = mountPi(sim);
+	startCard(sim);
+	assert.ok(listing(loaded)[0].includes("╭─ loaded "));
+	assert.equal(Container.prototype.render, prototypeRender);
+	await fisiDockCommand(sim, "off");
+	assert.ok(!Object.hasOwn(loaded, "render"), "off: Pi's own render on the container");
+	assert.deepEqual(listing(loaded), piListing(loaded));
+
+	await fisiDockCommand(sim, "on");
+	startCard(sim);
+	assert.ok(listing(loaded)[0].includes("╭─ loaded "), "on again: the box is back");
+	sim.emit("session_shutdown");
+	assert.ok(!Object.hasOwn(loaded, "render"), "shutdown: Pi's own render on the container");
+	assert.deepEqual(listing(loaded), piListing(loaded));
+	assert.equal(Container.prototype.render, prototypeRender);
+});
+
+test("S4 while Gentle Shell's rose holds the header (no card) Pi's listing shows; the card back brings the box back", async (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\DEV\projects\my-app");
+	sim.emit("session_start");
+	const loaded = mountPi(sim);
+	startCard(sim);
+	sim.ctx.ui.setHeader(roseHeader);
+	assert.deepEqual(listing(loaded), piListing(loaded));
+	await Promise.resolve();
+	assert.ok(listing(loaded)[0].includes("╭─ loaded "));
+	sim.emit("session_shutdown");
+});
+
+test("S4 a TUI tree Fisi Dock does not recognize leaves Pi's output alone and the card still renders", (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\DEV\projects\my-app");
+	sim.emit("session_start");
+	assert.match(startCard(sim), /with Fisi Dock/, "no children on the TUI: nothing found, nothing thrown");
+	// The header's sibling is not Pi's listing (a chat-like container): it renders as before.
+	const odd = new Container();
+	odd.addChild({ render: () => ["a message"], invalidate() {} } as never);
+	const header = { get children() { return [sim.startHeader.current]; }, render: () => [] };
+	(sim.tui as { children?: unknown[] }).children = [{ children: [header, odd], render: () => [] }];
+	startCard(sim);
+	assert.deepEqual(odd.render(100).map(plain), ["a message"]);
+	sim.emit("session_shutdown");
+	assert.ok(!Object.hasOwn(odd, "render"));
 });

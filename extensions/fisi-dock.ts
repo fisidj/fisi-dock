@@ -19,6 +19,7 @@ import {
 	type LiveParts,
 } from "../lib/live-data.ts";
 import { createLiveStore, createSerialRefresh, createSpinnerClock, readGit, type LiveStore } from "../lib/live-store.ts";
+import { installLoadedBox } from "../lib/loaded-box.ts";
 import { MCP_GRACE_MS, mcpConfigPaths, mcpServerStates, readMcpServerNames } from "../lib/mcp.ts";
 import { readSessionProfile } from "../lib/profile.ts";
 import { createOddTracker, type OddTracker } from "../lib/odd-timeline.ts";
@@ -46,6 +47,8 @@ const WELCOME_RECLAIMS = 5;
 /** A header call Pi dropped is tried again this often, this many times (S1). */
 const WELCOME_RETRY_MS = 50;
 const WELCOME_TRIES = 40;
+/** Card renders that look for Pi's loaded-resources container before giving up for the session. */
+const LOADED_BOX_TRIES = 20;
 const HEADER_SLOT = "header";
 /** Pi's theme while Fisi Dock is on (themes/Fisi-Dock.json) (S95). */
 const FISI_DOCK_THEME = "Fisi-Dock";
@@ -572,13 +575,26 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		let reclaims = 0;
 		let tries = 0;
 		let timer: ReturnType<typeof setTimeout> | undefined;
+		// Pi's list of loaded skills, prompts and extensions under the card is the
+		// loaded box (design start-screen/02) while the card holds the header: on its
+		// first renders the card looks for Pi's container beside it in the TUI tree
+		// and wraps that instance's render; Pi's own listing shows otherwise, and
+		// comes back when the card goes (off, shutdown).
+		let restoreLoaded: (() => void) | undefined;
+		let loadedTries = 0;
+		const findLoaded = (tui: unknown, component: object) => {
+			if (restoreLoaded || loadedTries >= LOADED_BOX_TRIES || live !== session) return;
+			loadedTries++;
+			restoreLoaded = attempt(() => installLoadedBox(tui, component, { active: () => card !== undefined && live === session }));
+		};
 		const install = () => {
 			timer = undefined;
 			if (live !== session) return;
 			attempt(() =>
-				ctx.ui.setHeader(() => {
+				ctx.ui.setHeader((tui: unknown) => {
 					const component = {
 						render: (width: number) => {
+							findLoaded(tui, component);
 							const { project, branch } = session.store.model().session;
 							return renderWelcomeCard({ version, project, branch }, width);
 						},
@@ -599,6 +615,8 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		return () => {
 			if (timer) clearTimeout(timer);
 			timer = undefined;
+			attempt(() => restoreLoaded?.());
+			restoreLoaded = undefined;
 			if (!card) return;
 			card = undefined;
 			attempt(() => ctx.ui.setHeader(undefined));
