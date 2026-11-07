@@ -6,15 +6,52 @@ import { visibleWidth } from "../lib/text.ts";
 const plain = (line: string) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
 const SHADOW = "95;30;60";
 
-// The "Puntitos gris" preview approved for S21, trailing blanks trimmed.
+// Artboard rail-wordmark/04 "Tinted braille", custom rail joined: GENTLESHELL with no word gap, trailing blanks trimmed.
 const APPROVED_WIDE = [
-	"⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛   ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿",
-	"⣿ ⠛⣿ ⣿⠛⠛  ⣿ ⠛⣿  ⣿⣿  ⣿   ⣿⠛⠛     ⠛⠛⣤ ⣿⠛⠛⣿ ⣿⠛⠛  ⣿   ⣿",
-	" ⠛⠛⠛ ⠛⠛⠛⠛ ⠛  ⠛  ⠛⠛  ⠛⠛⠛ ⠛⠛⠛⠛   ⠛⠛⠛  ⠛  ⠛ ⠛⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛",
+	"⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛ ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿",
+	"⣿ ⠛⣿ ⣿⠛⠛  ⣿ ⠛⣿  ⣿⣿  ⣿   ⣿⠛⠛   ⠛⠛⣤ ⣿⠛⠛⣿ ⣿⠛⠛  ⣿   ⣿",
+	" ⠛⠛⠛ ⠛⠛⠛⠛ ⠛  ⠛  ⠛⠛  ⠛⠛⠛ ⠛⠛⠛⠛ ⠛⠛⠛  ⠛  ⠛ ⠛⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛",
 ];
+
+const PINK = [0xf2, 0xa7, 0xc9];
+const DEEP_PINK = [0xc9, 0x77, 0x9f];
+const isGray = ([r, g, b]: number[]) => r === g && g === b;
+/** A tone between the theme's pink and deepPink, channel by channel. */
+const isPink = (color: number[]) => !isGray(color) && color.every((channel, index) => channel <= PINK[index] && channel >= DEEP_PINK[index]);
 
 /** Foreground colors painted on `line`, as [r, g, b]. */
 const colorsOf = (line: string) => [...line.matchAll(/\x1b\[38;2;(\d+);(\d+);(\d+)m/g)].map((match) => match.slice(1).map(Number));
+
+/** The foreground color of every non-blank cell of `line`, by visible column. */
+function cellColors(line: string): Map<number, number[]> {
+	const colors = new Map<number, number[]>();
+	let color: number[] = [];
+	let column = 0;
+	for (const part of line.split(/(\x1b\[[0-?]*[ -/]*[@-~])/)) {
+		const match = part.match(/^\x1b\[38;2;(\d+);(\d+);(\d+)m$/);
+		if (match) color = match.slice(1).map(Number);
+		else if (!part.startsWith("\x1b")) {
+			for (const char of part) {
+				if (char !== " ") colors.set(column, color);
+				column += 1;
+			}
+		}
+	}
+	return colors;
+}
+
+/** GENTLE gray and SHELL pink, both lighter at the top; `shellStart` is SHELL's first column. */
+function assertTint(lines: string[], shellStart: number) {
+	for (const line of lines) {
+		for (const [column, color] of cellColors(line)) {
+			if (column < shellStart) assert.ok(isGray(color), `GENTLE gray at column ${column}: ${color}`);
+			else assert.ok(isPink(color), `SHELL pink at column ${column}: ${color}`);
+		}
+	}
+	const first = (line: string, from: number, to: number) => [...cellColors(line)].find(([column]) => column >= from && column < to)![1];
+	assert.ok(first(lines[0], 0, shellStart)[0] > first(lines[2], 0, shellStart)[0], "GENTLE lighter at the top");
+	assert.ok(first(lines[0], shellStart, Infinity)[0] > first(lines[2], shellStart, Infinity)[0], "SHELL lighter at the top");
+}
 
 /** Pixel rows back from the braille cells: top two dot rows, bottom two dot rows. */
 function pixelsOf(lines: string[]): string[] {
@@ -33,74 +70,80 @@ function pixelsOf(lines: string[]): string[] {
 	return rows;
 }
 
-test("wide logo is the approved 53-column braille wordmark in 3 rows", () => {
-	assert.equal(LOGO_WIDTH, 53);
-	const lines = renderLogo(53);
+const columns = (rows: string[], from: number, to: number) => rows.map((row) => row.slice(from, to));
+
+test("wide logo is the approved 51-column joined braille wordmark in 3 rows", () => {
+	assert.equal(LOGO_WIDTH, 51);
+	const lines = renderLogo(51);
 	assert.deepEqual(lines.map((line) => plain(line).trimEnd()), APPROVED_WIDE);
-	for (const line of lines) assert.equal(visibleWidth(line), 53);
+	for (const line of lines) assert.equal(visibleWidth(line), 51);
+	assert.deepEqual(renderLogo(53), lines, "wider rails get the same wordmark");
 	assert.deepEqual(renderLogo(55), lines, "wider rails get the same wordmark");
 });
 
-test("wide logo draws the 08 letter shapes from braille dots", () => {
-	const letters = pixelsOf(renderLogo(53)).slice(0, 5);
-	assert.deepEqual(letters.map((row) => row.slice(0, 4)), [".###", "#...", "#.##", "#..#", ".###"], "G");
-	assert.deepEqual(letters.map((row) => row.slice(5, 9)), ["####", "#...", "###.", "#...", "####"], "E");
-	assert.deepEqual(letters.map((row) => row.slice(10, 14)), ["#..#", "##.#", "#.##", "#..#", "#..#"], "N");
-	assert.deepEqual(letters.map((row) => row.slice(15, 19)), ["####", ".##.", ".##.", ".##.", ".##."], "T");
-	assert.deepEqual(letters.map((row) => row.slice(20, 23)), ["#..", "#..", "#..", "#..", "###"], "L");
-	assert.deepEqual(letters.map((row) => row.slice(31, 35)), [".###", "#...", ".##.", "...#", "###."], "S");
-	assert.deepEqual(letters.map((row) => row.slice(36, 40)), ["#..#", "#..#", "####", "#..#", "#..#"], "H");
-	assert.equal(pixelsOf(renderLogo(53))[5], ".".repeat(53), "no shadow row");
+test("wide logo draws the 08 letter shapes from braille dots, with one gap column between the words", () => {
+	const letters = pixelsOf(renderLogo(51)).slice(0, 5);
+	assert.deepEqual(columns(letters, 0, 4), [".###", "#...", "#.##", "#..#", ".###"], "G");
+	assert.deepEqual(columns(letters, 5, 9), ["####", "#...", "###.", "#...", "####"], "E");
+	assert.deepEqual(columns(letters, 10, 14), ["#..#", "##.#", "#.##", "#..#", "#..#"], "N");
+	assert.deepEqual(columns(letters, 15, 19), ["####", ".##.", ".##.", ".##.", ".##."], "T");
+	assert.deepEqual(columns(letters, 20, 23), ["#..", "#..", "#..", "#..", "###"], "L");
+	assert.deepEqual(columns(letters, 24, 28), ["####", "#...", "###.", "#...", "####"], "last E of GENTLE");
+	assert.deepEqual(columns(letters, 28, 29), [".", ".", ".", ".", "."], "one gap column, like between letters");
+	assert.deepEqual(columns(letters, 29, 33), [".###", "#...", ".##.", "...#", "###."], "S");
+	assert.deepEqual(columns(letters, 34, 38), ["#..#", "#..#", "####", "#..#", "#..#"], "H");
+	assert.equal(pixelsOf(renderLogo(51))[5], ".".repeat(51), "no shadow row");
 });
 
-test("wide logo is a gray gradient, lighter at the top, with no shadow or background", () => {
-	const lines = renderLogo(53);
-	for (const line of lines) {
-		const colors = colorsOf(line);
-		assert.ok(colors.length > 0);
-		for (const [r, g, b] of colors) assert.ok(r === g && g === b, `gray ${r};${g};${b}`);
-	}
-	const top = Math.min(...colorsOf(lines[0]).map(([r]) => r));
-	const bottom = Math.max(...colorsOf(lines[2]).map(([r]) => r));
-	assert.ok(top > bottom, `top ${top} lighter than bottom ${bottom}`);
+test("wide logo: GENTLE in a gray gradient, SHELL from pink to deep pink, no shadow or background", () => {
+	const lines = renderLogo(51);
+	for (const line of lines) assert.ok(colorsOf(line).length > 0);
+	assertTint(lines, 29);
+	assert.deepEqual(cellColors(lines[0]).get(30), PINK, "SHELL's top pixel row is the theme pink");
 	const joined = lines.join("");
 	assert.ok(!joined.includes(SHADOW), "no shadow color");
 	assert.ok(!joined.includes("\x1b[48;"), "no background halves");
 	assert.ok(!joined.includes("\x1b[0m"), "no full reset");
 });
 
-test("below 53 the compact braille logo is used; it fits the official 47-column rail", () => {
-	assert.ok(COMPACT_LOGO_WIDTH <= 47);
-	for (const width of [52, 47, COMPACT_LOGO_WIDTH]) {
+test("below 51 the compact joined logo is used; it fits the official 47-column rail with its 2-column indent", () => {
+	assert.equal(COMPACT_LOGO_WIDTH, 44);
+	for (const width of [50, 47, COMPACT_LOGO_WIDTH]) {
 		const lines = renderLogo(width);
 		assert.equal(lines.length, 3, `width ${width}`);
-		for (const line of lines) assert.ok(visibleWidth(line) <= COMPACT_LOGO_WIDTH);
-		for (const line of lines) for (const [r, g, b] of colorsOf(line)) assert.ok(r === g && g === b, "gray");
-		assert.ok(colorsOf(lines[0])[0][0] > colorsOf(lines[2])[0][0], "lighter at the top");
+		for (const line of lines) assert.equal(visibleWidth(line), COMPACT_LOGO_WIDTH);
+		assertTint(lines, 25);
 		assert.ok(!lines.join("").includes(SHADOW), "no shadow");
 	}
 	const letters = pixelsOf(renderLogo(47)).slice(0, 5);
-	assert.deepEqual(letters.map((row) => row.slice(0, 3)), [".##", "#..", "#.#", "#.#", ".##"], "compact G");
-	assert.deepEqual(letters.map((row) => row.slice(4, 7)), ["###", "#..", "##.", "#..", "###"], "compact E");
+	const wide = pixelsOf(renderLogo(51)).slice(0, 5);
+	assert.deepEqual(columns(letters, 0, 4), columns(wide, 0, 4), "G keeps the custom shape");
+	assert.deepEqual(columns(letters, 5, 8), ["###", "#..", "##.", "#..", "###"], "narrow E");
+	assert.deepEqual(columns(letters, 9, 13), columns(wide, 10, 14), "N keeps the custom shape");
+	assert.deepEqual(columns(letters, 14, 17), ["###", ".#.", ".#.", ".#.", ".#."], "narrow T");
+	assert.deepEqual(columns(letters, 18, 20), ["#.", "#.", "#.", "#.", "##"], "narrow L");
+	assert.deepEqual(columns(letters, 25, 29), columns(wide, 29, 33), "S keeps the custom shape");
+	assert.deepEqual(columns(letters, 30, 34), columns(wide, 34, 38), "H keeps the custom shape");
 });
 
-test("narrow widths fall back to the bold gray GENTLE SHELL text", () => {
-	for (const width of [COMPACT_LOGO_WIDTH - 1, 30, 20, 12]) {
+test("narrow widths fall back to bold GENTLESHELL text: GENTLE gray, SHELL pink", () => {
+	for (const width of [COMPACT_LOGO_WIDTH - 1, 30, 20, 11]) {
 		const lines = renderLogo(width);
 		assert.equal(lines.length, 1, `width ${width}`);
-		assert.equal(plain(lines[0]), "GENTLE SHELL");
+		assert.equal(plain(lines[0]), "GENTLESHELL");
 		assert.ok(lines[0].includes("\x1b[1m"), "bold");
-		const [[r, g, b]] = colorsOf(lines[0]);
-		assert.ok(r === g && g === b, "gray");
+		const colors = cellColors(lines[0]);
+		for (let column = 0; column < 6; column += 1) assert.ok(isGray(colors.get(column)!), `gray at ${column}`);
+		for (let column = 6; column < 11; column += 1) assert.deepEqual(colors.get(column), PINK, `pink at ${column}`);
 	}
 });
 
-test("below 12 columns no logo lines remain", () => {
-	for (const width of [11, 5, 1, 0]) assert.deepEqual(renderLogo(width), [], `width ${width}`);
+test("below 11 columns no logo lines remain", () => {
+	for (const width of [10, 5, 1, 0]) assert.deepEqual(renderLogo(width), [], `width ${width}`);
 });
 
-test("no flower and every logo line fits at 55, 53, 47, 40, 30, 20, 12, 5 and 0 columns", () => {
-	for (const width of [55, 53, 47, 40, 30, 20, 12, 5, 0]) {
+test("no flower and every logo line fits at 55, 51, 47, 44, 40, 30, 20, 11, 5 and 0 columns", () => {
+	for (const width of [55, 51, 47, 44, 40, 30, 20, 11, 5, 0]) {
 		for (const line of renderLogo(width)) {
 			assert.ok(!line.includes("✿"), `flower at ${width}`);
 			assert.ok(visibleWidth(line) <= width, `${width}`);

@@ -1119,7 +1119,7 @@ test("files sort by added+removed, most first, keeping git order on ties; /dock 
 
 test("at 55 columns the panel opens with the wide braille logo, at 47 with the compact one", () => {
 	const wide = renderPanel(samplePanelModel, 55).slice(0, 3).map(plain);
-	assert.equal(wide[0].trimEnd(), "  ⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛   ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿");
+	assert.equal(wide[0].trimEnd(), "  ⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛ ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿");
 	const compact = renderPanel(samplePanelModel, 47).slice(0, 3).map(plain);
 	assert.ok(compact.every((line) => line.length <= 47 && /^ {2}[ ⠛⣤⣿]+$/.test(line)), "compact braille logo");
 	assert.notEqual(compact[0].trimEnd(), wide[0].trimEnd());

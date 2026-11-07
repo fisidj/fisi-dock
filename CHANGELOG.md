@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fix: on Gentle Shell builds that card rail parts (its `main` branch, transparent surface) the panel no longer loses its right border to a `…`.
+- Wordmark: the rail logo reads GENTLESHELL, joined, with GENTLE in its gray fade and SHELL from pink to deep pink. The official 47-column rail now keeps the custom letters, with only E, T and L narrower; narrow rails show the same two-color text.
 
 ## 0.1.0
 
