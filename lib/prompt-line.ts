@@ -53,15 +53,37 @@ export function promptLineParts(model: PromptLineModel): PromptLinePart[] {
 	];
 }
 
-/** One right-aligned line with "MODE · model · effort" (the mode only when it is not normal), or no line without a model. */
+/**
+ * The parts at each compact step, widest first (S3): all of them, then without the effort,
+ * then the first alone (the mode, or the model in normal mode). The mode goes last: it is
+ * the safety signal. A step that drops nothing is left out; no steps without a model.
+ */
+export function promptLineSteps(model: PromptLineModel): PromptLinePart[][] {
+	const parts = promptLineParts(model);
+	if (parts.length === 0) return [];
+	const steps = [parts, parts.filter((part) => part.kind !== "effort"), parts.slice(0, 1)];
+	return steps.filter((step, index) => index === 0 || step.length < steps[index - 1].length);
+}
+
+/**
+ * One right-aligned line with "MODE · model · effort" (the mode only when it is not normal),
+ * or no line without a model. Too narrow, the labels compact (S3): tight dots
+ * (`MODE·model·effort`), then no effort, then the mode alone; narrower still the line is cut.
+ */
 export function renderPromptLine(model: PromptLineModel, width: number): string[] {
 	const columns = Math.max(0, Math.floor(width));
-	const parts = promptLineParts(model);
-	if (parts.length === 0 || columns === 0) return [];
-	const plainText = parts.map((part) => part.plain).join(" · ");
+	const steps = promptLineSteps(model);
+	if (steps.length === 0 || columns === 0) return [];
+	const plainText = steps[0].map((part) => part.plain).join(" · ");
 	// One trailing space keeps the text off the terminal edge, like the input bar.
 	const room = Math.max(0, columns - 1);
-	if (visibleWidth(plainText) > room) return [ellipsize(fg(palette.muted, plainText), columns)];
-	const styled = parts.map((part) => part.styled).join(fg(palette.faint, " · "));
-	return [`${" ".repeat(room - visibleWidth(plainText))}${styled} `];
+	// Room for the text but not the space: it stays whole, flush and muted, as before S3.
+	const compact = visibleWidth(plainText) > columns ? steps.map((parts) => ({ parts, separator: "·" })) : [];
+	for (const { parts, separator } of [{ parts: steps[0], separator: " · " }, ...compact]) {
+		const text = parts.map((part) => part.plain).join(separator);
+		if (visibleWidth(text) > room) continue;
+		const styled = parts.map((part) => part.styled).join(fg(palette.faint, separator));
+		return [`${" ".repeat(room - visibleWidth(text))}${styled} `];
+	}
+	return [ellipsize(fg(palette.muted, plainText), columns)];
 }

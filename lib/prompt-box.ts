@@ -14,7 +14,7 @@
 // the same clock (S97).
 import { waveLabel, wavePetal } from "./label-wave.ts";
 import { fg, palette } from "./palette.ts";
-import { promptLineParts, type PromptLineModel } from "./prompt-line.ts";
+import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
 
 /** Gentle Shell marks its editor factory with this symbol (extensions/gentle-shell.ts): it steps aside for an unmarked editor and resets only a marked one at shutdown. */
@@ -31,11 +31,14 @@ const GENTLE_RULE = /^─ (\S) (.*?) ?(─+)(.*)$/u;
 const GENTLE_TAIL = /^ (.*) ─$/;
 /** Gentle Shell's selection engine writes this on the blank bottom row while text is selected (lib/selection-engine.ts). */
 const SELECTION_LABEL = /chars? selected - Del deletes - Alt\+a select all/;
-/** Gentle Shell's ODD phase labels: lib/odd-phase.ts ODD_PHASES, written `${phase}…` by oddPhaseLabel. */
-const ODD_PHASE_LABEL = /^(?:authorizing|exploring|researching|deciding|planning|implementing|checking|closing)…$/;
+/** Gentle Shell's ODD phases: lib/odd-phase.ts ODD_PHASES, written `${phase}…` by oddPhaseLabel. */
+const ODD_PHASES = ["authorizing", "exploring", "researching", "deciding", "planning", "implementing", "checking", "closing"];
+const ODD_PHASE_LABEL = new RegExp(`^(?:${ODD_PHASES.join("|")})…$`);
 const ODD_PREFIX = "ODD ";
-/** Gentle Shell's idle label (lib/shell-prompt.ts panelPromptRule): too tight for it and the labels, its words drop first. */
-const IDLE_LABEL = "waiting for input";
+/** Gentle Shell's busy labels it may paint whole (lib/shell-prompt.ts STATE_LABEL, oddPhaseLabel): `queued`, and `working…` or a phase in a theme without colors. */
+const BUSY_LABELS = ["working…", "queued", ...ODD_PHASES.map((phase) => `${phase}…`)];
+/** Pi's editor scroll indicator (`↑ 3 more`), shown by Gentle Shell instead of its state label (lib/shell-prompt.ts SCROLL_INDICATOR). */
+const SCROLL_LABEL = /^[↑↓]/u;
 const ESCAPES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[_P^X][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 const strip = (text: string) => text.replace(ESCAPES, "");
@@ -64,17 +67,44 @@ const join = (segments: Segment[], plain: string, styled = plain): Segment => ({
 	styled: segments.map((segment) => segment.styled).join(styled),
 });
 
-/** `● SUPER-YOLO  opus-5.5 · high`: the dot in red, the rest as the prompt line paints it; undefined without a model. */
-function ownRight(labels: PromptLineModel): Segment | undefined {
-	const parts = promptLineParts(labels);
-	if (parts.length === 0) return undefined;
+/** `● SUPER-YOLO  opus-5.5 · high`, or tight `● SUPER-YOLO opus-5.5·high`: the dot in red, the rest as the prompt line paints it. */
+function ownSegment(parts: PromptLinePart[], tight: boolean): Segment {
 	const mode = parts.find((part) => part.kind === "mode");
 	const rest = parts.filter((part) => part.kind !== "mode");
+	const dot = tight ? "·" : " · ";
 	const segments: Segment[] = [
 		...(mode ? [{ plain: `● ${mode.plain}`, styled: `${fg(palette.red, "●")} ${mode.styled}` }] : []),
-		...(rest.length ? [join(rest, " · ", fg(palette.faint, " · "))] : []),
+		...(rest.length ? [join(rest, dot, fg(palette.faint, dot))] : []),
 	];
-	return join(segments, "  ");
+	return join(segments, tight ? " " : "  ");
+}
+
+/**
+ * The labels at each compact step, widest first (S3): `● SUPER-YOLO  opus-5.5 · high`,
+ * `● SUPER-YOLO opus-5.5·high`, `● SUPER-YOLO opus-5.5`, `● SUPER-YOLO` (`opus-5.5` in
+ * normal mode); a step that looks like the one before is left out. None without a model.
+ */
+function ownSteps(labels: PromptLineModel): Segment[] {
+	const steps = promptLineSteps(labels);
+	if (steps.length === 0) return [];
+	const segments = [ownSegment(steps[0], false), ...steps.map((step) => ownSegment(step, true))];
+	return segments.filter((segment, index) => segments.findIndex((other) => other.plain === segment.plain) === index);
+}
+
+/**
+ * True when Gentle Shell's label is its idle one, told by how it is painted, not by its words
+ * (S2). Gentle Shell paints a working label as a scan, each character on its own, and its
+ * idle label whole. A label painted whole is idle unless it is one of Gentle Shell's busy
+ * labels it paints whole too: `queued`, or `working…` and an ODD phase in a theme without
+ * colors, each also clipped with `…` (`implementi…`); or Pi's scroll indicator (`↑ 3 more`),
+ * which says text is out of view, so it stays. A translated, custom or clipped
+ * (`waiting for i…`) idle label is idle. Only a translated `queued` would read as idle: the
+ * petal cannot tell it, Gentle Shell's queued petal is `✿` one frame in four.
+ */
+function isIdleLabel(label: string, scanning: boolean): boolean {
+	if (scanning || SCROLL_LABEL.test(label)) return false;
+	const stem = label.endsWith("…") ? label.slice(0, -1) : undefined;
+	return !BUSY_LABELS.some((busy) => busy === label || (stem !== undefined && busy.startsWith(stem)));
 }
 
 /**
@@ -86,7 +116,8 @@ function ownRight(labels: PromptLineModel): Segment | undefined {
  * words and takes its color from that moment (S90), and its petal that moment's
  * frame (S97). An ODD phase label gets `ODD ` before it, inside the wave; without
  * `waveAt` in Gentle Shell's label gray (S96). Too tight for `ODD ` the bare label stays.
- * Too tight for `waiting for input` and the labels, the petal alone keeps them.
+ * Too tight for an idle label and the labels, the petal alone keeps them (S2); too tight for
+ * the full labels even so, they compact step by step (S3).
  */
 export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number): PromptBox {
 	const unchanged: PromptBox = { rows, boxed: false, ruleShift: 0, buttonDropped: false, scanning: false };
@@ -130,7 +161,8 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	const tailText = buttonDropped ? tailMatch![1].slice(PANEL_BUTTON.length).trimStart() : (tailMatch?.[1] ?? "");
 	const tailFrom = tailStart + 1 + (buttonDropped ? visibleWidth(tailMatch![1]) - visibleWidth(tailText) : 0);
 	const gentleRight: Segment | undefined = tailMatch && tailText !== "" ? { plain: tailText, styled: sliceColumns(rule, tailFrom, tailFrom + visibleWidth(tailText)) } : undefined;
-	const own = ownRight(labels);
+	const steps = ownSteps(labels);
+	const own = steps[0];
 	// The labels drop first, then Gentle Shell's hint; the bare rule last.
 	const withOwn = own ? [...(gentleRight ? [join([own, gentleRight], "  ")] : []), own] : [];
 	const candidates: (Segment | undefined)[] = [
@@ -156,7 +188,18 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	};
 	if (!(prefixed ? [prefixed, bare] : [bare]).some((left) => fit(left, candidates))) return unchanged;
 	// The idle label's words drop before the labels: the petal alone keeps them, with the hint when it fits too.
-	if (label === IDLE_LABEL && withOwn.length > 0 && !(right && withOwn.includes(right))) fit({ plain: "", styled: "" }, withOwn);
+	const idle = isIdleLabel(label, scanning);
+	const petalOnly: Segment = { plain: "", styled: "" };
+	if (idle && withOwn.length > 0 && !(right && withOwn.includes(right))) fit(petalOnly, withOwn);
+	// Still no room for the full labels: they compact step by step (S3), each step tried beside
+	// Gentle Shell's hint first. Beside a busy label the hint alone beats our labels alone, as it
+	// beats the full ones; beside an idle label our labels beat the hint, and its words drop first.
+	const compact = steps.slice(1);
+	const withHint = (step: Segment): Segment[] => (gentleRight ? [join([step, gentleRight], "  ")] : []);
+	if (compact.length > 0 && !(right && withOwn.includes(right))) {
+		if (idle) compact.some((step) => [...withHint(step), step].some((choice) => fit(bare, [choice]) || fit(petalOnly, [choice])));
+		else fit(head, right ? compact.flatMap(withHint) : compact);
+	}
 	const ruleRow = `${frame("╭─ ")}${petal} ${head.plain === "" ? "" : `${head.styled} `}${frame("─".repeat(fill))}${right ? ` ${right.styled} ${frame("─╮")}` : frame("─╮")}`;
 	const ruleShift = LEFT_COLUMNS;
 

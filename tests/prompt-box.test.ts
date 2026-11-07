@@ -29,20 +29,25 @@ interface GentleOptions {
 	autocomplete?: string[];
 	/** A non-blank last frame row (a selection label). */
 	bottom?: string;
+	/** A working label: Gentle Shell's scan wraps each character on its own (lib/shell-prompt.ts scanWorkingText). */
+	scan?: boolean;
 }
 
+const gsScan = (text: string) => Array.from(text, (char) => `\x1b[90m${char}\x1b[39m`).join("");
+
 /** Gentle Shell's panel rule at `width` (lib/shell-prompt.ts panelPromptRule, restated). */
-function gentleRule(width: number, { label = "waiting for input", hint, button }: GentleOptions): string {
+function gentleRule(width: number, { label = "waiting for input", hint, button, scan }: GentleOptions): string {
+	const painted = scan ? gsScan(label) : gsLabel(label);
 	if (button) {
 		const end = ` ${PANEL_BUTTON}${hint ? ` ${gsLabel(hint)}` : ""} ${gsBorder("─")}`;
 		const fill = Math.max(0, width - 4 - visibleWidth(label) - visibleWidth(end));
-		return `${gsBorder("─ ")}${PETAL} ${gsLabel(label)}${gsBorder("─".repeat(fill))}${end}`;
+		return `${gsBorder("─ ")}${PETAL} ${painted}${gsBorder("─".repeat(fill))}${end}`;
 	}
 	const end = hint ? ` ${gsLabel(hint)} ` : "";
 	const fill = width - (2 + 1 + 1 + visibleWidth(label) + 1) - (hint ? visibleWidth(hint) + 2 : 0) - 1;
 	// Nothing fits: Gentle Shell paints dashes only.
 	if (fill < 1) return gsBorder("─".repeat(width));
-	return `${gsBorder("─ ")}${PETAL} ${gsLabel(label)} ${gsBorder("─".repeat(fill))}${end}${gsBorder("─")}`;
+	return `${gsBorder("─ ")}${PETAL} ${painted} ${gsBorder("─".repeat(fill))}${end}${gsBorder("─")}`;
 }
 
 const pad = (text: string, width: number) => text + " ".repeat(Math.max(0, width - visibleWidth(text)));
@@ -101,7 +106,7 @@ test("the editor's invisible cursor markers take no columns: the right border st
 });
 
 test("too tight for labels and Gentle Shell's hint together: the labels drop, the hint stays (S88)", () => {
-	const options = { label: "implementing · 2:03", hint: "esc again to cancel", button: true };
+	const options = { label: "implementing · 2:03", hint: "esc again to cancel", button: true, scan: true };
 	const box = boxPromptRows(gentleRows(56, options), 60, 0, LABELS);
 	const rule = plain(box.rows[0]);
 	assert.ok(rule.endsWith(" esc again to cancel ─╮"), rule);
@@ -155,7 +160,9 @@ test("panel chrome too tight for the bare box renders once a frame until the wid
 });
 
 test("too tight for the right part: the mode, model and effort drop first, the box stays (S88)", () => {
-	const box = boxPromptRows(gentleRows(26, { text: ["hi"] }), 30, 0, LABELS);
+	// A model too long for the rule even alone: nothing of ours is left to compact to (S3).
+	const long = { modelId: "claude-opus-5-5-very-long-preview-build", effort: "high" };
+	const box = boxPromptRows(gentleRows(26, { text: ["hi"] }), 30, 0, long);
 	assert.equal(box.boxed, true);
 	assert.equal(plain(box.rows[0]), "╭─ ✿ waiting for input ──────╮");
 	assert.deepEqual(box.rows.map(plain), [
@@ -419,7 +426,7 @@ test("S96 an ODD phase label gets `ODD ` before it, and the right part still dro
 	const exploring = { label: "exploring…" };
 	assert.equal(rule(100, exploring), `╭─ ✿ ODD exploring… ${"─".repeat(47)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
 	assert.equal(rule(60, exploring), "╭─ ✿ ODD exploring… ─────── ● SUPER-YOLO  opus-5.5 · high ─╮");
-	assert.equal(rule(47, exploring), `╭─ ✿ ODD exploring… ${"─".repeat(26)}╮`, "phone: the labels drop, `ODD` stays");
+	assert.equal(rule(47, exploring), "╭─ ✿ ODD exploring… ── ● SUPER-YOLO opus-5.5 ─╮", "phone: the labels compact (S3), `ODD` stays");
 	for (const phase of ["authorizing", "researching", "deciding", "planning", "implementing", "checking", "closing"]) {
 		assert.ok(rule(100, { label: `${phase}…` }).startsWith(`╭─ ✿ ODD ${phase}… ─`), phase);
 	}
@@ -431,7 +438,7 @@ test("S96 with Gentle Shell's hint the labels drop before the hint, then the hin
 	const rule = (width: number, options: GentleOptions) => plain(boxPromptRows(gentleRows(width - FRAME_COLUMNS, options), width, 0, LABELS).rows[0]);
 	assert.equal(rule(60, implementing), `╭─ ✿ ODD implementing… ${"─".repeat(14)} esc again to cancel ─╮`);
 	assert.equal(rule(47, implementing), "╭─ ✿ ODD implementing… ─ esc again to cancel ─╮");
-	assert.equal(rule(46, implementing), `╭─ ✿ ODD implementing… ${"─".repeat(22)}╮`);
+	assert.equal(rule(46, implementing), `╭─ ✿ ODD implementing… ${"─".repeat(7)} ● SUPER-YOLO ─╮`, "no room for the hint: the labels compact to the mode (S3)");
 	assert.equal(rule(21, { label: "exploring…" }), "╭─ ✿ exploring… ────╮", "the box beats the prefix");
 });
 
@@ -473,13 +480,13 @@ test("phone: too tight for `waiting for input` and the labels, the idle label's 
 	for (const width of [45, 50]) assert.equal(visibleWidth(phoneRule(width, narrow)), width);
 });
 
-test("phone: `working…` keeps its words; the labels drop or show exactly as before", () => {
-	assert.equal(phoneRule(45, { label: "working…" }), `╭─ ✿ working… ${"─".repeat(30)}╮`);
-	assert.equal(phoneRule(47, { label: "working…" }), `╭─ ✿ working… ${"─".repeat(32)}╮`);
+test("phone: `working…` keeps its words; the labels compact or show exactly as before", () => {
+	assert.equal(phoneRule(45, { label: "working…" }), "╭─ ✿ working… ─ ● SUPER-YOLO opus-5.5·high ─╮");
+	assert.equal(phoneRule(47, { label: "working…" }), "╭─ ✿ working… ─── ● SUPER-YOLO opus-5.5·high ─╮");
 	assert.equal(phoneRule(48, { label: "working…" }), "╭─ ✿ working… ─ ● SUPER-YOLO  opus-5.5 · high ─╮");
 	assert.equal(phoneRule(50, { label: "working…" }), `╭─ ✿ working… ${"─".repeat(3)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
-	assert.equal(phoneRule(45, { label: "queued" }), `╭─ ✿ queued ${"─".repeat(32)}╮`, "queued is a working state: its word stays");
-	assert.equal(phoneRule(45, { label: "exploring…" }), `╭─ ✿ ODD exploring… ${"─".repeat(24)}╮`);
+	assert.equal(phoneRule(45, { label: "queued" }), "╭─ ✿ queued ─── ● SUPER-YOLO opus-5.5·high ─╮", "queued is a working state: its word stays");
+	assert.equal(phoneRule(45, { label: "exploring…" }), `╭─ ✿ ODD exploring… ${"─".repeat(9)} ● SUPER-YOLO ─╮`);
 });
 
 test("`waiting for input` keeps its words when the labels fit beside it, and with no labels to keep", () => {
@@ -492,8 +499,103 @@ test("`waiting for input` keeps its words when the labels fit beside it, and wit
 	assert.equal(plain(box.rows[0]), "╭─ ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high  esc again to clear ─╮");
 });
 
-test("too tight even for the petal and the labels: `waiting for input` stays and the labels drop, as before", () => {
-	assert.equal(phoneRule(38), `╭─ ✿ waiting for input ${"─".repeat(14)}╮`);
-	assert.equal(phoneRule(30), "╭─ ✿ waiting for input ──────╮");
-	assert.equal(phoneRule(38, { hint: "INSERT" }), `╭─ ✿ waiting for input ${"─".repeat(5)} INSERT ─╮`);
+test("too tight even for the petal and the full labels: the petal keeps the compacted labels (S3)", () => {
+	assert.equal(phoneRule(38), "╭─ ✿ ─── ● SUPER-YOLO opus-5.5·high ─╮");
+	assert.equal(phoneRule(30), `╭─ ✿ ${"─".repeat(9)} ● SUPER-YOLO ─╮`);
+	assert.equal(phoneRule(38, { hint: "INSERT" }), "╭─ ✿ ─── ● SUPER-YOLO opus-5.5·high ─╮", "idle, the labels beat the hint, as at 45");
+	// Nothing of ours fits even alone: `waiting for input` stays, as before.
+	assert.equal(phoneRule(30, {}, { modelId: "claude-opus-5-5-very-long-preview-build" }), "╭─ ✿ waiting for input ──────╮");
+});
+
+// S2: "Gentle Shell en otro idioma o con textos propios: el arreglo del móvil reconoce solo el texto
+// exacto `waiting for input`." Gentle Shell paints its idle label whole and every busy label as a
+// scan, an ODD phase, `queued` or Pi's scroll indicator: any other whole label is idle, whatever its words.
+
+test("S2 a translated idle label gets the same petal-only rule as `waiting for input`, at every width", () => {
+	assert.equal(phoneRule(45, { label: "esperando entrada" }), `╭─ ✿ ${"─".repeat(7)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
+	assert.equal(phoneRule(60, { label: "esperando entrada" }), "╭─ ✿ esperando entrada ──── ● SUPER-YOLO  opus-5.5 · high ─╮", "room for both: its words stay");
+	// The same length as `waiting for input`: the rule is the same with its words swapped.
+	for (let width = 26; width <= 80; width++) {
+		for (const options of [{}, { hint: "INSERT" }, { button: true, hint: "INSERT" }]) {
+			const english = phoneRule(width, options);
+			assert.equal(phoneRule(width, { ...options, label: "esperando entrada" }), english.replace("waiting for input", "esperando entrada"), `${width} ${JSON.stringify(options)}`);
+		}
+	}
+});
+
+test("S2 a clipped idle label (`waiting for i…`, Gentle Shell's narrow fullscreen) and a custom one drop their words like the full one", () => {
+	assert.equal(phoneRule(45, { label: "waiting for i…", button: true }), `╭─ ✿ ${"─".repeat(7)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
+	assert.equal(phoneRule(50, { label: "type a message to begin" }), `╭─ ✿ ${"─".repeat(12)} ● SUPER-YOLO  opus-5.5 · high ─╮`);
+	assert.equal(phoneRule(70, { label: "type a message to begin" }), `╭─ ✿ type a message to begin ${"─".repeat(8)} ● SUPER-YOLO  opus-5.5 · high ─╮`, "room for both: its words stay");
+	assert.equal(phoneRule(45, { label: "waiting for i…", button: true }, {}), `╭─ ✿ waiting for i… ${"─".repeat(24)}╮`, "no model: nothing to make room for");
+});
+
+test("S2 busy labels keep their words: a scan in any language, `queued`, a clipped busy label, Pi's scroll indicator", () => {
+	const box = boxPromptRows(gentleRows(41, { label: "trabajando…", scan: true }), 45, 0, LABELS);
+	assert.equal(box.scanning, true);
+	assert.equal(plain(box.rows[0]), "╭─ ✿ trabajando… ─── ● SUPER-YOLO opus-5.5 ─╮");
+	assert.equal(phoneRule(34, { label: "worki…" }), `╭─ ✿ worki… ${"─".repeat(6)} ● SUPER-YOLO ─╮`, "`working…` clipped, painted without colors");
+	assert.equal(phoneRule(34, { label: "implementi…" }), "╭─ ✿ implementi… ─ ● SUPER-YOLO ─╮", "an ODD phase clipped");
+	// Gentle Shell shows the editor's `↑ 3 more` instead of its state: text is out of view, so it stays.
+	assert.equal(phoneRule(40, { label: "↑ 3 more" }), "╭─ ✿ ↑ 3 more ─ ● SUPER-YOLO opus-5.5 ─╮");
+	assert.equal(phoneRule(40, { label: "↓ 12 more" }), `╭─ ✿ ↓ 12 more ${"─".repeat(9)} ● SUPER-YOLO ─╮`);
+});
+
+// S3: "Pantallas muy angostas mientras trabaja: por debajo de unas 47 columnas, modo, modelo y
+// esfuerzo siguen sin entrar." The labels compact step by step instead of dropping: tight
+// separators, then no effort, then the mode alone (the model alone in normal mode).
+
+test("S3 working: each step of the ladder at the width it starts", () => {
+	const working = { label: "working…", scan: true };
+	assert.equal(phoneRule(48, working), "╭─ ✿ working… ─ ● SUPER-YOLO  opus-5.5 · high ─╮", "full");
+	assert.equal(phoneRule(47, working), "╭─ ✿ working… ─── ● SUPER-YOLO opus-5.5·high ─╮", "tight separators");
+	assert.equal(phoneRule(45, working), "╭─ ✿ working… ─ ● SUPER-YOLO opus-5.5·high ─╮");
+	assert.equal(phoneRule(44, working), `╭─ ✿ working… ${"─".repeat(5)} ● SUPER-YOLO opus-5.5 ─╮`, "no effort");
+	assert.equal(phoneRule(40, working), "╭─ ✿ working… ─ ● SUPER-YOLO opus-5.5 ─╮");
+	assert.equal(phoneRule(39, working), `╭─ ✿ working… ${"─".repeat(9)} ● SUPER-YOLO ─╮`, "the mode alone");
+	assert.equal(phoneRule(31, working), "╭─ ✿ working… ─ ● SUPER-YOLO ─╮");
+	assert.equal(phoneRule(30, working), `╭─ ✿ working… ${"─".repeat(15)}╮`, "nothing of ours fits: the words stay");
+	for (let width = 26; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width, working)), width, `${width}`);
+	const box = boxPromptRows(gentleRows(36, working), 40, 0, LABELS);
+	assert.ok(box.rows[0].includes(`${fgCode(palette.red)}●`) && box.rows[0].includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the dot and the mode keep their colors");
+	assert.ok(box.rows[0].includes(`${fgCode(palette.muted)}opus-5.5`), "the model muted");
+	const tight = boxPromptRows(gentleRows(41, working), 45, 0, LABELS).rows[0];
+	assert.ok(tight.includes(`${fgCode(palette.faint)}·`) && tight.includes(`${fgCode(palette.blue)}high`), "the tight dot faint, the effort blue");
+});
+
+test("S3 normal mode: the model and effort compact, then the model alone", () => {
+	const normal = { modelId: "claude-opus-5-5", effort: "high" };
+	const working = { label: "working…", scan: true };
+	assert.equal(phoneRule(34, working, normal), "╭─ ✿ working… ─ opus-5.5 · high ─╮");
+	assert.equal(phoneRule(33, working, normal), "╭─ ✿ working… ── opus-5.5·high ─╮");
+	assert.equal(phoneRule(31, working, normal), `╭─ ✿ working… ${"─".repeat(5)} opus-5.5 ─╮`);
+	assert.equal(phoneRule(26, working, normal), `╭─ ✿ working… ${"─".repeat(11)}╮`);
+	assert.equal(phoneRule(30, {}, normal), `╭─ ✿ ${"─".repeat(6)} opus-5.5 · high ─╮`, "idle: the petal keeps the full labels");
+});
+
+test("S3 idle: below the petal and the full labels, the same ladder", () => {
+	assert.equal(phoneRule(39), "╭─ ✿ ─ ● SUPER-YOLO  opus-5.5 · high ─╮");
+	assert.equal(phoneRule(36), "╭─ ✿ ─ ● SUPER-YOLO opus-5.5·high ─╮");
+	assert.equal(phoneRule(35), `╭─ ✿ ${"─".repeat(5)} ● SUPER-YOLO opus-5.5 ─╮`);
+	assert.equal(phoneRule(31), "╭─ ✿ ─ ● SUPER-YOLO opus-5.5 ─╮");
+	assert.equal(phoneRule(30), `╭─ ✿ ${"─".repeat(9)} ● SUPER-YOLO ─╮`);
+	assert.equal(phoneRule(28), `╭─ ✿ ${"─".repeat(7)} ● SUPER-YOLO ─╮`);
+	for (let width = 28; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width)), width, `${width}`);
+});
+
+test("S3 with Gentle Shell's hint: each step is tried beside it first; working, the hint beats our labels alone; idle, our labels beat it", () => {
+	const working = { label: "working…", scan: true, hint: "INSERT" };
+	assert.equal(phoneRule(56, working), "╭─ ✿ working… ─ ● SUPER-YOLO  opus-5.5 · high  INSERT ─╮");
+	assert.equal(phoneRule(55, working), "╭─ ✿ working… ─── ● SUPER-YOLO opus-5.5·high  INSERT ─╮");
+	assert.equal(phoneRule(50, working), "╭─ ✿ working… ─── ● SUPER-YOLO opus-5.5  INSERT ─╮");
+	assert.equal(phoneRule(45, working), `╭─ ✿ working… ${"─".repeat(7)} ● SUPER-YOLO  INSERT ─╮`);
+	assert.equal(phoneRule(38, working), `╭─ ✿ working… ${"─".repeat(14)} INSERT ─╮`, "the hint alone beats `● SUPER-YOLO` alone, as it beat the full labels");
+	assert.equal(phoneRule(45, { ...working, button: true }), `╭─ ✿ working… ${"─".repeat(7)} ● SUPER-YOLO  INSERT ─╮`, "the `[ Panel ]` button still left out");
+	const idle = { hint: "INSERT" };
+	assert.equal(phoneRule(44, idle), `╭─ ✿ ${"─".repeat(6)} ● SUPER-YOLO  opus-5.5 · high ─╮`, "the full labels beat the tight ones beside the hint, as before");
+	assert.equal(phoneRule(38, idle), "╭─ ✿ ─── ● SUPER-YOLO opus-5.5·high ─╮");
+	// Gentle Shell's narrow fullscreen clips its idle label beside `[ Panel ] INSERT` (lib/shell-prompt.ts panelPromptRule).
+	assert.equal(phoneRule(34, { label: "waiti…", button: true, hint: "INSERT" }), "╭─ ✿ ──── ● SUPER-YOLO opus-5.5 ─╮");
+	for (let width = 28; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width, working)), width, `${width}`);
+	for (let width = 36; width <= 60; width++) assert.equal(visibleWidth(phoneRule(width, idle)), width, `${width}`);
 });

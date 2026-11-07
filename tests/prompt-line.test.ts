@@ -65,3 +65,31 @@ for (const width of [60, 20, 8, 3, 0]) {
 		}
 	});
 }
+
+// S3: too narrow for the whole line, the labels compact like on the prompt box: tight dots, then no
+// effort, then the mode alone (the model alone in normal mode); only below that is the line cut.
+test("S3 prompt line compacts its labels before it cuts them", () => {
+	const labels = { mode: "super-yolo", modelId: "claude-opus-5-5", effort: "high" };
+	const line = (width: number, model: object = labels) => plain(renderPromptLine(model, width))[0];
+	assert.equal(line(29), "SUPER-YOLO · opus-5.5 · high ");
+	assert.equal(line(28), "SUPER-YOLO · opus-5.5 · high", "room for the text but not the space: whole and flush, as before");
+	assert.equal(line(27), "  SUPER-YOLO·opus-5.5·high ");
+	assert.equal(line(25), "SUPER-YOLO·opus-5.5·high ");
+	assert.equal(line(24), "    SUPER-YOLO·opus-5.5 ");
+	assert.equal(line(20), "SUPER-YOLO·opus-5.5 ");
+	assert.equal(line(19), `${" ".repeat(8)}SUPER-YOLO `);
+	assert.equal(line(11), "SUPER-YOLO ");
+	assert.equal(line(10), "SUPER-YOL…", "too narrow even for the mode: cut, as before");
+	const normal = { modelId: "claude-opus-5-5", effort: "high" };
+	assert.equal(line(16, normal), "opus-5.5 · high ");
+	assert.equal(line(15, normal), "opus-5.5 · high");
+	assert.equal(line(14, normal), "opus-5.5·high ");
+	assert.equal(line(13, normal), "    opus-5.5 ");
+	assert.equal(line(9, normal), "opus-5.5 ");
+	const [styled] = renderPromptLine(labels, 25);
+	assert.ok(styled.includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the mode bold in red");
+	assert.ok(styled.includes(`${fgCode(palette.faint)}·`) && styled.includes(`${fgCode(palette.blue)}high`), "the tight dot faint, the effort blue");
+	for (let width = 0; width <= 40; width++) {
+		for (const model of [labels, normal]) for (const row of renderPromptLine(model, width)) assert.ok(visibleWidth(row) <= width, `${width}: ${JSON.stringify(row)}`);
+	}
+});
