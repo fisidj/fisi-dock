@@ -107,7 +107,7 @@ npm install
 npm test
 ```
 
-Tests run on Node 22.19 or later with native TypeScript; no build step. `tests/gentle-shell-keys.test.ts` also checks the installed Gentle Shell (`GENTLE_SHELL_DIR`, else `gentle-pi` in the global npm root) still defines every key Fisi Dock reads, and is skipped without it.
+Tests run on Node 22.19 or later with native TypeScript; no build step. `tests/gentle-shell-keys.test.ts` also checks the installed Gentle Shell (`GENTLE_SHELL_DIR`, else the `gentle-pi` package Gentle Shell itself runs, found from its session environment or its `gentle-shell` launcher on `PATH`, else `gentle-pi` in the global npm root) still defines every key Fisi Dock reads, and is skipped without it.
 
 Preview the panel with sample data in a terminal (width defaults to 47, the rail's usable width), or write an HTML page for screenshots:
 

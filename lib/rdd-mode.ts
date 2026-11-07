@@ -81,7 +81,7 @@ function compareVersions(a: string, b: string): number {
 }
 
 /** The paths the launcher injected, in order; undefined for an absent or malformed value, like the launcher's own parser. */
-function injectedPaths(env: Record<string, string | undefined>): string[] | undefined {
+export function injectedPaths(env: Record<string, string | undefined>): string[] | undefined {
 	const raw = env[CHILD_PACKAGE_INJECTION_ENV];
 	if (!raw) return undefined;
 	try {
