@@ -21,12 +21,14 @@ const WIDE: Font = {
 	H: ["#..#", "#..#", "####", "#..#", "#..#"],
 };
 
-// The wide G, N, S and H; only E, T and L narrow, so the joined mark fits the 47-column rail.
+// The wide G, N and L (a 2-column L reads cut off); E, T, S and H narrow, so the
+// joined mark is 45 columns and the 47-column rail centers it.
 const COMPACT: Font = {
 	...WIDE,
 	E: ["###", "#..", "##.", "#..", "###"],
 	T: ["###", ".#.", ".#.", ".#.", ".#."],
-	L: ["#.", "#.", "#.", "#.", "##"],
+	S: [".##", "#..", ".#.", "..#", "##."],
+	H: ["#.#", "#.#", "###", "#.#", "#.#"],
 };
 
 /** Each word's color for each pixel row, top to bottom. */
@@ -75,7 +77,7 @@ const TEXT_LINE = bold(fg(SHADES[0][2], WORDS[0]) + fg(palette.pink, WORDS[1]));
 
 /** Visible columns of the wide wordmark (51); fisi/custom's 55-column rail fits it with its indent. */
 export const LOGO_WIDTH = pixelGrid(WIDE)[0].length;
-/** Visible columns of the compact wordmark (44), for the official 47-column rail. */
+/** Visible columns of the compact wordmark (45), for the official 47-column rail. */
 export const COMPACT_LOGO_WIDTH = pixelGrid(COMPACT)[0].length;
 
 /** The wordmark for `width` columns: wide braille, compact braille, plain text, then nothing. */

@@ -1121,7 +1121,8 @@ test("at 55 columns the panel opens with the wide braille logo, at 47 with the c
 	const wide = renderPanel(samplePanelModel, 55).slice(0, 3).map(plain);
 	assert.equal(wide[0].trimEnd(), "  ⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛ ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿");
 	const compact = renderPanel(samplePanelModel, 47).slice(0, 3).map(plain);
-	assert.ok(compact.every((line) => line.length <= 47 && /^ {2}[ ⠛⣤⣿]+$/.test(line)), "compact braille logo");
+	assert.ok(compact.every((line) => line.length === 46 && /^ [ ⠛⣤⣿]+$/.test(line)), "compact braille logo");
+	assert.match(compact[0], /^ [⠛⣤⣿]/, "centered: one blank column each side of 47");
 	assert.notEqual(compact[0].trimEnd(), wide[0].trimEnd());
 	for (const width of [55, 53, 47]) assert.ok(!renderPanel(samplePanelModel, width).join("").includes("[38;2;95;30;60m"), `no shadow at ${width}`);
 });

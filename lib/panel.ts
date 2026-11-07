@@ -601,7 +601,8 @@ function drawSection(section: Section, width: number): string[] {
 function logoLines(width: number): string[] {
 	const lines = renderLogo(width);
 	const widest = Math.max(0, ...lines.map(visibleWidth));
-	const indent = " ".repeat(Math.max(0, Math.min(2, width - widest)));
+	// Centered over the section frames, at most two columns in.
+	const indent = " ".repeat(Math.max(0, Math.min(2, Math.floor((width - widest) / 2))));
 	return lines.map((line) => indent + line);
 }
 

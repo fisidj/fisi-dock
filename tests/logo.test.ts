@@ -106,13 +106,13 @@ test("wide logo: GENTLE in a gray gradient, SHELL from pink to deep pink, no sha
 	assert.ok(!joined.includes("\x1b[0m"), "no full reset");
 });
 
-test("below 51 the compact joined logo is used; it fits the official 47-column rail with its 2-column indent", () => {
-	assert.equal(COMPACT_LOGO_WIDTH, 44);
+test("below 51 the compact joined logo is used: 45 columns, so the official 47-column rail centers it with one blank column each side", () => {
+	assert.equal(COMPACT_LOGO_WIDTH, 45);
 	for (const width of [50, 47, COMPACT_LOGO_WIDTH]) {
 		const lines = renderLogo(width);
 		assert.equal(lines.length, 3, `width ${width}`);
 		for (const line of lines) assert.equal(visibleWidth(line), COMPACT_LOGO_WIDTH);
-		assertTint(lines, 25);
+		assertTint(lines, 26);
 		assert.ok(!lines.join("").includes(SHADOW), "no shadow");
 	}
 	const letters = pixelsOf(renderLogo(47)).slice(0, 5);
@@ -121,9 +121,11 @@ test("below 51 the compact joined logo is used; it fits the official 47-column r
 	assert.deepEqual(columns(letters, 5, 8), ["###", "#..", "##.", "#..", "###"], "narrow E");
 	assert.deepEqual(columns(letters, 9, 13), columns(wide, 10, 14), "N keeps the custom shape");
 	assert.deepEqual(columns(letters, 14, 17), ["###", ".#.", ".#.", ".#.", ".#."], "narrow T");
-	assert.deepEqual(columns(letters, 18, 20), ["#.", "#.", "#.", "#.", "##"], "narrow L");
-	assert.deepEqual(columns(letters, 25, 29), columns(wide, 29, 33), "S keeps the custom shape");
-	assert.deepEqual(columns(letters, 30, 34), columns(wide, 34, 38), "H keeps the custom shape");
+	assert.deepEqual(columns(letters, 18, 21), columns(wide, 20, 23), "L keeps the custom 3-column shape");
+	assert.deepEqual(columns(letters, 26, 29), [".##", "#..", ".#.", "..#", "##."], "narrow S");
+	assert.deepEqual(columns(letters, 30, 33), ["#.#", "#.#", "###", "#.#", "#.#"], "narrow H");
+	assert.deepEqual(columns(letters, 38, 41), columns(wide, 44, 47), "next to last L keeps the custom shape");
+	assert.deepEqual(columns(letters, 42, 45), columns(wide, 48, 51), "last L keeps the custom shape");
 });
 
 test("narrow widths fall back to bold GENTLESHELL text: GENTLE gray, SHELL pink", () => {
@@ -142,8 +144,8 @@ test("below 11 columns no logo lines remain", () => {
 	for (const width of [10, 5, 1, 0]) assert.deepEqual(renderLogo(width), [], `width ${width}`);
 });
 
-test("no flower and every logo line fits at 55, 51, 47, 44, 40, 30, 20, 11, 5 and 0 columns", () => {
-	for (const width of [55, 51, 47, 44, 40, 30, 20, 11, 5, 0]) {
+test("no flower and every logo line fits at 55, 51, 47, 45, 44, 40, 30, 20, 11, 5 and 0 columns", () => {
+	for (const width of [55, 51, 47, 45, 44, 40, 30, 20, 11, 5, 0]) {
 		for (const line of renderLogo(width)) {
 			assert.ok(!line.includes("✿"), `flower at ${width}`);
 			assert.ok(visibleWidth(line) <= width, `${width}`);
