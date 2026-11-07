@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { samplePanelModel, type PanelModel } from "../lib/panel-model.ts";
 import { DOCK_MAX_WIDTH, DOCK_TOP_ROWS, DOCK_WIDTH, formatElapsed, formatEstimate, panelDigest, renderAgentsCard, renderDock, renderPanel, renderTodoCard } from "../lib/panel.ts";
-import { bgCode, fgCode, palette } from "../lib/palette.ts";
+import { bgCode, fgCode, palette, vivid } from "../lib/palette.ts";
 import { visibleWidth } from "../lib/text.ts";
 
 const plain = (line: string) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
@@ -136,7 +136,7 @@ const settledOdd = (steps: number, earlier = 0, totalSeconds = 165): PanelModel[
 	totalSeconds,
 });
 
-test("ODD before the first request: one muted ready row, faint ○, amber title (S52)", () => {
+test("ODD before the first request: one muted ready row, faint ○, vivid amber title (S52)", () => {
 	for (const odd of [undefined, { steps: [] }]) {
 		const raw = renderPanel({ session: { project: "p" }, ...(odd ? { odd } : {}) }, 47);
 		const lines = raw.map(plain);
@@ -144,7 +144,7 @@ test("ODD before the first request: one muted ready row, faint ○, amber title 
 		const row = raw[lines.findIndex((line) => line.startsWith("╭─ ODD")) + 1];
 		assert.ok(row.includes(`${fgCode(palette.faint)}○`), "faint ○");
 		assert.ok(row.includes(`${fgCode(palette.muted)}ready · phases show while I work`), "muted text");
-		assert.ok(raw.find((line) => plain(line).startsWith("╭─ ODD"))!.includes(`${fgCode(palette.amber)}`), "amber title");
+		assert.ok(raw.find((line) => plain(line).startsWith("╭─ ODD"))!.includes(`${fgCode(vivid(palette.amber))}`), "vivid amber title");
 	}
 	for (const width of [47, 30, 20, 12]) for (const line of renderPanel({ session: { project: "p" } }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
 });
@@ -153,14 +153,14 @@ test("ODD before the first request: one muted ready row, faint ○, amber title 
 
 const NO_TASKS = "no tasks · the list shows while I plan";
 
-test("todo without a list or with 0 tasks: one muted row, faint ○, coral title, no count; the card stays empty (S94, S28)", () => {
+test("todo without a list or with 0 tasks: one muted row, faint ○, vivid coral title, no count; the card stays empty (S94, S28)", () => {
 	for (const todo of [undefined, { done: 0, total: 0, more: 0 }]) {
 		const model: PanelModel = { session: { project: "p" }, ...(todo ? { todo } : {}) };
 		const raw = renderPanel(model, 47);
 		const lines = raw.map(plain);
 		const start = lines.findIndex((line) => line.startsWith("╭─ todo"));
 		assert.deepEqual(lines.slice(start, start + 3), [`╭─ todo ${"─".repeat(38)}╮`, `│ ○ ${NO_TASKS}    │`, `╰${"─".repeat(45)}╯`]);
-		assert.ok(raw[start].includes(fgCode(palette.coral)), "coral title");
+		assert.ok(raw[start].includes(fgCode(vivid(palette.coral))), "vivid coral title");
 		assert.ok(raw[start + 1].includes(`${fgCode(palette.faint)}○`), "faint ○");
 		assert.ok(raw[start + 1].includes(`${fgCode(palette.muted)}${NO_TASKS}`), "muted text");
 		assert.ok(!raw[start + 1].includes(bgCode(palette.highlight)), "not highlighted");
@@ -278,13 +278,13 @@ const hhmm = (ms: number) => {
 };
 const ENDED = Date.UTC(2026, 9, 29, 22, 5, 0);
 
-test("RDD section: rose title right after ODD, `on` green / `off` muted on the right (S50)", () => {
+test("RDD section: vivid rose title right after ODD, `on` vivid green / `off` muted on the right (S50)", () => {
 	const lines = rddPanel({ odd: samplePanelModel.odd, agents: samplePanelModel.agents, footer: { cost: 0, rdd: "on" } });
 	const titles = lines.map(plain).filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
 	assert.deepEqual(titles, ["session", "ODD", "RDD", "agents", "todo"]);
 	const on = rddTitle(lines);
-	assert.ok(on.includes(`${fgCode(palette.rose)}RDD`), "title in rose");
-	assert.ok(on.includes(`${fgCode(palette.green)}on`), "on in green");
+	assert.ok(on.includes(`${fgCode(vivid(palette.rose))}RDD`), "title in vivid rose");
+	assert.ok(on.includes(`${fgCode(vivid(palette.green))}on`), "on in vivid green");
 	assert.match(plain(on), /^╭─ RDD ─+ on ─╮$/);
 	const off = rddTitle(rddPanel({ footer: { cost: 0, rdd: "off" } }));
 	assert.ok(off.includes(`${fgCode(palette.muted)}off`), "off muted");
@@ -1085,9 +1085,9 @@ test("active rows carry the highlight background and pink bar", () => {
 	assert.ok(plain(checking).startsWith("│▎⡿ checking"), "checking orb, still frame");
 });
 
-test("section titles are bold in their own color", () => {
+test("section titles are bold in the vivid version of their own color (vivid labels S2)", () => {
 	const lines = renderPanel(samplePanelModel, 47);
-	const colors: Record<string, string> = { session: "95;212;224", todo: "255;155;133", ODD: "224;175;104", agents: "195;166;255", changes: "143;201;143" };
+	const colors: Record<string, string> = { session: "56;227;245", todo: "245;90;56", ODD: "245;168;56", agents: "148;100;247", changes: "56;245;56" };
 	for (const [title, rgb] of Object.entries(colors)) {
 		const top = lines.find((line) => plain(line).startsWith(`╭─ ${title}`))!;
 		assert.ok(top.includes(`\x1b[1m\x1b[38;2;${rgb}m${title}`), title);
@@ -1696,7 +1696,7 @@ test("agents card: framed like the panel, running agents only, spinner, name, ta
 	assert.match(card[3], /^╰─+╯$/);
 	assert.equal(card.length, 4, "done, queued and failed agents are not listed");
 	assert.equal(card[1].indexOf("session rows"), card[2].indexOf("queued prompt"), "tasks start in one column");
-	assert.ok(lines[0].includes(fgCode(palette.frame)) && lines[0].includes(fgCode(palette.lilac)), "gray frame, agents title color");
+	assert.ok(lines[0].includes(fgCode(palette.frame)) && lines[0].includes(fgCode(vivid(palette.lilac))), "gray frame, agents title vivid");
 	assert.ok(lines[1].includes(`${fgCode(palette.blue)}⠙`), "spinner in the agents blue");
 	console.log(`--- agents card, 53 columns\n${card.join("\n")}`);
 });
@@ -2085,13 +2085,13 @@ const passedCi = (): NonNullable<PanelModel["ci"]> => ({
 	],
 });
 
-test("CI section: blue title with the short sha muted on its right, after RDD and before agents; none without runs (S64)", () => {
+test("CI section: vivid blue title with the short sha muted on its right, after RDD and before agents; none without runs (S64)", () => {
 	const lines = renderPanel({ session: { project: "p" }, footer: { cost: 0, rdd: "on" }, agents: samplePanelModel.agents, ci: passedCi() }, 47);
 	const titles = lines.map(plain).filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
 	assert.deepEqual(titles, ["session", "ODD", "RDD", "CI", "agents", "todo"]);
 	const title = lines.find((line) => plain(line).startsWith("╭─ CI"))!;
 	assert.match(plain(title), /^╭─ CI ─+ e6f1ffd ─╮$/);
-	assert.ok(title.includes(`${fgCode(palette.blue)}CI`), "title in blue");
+	assert.ok(title.includes(`${fgCode(vivid(palette.blue))}CI`), "title in vivid blue");
 	assert.ok(title.includes(`${fgCode(palette.muted)}e6f1ffd`), "sha muted");
 	assert.ok(!renderPanel({ session: { project: "p" } }, 47).some((line) => plain(line).startsWith("╭─ CI")), "no CI: no section");
 });
@@ -2316,4 +2316,39 @@ test("S87 the agents card lists waiting tasks with running ones, with the ! glyp
 	assert.match(card[1], /^│ ⠙ job-1 +npm test +1:01 │$/);
 	assert.match(card[2], /^│ ! explore +map footer +0:05 opus · high │$/);
 	assert.equal(card.length, 4);
+});
+
+// --- Vivid labels S2: section titles and their counters --------------------------
+
+test("section titles and their counters draw vivid on the rail, /dock and the narrow cards; frames stay gray (S2)", () => {
+	const model: PanelModel = {
+		...samplePanelModel,
+		headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }],
+		ci: { sha: "fb7ca9d", checks: [{ name: "test", state: "running", seconds: 12 }] },
+	};
+	const titles: [string, (typeof palette)[keyof typeof palette]][] = [
+		["session", palette.teal], ["heads-up", palette.red], ["ODD", palette.amber], ["RDD", palette.rose],
+		["CI", palette.blue], ["agents", palette.lilac], ["todo", palette.coral], ["changes", palette.green],
+	];
+	const titleLine = (lines: string[], title: string) => lines.find((line) => plain(line).trim().startsWith(`╭─ ${title} `))!;
+	for (const lines of [renderPanel(model, 55), renderDock(model, DOCK_WIDTH + 2, 200).lines]) {
+		for (const [title, color] of titles) {
+			const line = titleLine(lines, title);
+			assert.ok(line.includes(`\x1b[1m${fgCode(vivid(color))}${title}`), `${title} bold in its vivid color`);
+			assert.ok(!line.includes(fgCode(color)), `${title}: no pastel left on the top rule`);
+			assert.ok(line.includes(`${fgCode(palette.frame)}╭─ `), `${title}: the frame stays gray`);
+		}
+		assert.ok(titleLine(lines, "todo").includes(`${fgCode(vivid(palette.coral))}3/7`), "the todo counter vivid");
+		assert.ok(titleLine(lines, "RDD").includes(`\x1b[1m${fgCode(vivid(palette.green))}on`), "the RDD switch vivid");
+		// Gray counters have no hue to raise: they stay muted.
+		assert.ok(titleLine(lines, "changes").includes(`${fgCode(palette.muted)}1 to commit`), "the changes count stays muted");
+		assert.ok(titleLine(lines, "CI").includes(`${fgCode(palette.muted)}fb7ca9d`), "the CI sha stays muted");
+	}
+	const todoCard = renderTodoCard(model.todo, 64);
+	assert.ok(todoCard[0].includes(`\x1b[1m${fgCode(vivid(palette.coral))}todo`) && todoCard[0].includes(`${fgCode(vivid(palette.coral))}3/7`), "the todo card's title and counter vivid");
+	const agentsCard = renderAgentsCard(model.agents, 53, 1, 0);
+	assert.ok(agentsCard[0].includes(`\x1b[1m${fgCode(vivid(palette.lilac))}agents`) && agentsCard[0].includes(`${fgCode(vivid(palette.lilac))}1`), "the agents card's title and counter vivid");
+	assert.ok(!agentsCard[0].includes(fgCode(palette.lilac)), "no pastel lilac left on the agents card's top rule");
+	// The rows keep their own colors.
+	assert.ok(renderTodoCard(model.todo, 64)[2].includes(`\x1b[1m${fgCode(palette.text)}Confirm CI is green`), "the active task keeps the text color");
 });

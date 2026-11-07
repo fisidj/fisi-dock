@@ -38,6 +38,44 @@ export function dim(color: Rgb, amount = 0.4): Rgb {
 	return color.map((channel, index) => Math.round(channel * amount + BACKGROUND[index] * (1 - amount))) as unknown as Rgb;
 }
 
+/** The WCAG contrast of `color` on the panel background. */
+function contrast(color: Rgb): number {
+	const luminance = (rgb: Rgb) => {
+		const [r, g, b] = rgb.map((channel) => channel / 255).map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+		return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+	};
+	return (luminance(color) + 0.05) / (luminance(BACKGROUND) + 0.05);
+}
+
+/** `color`'s hue at HSL saturation 0.9 and `lightness`. */
+function withLightness(color: Rgb, lightness: number): Rgb {
+	const [r, g, b] = color.map((channel) => channel / 255);
+	const max = Math.max(r, g, b);
+	const spread = max - Math.min(r, g, b);
+	let hue = 0;
+	if (spread) hue = max === r ? ((g - b) / spread) % 6 : max === g ? (b - r) / spread + 2 : (r - g) / spread + 4;
+	hue = (hue * 60 + 360) % 360;
+	const chroma = (1 - Math.abs(2 * lightness - 1)) * 0.9;
+	const x = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+	const m = lightness - chroma / 2;
+	const sextant = Math.floor(hue / 60);
+	const [r1, g1, b1] = [[chroma, x, 0], [x, chroma, 0], [0, chroma, x], [0, x, chroma], [x, 0, chroma], [chroma, 0, x]][sextant];
+	return [r1, g1, b1].map((value) => Math.round((value + m) * 255)) as unknown as Rgb;
+}
+
+/**
+ * The vividness of the cover title #f43888 on `color`'s own hue (vivid labels S1):
+ * HSL saturation 90%, lightness 59%; a hue that then reads under 4.5:1 on the
+ * background gets lighter in steps of 0.01 until it does, at most 0.80.
+ */
+export function vivid(color: Rgb): Rgb {
+	for (let step = 59; step < 80; step++) {
+		const out = withLightness(color, step / 100);
+		if (contrast(out) >= 4.5) return out;
+	}
+	return withLightness(color, 0.8);
+}
+
 export const fgCode = ([r, g, b]: Rgb) => `\x1b[38;2;${r};${g};${b}m`;
 export const bgCode = ([r, g, b]: Rgb) => `\x1b[48;2;${r};${g};${b}m`;
 
