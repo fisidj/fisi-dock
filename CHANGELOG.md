@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 ### Start screen
 
@@ -37,6 +37,10 @@
 - `tests/configs.test.ts`: simulated user configurations (another language, no Engram, ten MCP servers, Vim on, a 30-column screen, a remapped or unbound expand key, all at once, and no Gentle Shell) drive the extension end to end, and every surface is checked at every width from 0 to 140.
 - The Gentle Shell key check finds the package Gentle Shell itself loads (the one its launcher injects, else the `gentle-shell` launcher's own on PATH, pnpm included) before the global npm root, preferring the version provisioned in `~/.gentle-shell/config.json`. It no longer skips on a pnpm install, and still skips with no Gentle Shell (CI).
 - CI runs `npm ci` before the tests, so they get Pi's real TUI classes and source.
+
+### Project
+
+- Contributing guide, security policy, issue forms for bugs and ideas, and a pull request template.
 
 ## 0.1.0
 
