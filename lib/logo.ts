@@ -5,10 +5,10 @@ import { bold, fg, palette, type Rgb } from "./palette.ts";
 // pixels stacked: the upper pixel is the top two dot rows, the lower pixel the
 // bottom two, so 5 pixel rows take 3 terminal rows. The words are joined and told
 // apart by color: GENTLE in a gray fade, SHELL in Gentle Shell's Gentleman-Sexy pinks,
-// from its accent down to its deepPink. Artboard 08's
-// letters need 51 columns, so only Gentle Shell fisi/custom's wider rail draws them;
-// narrower rails, the official 47-column one included, get one bold text row in the
-// same two colors, its letters spaced from 21 columns (design rail-wordmark/10 "Text mark").
+// from its accent down to its deepPink. Two sizes: artboard 08's letters for
+// Gentle Shell fisi/custom's wider rail, and the compact one for the official
+// 47-column rail. Narrower rails get one bold text row in the same two colors,
+// its letters spaced from 21 columns (design rail-wordmark/10 "Text mark").
 
 type Font = Record<string, string[]>;
 
@@ -21,6 +21,16 @@ const WIDE: Font = {
 	L: ["#..", "#..", "#..", "#..", "###"],
 	S: [".###", "#...", ".##.", "...#", "###."],
 	H: ["#..#", "#..#", "####", "#..#", "#..#"],
+};
+
+// The wide G, N and L (a 2-column L reads cut off); E, T, S and H narrow, so the
+// joined mark is 45 columns and the 47-column rail centers it.
+const COMPACT: Font = {
+	...WIDE,
+	E: ["###", "#..", "##.", "#..", "###"],
+	T: ["###", ".#.", ".#.", ".#.", ".#."],
+	S: [".##", "#..", ".#.", "..#", "##."],
+	H: ["#.#", "#.#", "###", "#.#", "#.#"],
 };
 
 /** Each word's color for each pixel row, top to bottom. */
@@ -64,6 +74,7 @@ function pixelLines(font: Font): string[] {
 }
 
 const WIDE_LINES = pixelLines(WIDE);
+const COMPACT_LINES = pixelLines(COMPACT);
 const spaced = (word: string) => [...word].join(" ");
 // Design rail-wordmark/10 "1 row, spaced": letters one column apart, so the row reads wider.
 const SPACED_LINE = bold(fg(SHADES[0][1], `${spaced(WORDS[0])} `) + fg(palette.sexyPink, spaced(WORDS[1])));
@@ -72,11 +83,14 @@ const TEXT_LINE = bold(fg(SHADES[0][2], WORDS[0]) + fg(palette.sexyPink, WORDS[1
 
 /** Visible columns of the wide wordmark (51); fisi/custom's 55-column rail fits it with its indent. */
 export const LOGO_WIDTH = pixelGrid(WIDE)[0].length;
+/** Visible columns of the compact wordmark (45), for the official 47-column rail. */
+export const COMPACT_LOGO_WIDTH = pixelGrid(COMPACT)[0].length;
 
-/** The wordmark for `width` columns: wide braille, spaced text, joined text, then nothing. */
+/** The wordmark for `width` columns: wide braille, compact braille, spaced text, joined text, then nothing. */
 export function renderLogo(width: number): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns >= LOGO_WIDTH) return WIDE_LINES;
+	if (columns >= COMPACT_LOGO_WIDTH) return COMPACT_LINES;
 	if (columns >= SPACED_WIDTH) return [SPACED_LINE];
 	if (columns >= WORDS.join("").length) return [TEXT_LINE];
 	return [];

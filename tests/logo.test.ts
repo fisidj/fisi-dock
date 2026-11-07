@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LOGO_WIDTH, renderLogo } from "../lib/logo.ts";
+import { COMPACT_LOGO_WIDTH, LOGO_WIDTH, renderLogo } from "../lib/logo.ts";
 import { visibleWidth } from "../lib/text.ts";
 
 const plain = (line: string) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
@@ -107,8 +107,30 @@ test("wide logo: GENTLE in a gray gradient, SHELL from the Sexy pink to its deep
 	assert.ok(!joined.includes("\x1b[0m"), "no full reset");
 });
 
-test("from 21 to 50 columns, the official 47-column rail included, the logo is one bold spaced G E N T L E S H E L L row: GENTLE gray, SHELL the Sexy pink", () => {
-	for (const width of [50, 47, 30, 21]) {
+test("from 45 to 50 columns, the official 47-column rail included, the compact braille logo is used: 45 columns, centered with one blank column each side of 47", () => {
+	assert.equal(COMPACT_LOGO_WIDTH, 45);
+	for (const width of [50, 47, COMPACT_LOGO_WIDTH]) {
+		const lines = renderLogo(width);
+		assert.equal(lines.length, 3, `width ${width}`);
+		for (const line of lines) assert.equal(visibleWidth(line), COMPACT_LOGO_WIDTH);
+		assertTint(lines, 26);
+		assert.ok(!lines.join("").includes(SHADOW), "no shadow");
+	}
+	const letters = pixelsOf(renderLogo(47)).slice(0, 5);
+	const wide = pixelsOf(renderLogo(51)).slice(0, 5);
+	assert.deepEqual(columns(letters, 0, 4), columns(wide, 0, 4), "G keeps the custom shape");
+	assert.deepEqual(columns(letters, 5, 8), ["###", "#..", "##.", "#..", "###"], "narrow E");
+	assert.deepEqual(columns(letters, 9, 13), columns(wide, 10, 14), "N keeps the custom shape");
+	assert.deepEqual(columns(letters, 14, 17), ["###", ".#.", ".#.", ".#.", ".#."], "narrow T");
+	assert.deepEqual(columns(letters, 18, 21), columns(wide, 20, 23), "L keeps the custom 3-column shape");
+	assert.deepEqual(columns(letters, 26, 29), [".##", "#..", ".#.", "..#", "##."], "narrow S");
+	assert.deepEqual(columns(letters, 30, 33), ["#.#", "#.#", "###", "#.#", "#.#"], "narrow H");
+	assert.deepEqual(columns(letters, 38, 41), columns(wide, 44, 47), "next to last L keeps the custom shape");
+	assert.deepEqual(columns(letters, 42, 45), columns(wide, 48, 51), "last L keeps the custom shape");
+});
+
+test("from 21 to 44 columns the logo is one bold spaced G E N T L E S H E L L row: GENTLE gray, SHELL the Sexy pink", () => {
+	for (const width of [44, 30, 21]) {
 		const lines = renderLogo(width);
 		assert.equal(lines.length, 1, `width ${width}`);
 		assert.equal(plain(lines[0]), "G E N T L E S H E L L");

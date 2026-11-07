@@ -3,7 +3,7 @@
 ## Unreleased
 
 - Fix: on Gentle Shell builds that card rail parts (its `main` branch, transparent surface) the panel no longer loses its right border to a `…`.
-- Wordmark: the rail logo reads GENTLESHELL, joined, GENTLE gray and SHELL in Gentle Shell's Gentleman-Sexy pink (#F43888). The 55-column rail draws it in braille dots (gray fade, Sexy pink to its deep pink #BF0F50); the official 47-column rail and narrower ones show it as one bold text row, letters spaced (`G E N T L E S H E L L`) down to 21 columns and joined below, which gives two rows back to the panel.
+- Wordmark: the rail logo reads GENTLESHELL, joined, GENTLE gray and SHELL in Gentle Shell's Gentleman-Sexy pink (#F43888). It is drawn in braille dots (gray fade, Sexy pink to its deep pink #BF0F50): the 55-column rail gets the wide 51-column mark, the official 47-column rail the 45-column compact one (the same G, N and L, a narrower E, T, S and H), centered with one blank column on each side. Narrower rails show it as one bold text row, letters spaced (`G E N T L E S H E L L`) down to 21 columns and joined below.
 
 ## 0.1.0
 
