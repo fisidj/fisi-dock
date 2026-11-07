@@ -86,7 +86,7 @@ test("long values are cut with an ellipsis inside the frame", () => {
 
 test("sections follow the approved order: logo, session, odd, rdd, agents, todo, changes; the panel ends with the last frame (S32, S50, S51)", () => {
 	const lines = renderPanel(samplePanelModel, 47).map(plain);
-	assert.match(lines[0], /^ *[⠛⣤⣿]/, "braille logo first");
+	assert.equal(lines[0], "  GENTLESHELL", "the GENTLESHELL text logo first");
 	assert.ok(!lines.some((line) => line.includes("✿")), "no flower");
 	const order = ["╭─ session", "╭─ ODD", "╭─ RDD", "╭─ agents", "╭─ todo", "╭─ changes"].map((title) => lines.findIndex((line) => line.startsWith(title)));
 	for (const index of order) assert.ok(index > 0);
@@ -437,7 +437,8 @@ test("pinned layout without MCP config and footer data: logo, session, the ODD r
 		changes: [{ status: "M", path: "lib/panel.ts", added: 3, removed: 1 }],
 	};
 	const lines = renderPanel(model, 47).map(plain);
-	assert.deepEqual(lines.slice(3), [
+	assert.equal(lines[0], "  GENTLESHELL");
+	assert.deepEqual(lines.slice(1), [
 		`╭─ session ${"─".repeat(35)}╮`,
 		`│ project  Año Nuevo Demo Project main${" ".repeat(8)}│`,
 		`│ context${" ".repeat(29)}5% used │`,
@@ -453,7 +454,7 @@ test("pinned layout without MCP config and footer data: logo, session, the ODD r
 		`│ ● panel.ts lib/${" ".repeat(23)}+3 -1 │`,
 		`╰${"─".repeat(45)}╯`,
 	]);
-	assert.equal(lines.length, 17, "three logo rows on top");
+	assert.equal(lines.length, 15, "one logo row on top");
 });
 
 for (const total of [3, 7, 50]) {
@@ -1117,14 +1118,13 @@ test("files sort by added+removed, most first, keeping git order on ties; /dock 
 	assert.deepEqual(changes.map((change) => change.path), ["new.ts", "a.ts", "big.ts", "b.ts", "gone.ts"], "the model is not reordered");
 });
 
-test("at 55 columns the panel opens with the wide braille logo, at 47 with the compact one", () => {
+test("at 55 columns the panel opens with the wide braille logo, at 47 with the GENTLESHELL text row", () => {
 	const wide = renderPanel(samplePanelModel, 55).slice(0, 3).map(plain);
 	assert.equal(wide[0].trimEnd(), "  ⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛ ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿");
-	const compact = renderPanel(samplePanelModel, 47).slice(0, 3).map(plain);
-	assert.ok(compact.every((line) => line.length === 46 && /^ [ ⠛⣤⣿]+$/.test(line)), "compact braille logo");
-	assert.match(compact[0], /^ [⠛⣤⣿]/, "centered: one blank column each side of 47");
-	assert.notEqual(compact[0].trimEnd(), wide[0].trimEnd());
-	for (const width of [55, 53, 47]) assert.ok(!renderPanel(samplePanelModel, width).join("").includes("[38;2;95;30;60m"), `no shadow at ${width}`);
+	const official = renderPanel(samplePanelModel, 47).slice(0, 2).map(plain);
+	assert.equal(official[0], "  GENTLESHELL", "one text row, two columns in");
+	assert.match(official[1], /^╭─ session /, "the first section follows right under it");
+	for (const width of [55, 53, 47]) assert.ok(!renderPanel(samplePanelModel, width).join("").includes("[38;2;95;30;60m"), `no shadow at ${width}`);
 });
 
 test("heads-up rows keep their glyph colors: red for git warnings, amber for todo and plans (S14)", () => {
