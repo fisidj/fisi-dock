@@ -1,6 +1,6 @@
 {
   "name": "fisi-dock",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Side panel for Gentle Shell: session, ODD, RDD, CI, agents, todo and changes at a glance (Pi extension and theme)",
   "type": "module",
   "license": "MIT",
@@ -32,7 +32,8 @@
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
-    "docs"
+    "docs",
+    "!docs/screenshot.png"
   ],
   "pi": {
     "extensions": [
@@ -40,7 +41,8 @@
     ],
     "themes": [
       "./themes"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/fisidj/fisi-dock/main/docs/screenshot.png"
   },
   "engines": {
     "node": ">=22.19"

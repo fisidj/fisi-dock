@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+### Project
+
+- Published on npm: `gentle-shell install npm:fisi-dock`.
+- `docs/screenshot.png`, a cover with the GENTLESHELL wordmark, the name and the ODD, agents and todo sections, set as the package's `pi.image` preview for the Pi package gallery. It stays in the repository and out of the npm package.
+- The security policy says fixes reach `main` and the latest release.
+
 ## 0.2.0
 
 ### Start screen
