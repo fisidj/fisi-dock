@@ -45,7 +45,7 @@ It is a Pi package (an extension and a theme) that paints its own panel in Gentl
 - **Prompt box**: Gentle Shell's prompt framed, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.
 - **`/dock`** and **`/fisi-dock`**: the whole panel over the screen, and an on/off switch that needs no uninstall ([Commands](#commands)).
-- **`Fisi-Dock` theme**: the panel's palette for the whole of Pi, applied once on the first start with your own theme remembered for `/fisi-dock off` ([Theme](#theme)).
+- **`Fisi-Dock` theme**: the panel's hues, vivid, for the whole of Pi, applied once on the first start with your own theme remembered for `/fisi-dock off` ([Theme](#theme)).
 
 Every section, row and data source is described in [docs/reference.md](docs/reference.md).
 
@@ -128,6 +128,8 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 ## Theme
 
 `Fisi-Dock` is a Pi theme with the panel's palette and a pink-tinted selection. It colors the whole of Pi, not only the panel. It is optional: the panel keeps its own colors with any theme.
+
+**Vivid labels.** The labels wear the vividness of the cover title `#F43888`, each on its own hue: the theme's accents (pink, deep pink, teal, coral, amber, lilac, green, blue, red), the panel's section titles and the counters on their top rule (`3/7`, `on`), and the labels Fisi Dock paints on the prompt box (`● SUPER-YOLO`, the effort, the `ODD exploring…` wave). Each color keeps its hue at HSL saturation 90% and lightness 59%, lighter where a hue would read under 4.5:1 on the `#161616` background (blue, lilac). The frames, the rows inside the sections, gray labels (the model, `1 to commit`), the neutrals and the backgrounds keep their colors.
 
 **The first start applies it once.** The first session with Fisi Dock on, inside Gentle Shell, remembers the theme you use, then switches Pi to `Fisi-Dock` and says so: `Fisi Dock applied its theme · /fisi-dock off puts your theme dark back`. This happens once, also on an install from before this step; every later start leaves your theme alone. It waits for the next start when Pi does not know the `Fisi-Dock` theme or cannot set it, and it never changes your theme when Fisi Dock cannot save the one you had. It never runs in a delegated subagent session, and a Fisi Dock that is off does nothing at start: `/fisi-dock on` sets the theme instead.
 
