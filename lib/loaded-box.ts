@@ -4,6 +4,9 @@
 // on the bottom rule. Pi is never imported: its loaded-resources container is
 // found next to the card in the TUI tree and only that instance's render is
 // wrapped, so a removed or reloaded Fisi Dock leaves Pi's own listing.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { fg, palette } from "./palette.ts";
 import { ellipsize, padEnd, visibleWidth } from "./text.ts";
 
@@ -15,9 +18,16 @@ const SIDE = 3;
 const TITLE = "loaded";
 /** Cells of the top rule other than its dashes: `╭─ ` (3), the title, ` ` (1) and `╮` (1). */
 const TOP_RULE_CHROME = 5 + TITLE.length;
-/** Pi's default for app.tools.expand, the key that lists the names in full. */
+/**
+ * Pi's default for app.tools.expand, the key that lists the names in full
+ * (core/keybindings.js). Pi's package exports neither its keybinding defaults
+ * nor its key formatter, so this copy is checked against the installed Pi by
+ * tests/loaded-box.test.ts.
+ */
 const DEFAULT_EXPAND_KEY = "ctrl+o";
 const EXPAND_KEYBINDING = "app.tools.expand";
+/** The id Pi migrates to app.tools.expand from older keybindings files. */
+const LEGACY_EXPAND_KEYBINDING = "expandTools";
 /** Columns between the kind, its count and the names. */
 const GAP = "  ";
 
@@ -129,8 +139,51 @@ function findLoadedResources(root: unknown, header: object): Node | undefined {
 	return found;
 }
 
-/** Pi's configured expand key from its keybindings, which its editor holds; Pi's default when none is found. */
-function expandKeyReader(root: unknown): () => string {
+/** Pi's keybindings.json: in its agent dir, `PI_CODING_AGENT_DIR` (`~` for the home), else `~/.pi/agent`. */
+export function piKeybindingsPath(env: Record<string, string | undefined>, home: string): string {
+	const custom = env.PI_CODING_AGENT_DIR;
+	const agentDir = custom ? (custom === "~" ? home : custom.startsWith("~/") ? join(home, custom.slice(2)) : custom) : join(home, ".pi", "agent");
+	return join(agentDir, "keybindings.json");
+}
+
+// Pi's key ids (core/key-id-schema.js): up to four distinct modifiers, then a
+// letter, a digit or one of pi-tui's key names.
+const MODIFIERS = ["ctrl", "shift", "alt", "super"];
+const KEY_NAMES = "escape esc enter return tab space backspace delete insert clear home end pageUp pageDown up down left right f1 f2 f3 f4 f5 f6 f7 f8 f9 f10 f11 f12 ` - = [ ] \\ ; ' , . / ! @ # $ % ^ & * ( ) _ + | ~ { } : < > ?".split(" ");
+const KEY_ID = new RegExp(
+	`^(?!.*(?:${MODIFIERS.map((modifier) => `${modifier}\\+.*${modifier}\\+`).join("|")}))(?:(?:${MODIFIERS.join("|")})\\+){0,4}(?:[a-z0-9]|${KEY_NAMES.map((name) => name.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&")).join("|")})$`,
+);
+const isKeyId = (value: unknown): value is string => typeof value === "string" && KEY_ID.test(value);
+
+/** Keys as the hint names them: each once, joined with `/`; empty for none (no hint). */
+const keyText = (keys: readonly string[]) => [...new Set(keys)].join("/");
+
+/**
+ * The keys Pi binds to app.tools.expand by the keybindings file at `path`, the
+ * way Pi reads it (core/keybindings.js): app.tools.expand, else the legacy
+ * expandTools; a key id or a list of them (`[]` unbinds it, so empty); a value
+ * Pi rejects, a malformed or missing file: Pi's default.
+ */
+export function readExpandKey(path: string): string {
+	let config: unknown;
+	try {
+		config = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
+	} catch {
+		return DEFAULT_EXPAND_KEY;
+	}
+	if (!config || typeof config !== "object") return DEFAULT_EXPAND_KEY;
+	const id = Object.hasOwn(config, EXPAND_KEYBINDING) ? EXPAND_KEYBINDING : LEGACY_EXPAND_KEYBINDING;
+	const value = (config as Record<string, unknown>)[id];
+	if (isKeyId(value)) return value;
+	return Array.isArray(value) && value.every(isKeyId) ? keyText(value) : DEFAULT_EXPAND_KEY;
+}
+
+/**
+ * Pi's configured expand key from its keybindings, which its editor holds,
+ * read on each call; without them, from Pi's keybindings file at
+ * `keybindingsPath`, read once.
+ */
+function expandKeyReader(root: unknown, keybindingsPath: () => string): () => string {
 	let keybindings: { getKeys(id: string): unknown } | undefined;
 	walk(root, (node) => {
 		const candidate = (node as { keybindings?: { getKeys?: unknown } }).keybindings;
@@ -138,10 +191,22 @@ function expandKeyReader(root: unknown): () => string {
 		keybindings = candidate as { getKeys(id: string): unknown };
 		return true;
 	});
+	let configured: string | undefined;
+	const fromFile = () => {
+		if (configured !== undefined) return configured;
+		try {
+			configured = readExpandKey(keybindingsPath());
+		} catch {
+			// No home to find the file in: Pi's default.
+			configured = DEFAULT_EXPAND_KEY;
+		}
+		return configured;
+	};
+	if (!keybindings) fromFile();
 	return () => {
-		if (!keybindings) return DEFAULT_EXPAND_KEY;
+		if (!keybindings) return fromFile();
 		const keys = keybindings.getKeys(EXPAND_KEYBINDING);
-		return Array.isArray(keys) ? keys.filter((key) => typeof key === "string").join("/") : DEFAULT_EXPAND_KEY;
+		return Array.isArray(keys) ? keyText(keys.filter((key) => typeof key === "string")) : fromFile();
 	};
 }
 
@@ -202,6 +267,8 @@ function boxedLines(container: Node & { mouseLayout?: unknown }, width: number, 
 export type LoadedBoxOptions = {
 	/** True while the box should show: Fisi Dock on and its welcome card in the header. */
 	active(): boolean;
+	/** Pi's keybindings file, for the hint when the tree holds no keybindings; piKeybindingsPath for this process by default. */
+	keybindingsPath?: string;
 };
 
 /**
@@ -215,7 +282,7 @@ export type LoadedBoxOptions = {
 export function installLoadedBox(root: unknown, header: object, options: LoadedBoxOptions): (() => void) | undefined {
 	const container = findLoadedResources(root, header) as (Node & Record<PropertyKey, unknown>) | undefined;
 	if (!container) return undefined;
-	const key = expandKeyReader(root);
+	const key = expandKeyReader(root, () => options.keybindingsPath ?? piKeybindingsPath(process.env, homedir()));
 	// An earlier Fisi Dock that never restored (a crashed reload): wrap Pi's render it kept, not its wrapper.
 	const earlier = container[PATCH] as Patch | undefined;
 	const original = earlier?.original ?? (container.render as Render);

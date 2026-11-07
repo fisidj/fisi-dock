@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
-import { installLoadedBox, loadedKind, renderLoadedBox, type LoadedKind } from "../lib/loaded-box.ts";
+import { Container, Key, Spacer, Text } from "@earendil-works/pi-tui";
+import { installLoadedBox, loadedKind, piKeybindingsPath, readExpandKey, renderLoadedBox, type LoadedKind } from "../lib/loaded-box.ts";
 import { visibleWidth } from "../lib/text.ts";
 
 const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
@@ -130,8 +131,11 @@ function showLoadedResources(container: Container, lists: Record<string, string[
 	}
 }
 
-/** Pi's tree: TUI > document > [header (spacer, card, spacer), loaded resources, chat], and the editor with Pi's keybindings. */
-function piTree(keys: string[] = ["ctrl+o"]) {
+/**
+ * Pi's tree: TUI > document > [header (spacer, card, spacer), loaded resources, chat], and the
+ * editor with Pi's keybindings (`null`: an editor without them, as a custom editor may be).
+ */
+function piTree(keys: string[] | null = ["ctrl+o"]) {
 	const card = { render: () => ["card"], invalidate() {} };
 	const header = new Container();
 	header.addChild(new Spacer(1));
@@ -141,7 +145,7 @@ function piTree(keys: string[] = ["ctrl+o"]) {
 	const chat = new Container();
 	const document = new Container();
 	for (const child of [header, loaded, chat]) document.addChild(child);
-	const editor = { keybindings: { getKeys: (id: string) => (id === "app.tools.expand" ? keys : []) }, render: () => [], invalidate() {} };
+	const editor = { ...(keys ? { keybindings: { getKeys: (id: string) => (id === "app.tools.expand" ? keys : []) } } : {}), render: () => [], invalidate() {} };
 	const editorContainer = new Container();
 	editorContainer.addChild(editor);
 	return { tui: { children: [document, editorContainer], requestRender() {} }, card, loaded, chat };
@@ -239,6 +243,100 @@ test("S1 the hint names the key Pi's keybindings bind to app.tools.expand", () =
 	restore();
 });
 
+// --- Pi's keybindings file, when the tree holds no keybindings ---------------
+
+const KEYBINDINGS = join(import.meta.dirname, "fixtures", "keybindings");
+const fixture = (name: string) => join(KEYBINDINGS, name, "keybindings.json");
+
+/** The bottom rule of the box at 63 columns for a tree without keybindings and Pi's keybindings file at `keybindingsPath`. */
+function bottomRule(keybindingsPath: string, keys: string[] | null = null): string {
+	const pi = piTree(keys);
+	showLoadedResources(pi.loaded, LISTS);
+	const restore = installLoadedBox(pi.tui, pi.card, { active: () => true, keybindingsPath })!;
+	const lines = shown(pi.loaded, 63);
+	restore();
+	return lines[4];
+}
+const PLAIN_RULE = `╰${"─".repeat(61)}╯`;
+
+test("S4 without keybindings in the tree, the hint names the key the user's keybindings.json binds to app.tools.expand", () => {
+	assert.ok(bottomRule(fixture("remapped")).endsWith("─ ctrl+e lists them ─╯"), bottomRule(fixture("remapped")));
+	assert.ok(bottomRule(fixture("bom")).endsWith("─ ctrl+e lists them ─╯"), "a file with a byte order mark, as Pi strips it");
+});
+
+test("S4 the legacy id expandTools counts as app.tools.expand, and app.tools.expand wins when both are set, as Pi migrates them", () => {
+	assert.ok(bottomRule(fixture("legacy")).endsWith("─ ctrl+shift+e lists them ─╯"), bottomRule(fixture("legacy")));
+	assert.ok(bottomRule(fixture("legacy-and-new")).endsWith("─ alt+o lists them ─╯"), bottomRule(fixture("legacy-and-new")));
+});
+
+test("S4 a list of keys names each once, joined with `/`", () => {
+	assert.ok(bottomRule(fixture("two-keys")).endsWith("─ ctrl+e/alt+o lists them ─╯"), bottomRule(fixture("two-keys")));
+});
+
+test("S4 app.tools.expand set to an empty list (unbound) drops the hint: the rule is plain", () => {
+	assert.equal(bottomRule(fixture("unbound")), PLAIN_RULE);
+});
+
+test("S4 with no override Pi's default ctrl+o shows: no file, malformed JSON, another binding only, or a value Pi rejects", () => {
+	for (const name of ["missing-file", "malformed", "other-binding", "invalid-key"]) {
+		assert.ok(bottomRule(fixture(name)).endsWith("─ ctrl+o lists them ─╯"), `${name}: ${bottomRule(fixture(name))}`);
+	}
+});
+
+test("S4 the tree's live keybindings come first: the file is not what the hint names when the editor has them", () => {
+	assert.ok(bottomRule(fixture("remapped"), ["alt+x"]).endsWith("─ alt+x lists them ─╯"));
+	assert.equal(bottomRule(fixture("remapped"), []), PLAIN_RULE, "unbound in the tree: no hint, whatever the file says");
+});
+
+test("S4 the keybindings file is read once at install, never per render", () => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-keys-"));
+	try {
+		const path = join(dir, "keybindings.json");
+		writeFileSync(path, JSON.stringify({ "app.tools.expand": "ctrl+e" }));
+		const pi = piTree(null);
+		showLoadedResources(pi.loaded, LISTS);
+		const restore = installLoadedBox(pi.tui, pi.card, { active: () => true, keybindingsPath: path })!;
+		assert.ok(shown(pi.loaded, 63)[4].endsWith(" ctrl+e lists them ─╯"));
+		writeFileSync(path, JSON.stringify({ "app.tools.expand": "alt+y" }));
+		assert.ok(shown(pi.loaded, 63)[4].endsWith(" ctrl+e lists them ─╯"), "the same key on the next render");
+		restore();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("S4 every key name Pi accepts is read, with up to four modifiers; Pi's key-id rules reject the rest", () => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-keys-"));
+	try {
+		const path = join(dir, "keybindings.json");
+		const names = [..."abcdefghijklmnopqrstuvwxyz0123456789", ...Object.values(Key).filter((value): value is string => typeof value === "string")];
+		writeFileSync(path, JSON.stringify({ "app.tools.expand": names.map((name) => `ctrl+${name}`) }));
+		assert.equal(readExpandKey(path), names.map((name) => `ctrl+${name}`).join("/"));
+		for (const key of ["ctrl+shift+alt+super+e", "e", "ctrl++", "shift+pageUp"]) {
+			writeFileSync(path, JSON.stringify({ "app.tools.expand": key }));
+			assert.equal(readExpandKey(path), key, key);
+		}
+		for (const value of ["Ctrl+E", "ctrl+ctrl+e", "ctrl+shift+alt+super+ctrl+e", "ctrl+foo", "", "ctrl+", 5, null, {}, ["ctrl+e", 1]]) {
+			writeFileSync(path, JSON.stringify({ "app.tools.expand": value }));
+			assert.equal(readExpandKey(path), "ctrl+o", `${JSON.stringify(value)} is ignored, as Pi ignores it`);
+		}
+		writeFileSync(path, JSON.stringify(["ctrl+e"]));
+		assert.equal(readExpandKey(path), "ctrl+o", "a file that is not an object");
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+	assert.equal(readExpandKey(join(dir, "keybindings.json")), "ctrl+o", "a folder that is gone");
+});
+
+test("S4 Pi's keybindings file is keybindings.json in its agent dir: PI_CODING_AGENT_DIR (with ~ for the home), else ~/.pi/agent", () => {
+	const home = join("/home", "someone");
+	assert.equal(piKeybindingsPath({}, home), join(home, ".pi", "agent", "keybindings.json"));
+	assert.equal(piKeybindingsPath({ PI_CODING_AGENT_DIR: "" }, home), join(home, ".pi", "agent", "keybindings.json"));
+	assert.equal(piKeybindingsPath({ PI_CODING_AGENT_DIR: join("/srv", "agent") }, home), join("/srv", "agent", "keybindings.json"));
+	assert.equal(piKeybindingsPath({ PI_CODING_AGENT_DIR: "~" }, home), join(home, "keybindings.json"));
+	assert.equal(piKeybindingsPath({ PI_CODING_AGENT_DIR: "~/.gentle-shell/agent" }, home), join(home, ".gentle-shell", "agent", "keybindings.json"));
+});
+
 // Pi is never imported, so a Pi update that reshapes its listing would not fail
 // type checking: the box would just give way to Pi's listing. This reads the
 // installed Pi (the dev dependency) for the pieces the box relies on.
@@ -253,4 +351,24 @@ test("the installed Pi still builds its listing the way the box reads it", { ski
 	has("new ExpandableText(() => `${sectionHeader(name, color)}\\n${collapsedBody()}`", "a collapsed section is its [Name] header, then its list");
 	has('theme.fg("dim", `  ${labels.join(", ")}`)', "the list is the names joined with commas");
 	has('new ThemedText(() => `${theme.fg("warning", "[Skill warnings]")}', "warnings are plain themed text, never folded");
+});
+
+const PI_DIST = join(import.meta.dirname, "..", "node_modules", "@earendil-works", "pi-coding-agent", "dist");
+const PI_KEYBINDINGS = join(PI_DIST, "core", "keybindings.js");
+
+test("the installed Pi still reads keybindings.json the way the hint's fallback does", { skip: existsSync(PI_KEYBINDINGS) ? false : `no Pi at ${PI_KEYBINDINGS}` }, () => {
+	const keybindings = readFileSync(PI_KEYBINDINGS, "utf8");
+	const config = readFileSync(join(PI_DIST, "config.js"), "utf8");
+	const keyIds = readFileSync(join(PI_DIST, "core", "key-id-schema.js"), "utf8");
+	const has = (source: string, pattern: RegExp | string, why: string) => assert.ok(typeof pattern === "string" ? source.includes(pattern) : pattern.test(source), why);
+	has(keybindings, '"app.tools.expand": { defaultKeys: "ctrl+o"', "ctrl+o is Pi's default for app.tools.expand");
+	has(keybindings, 'expandTools: "app.tools.expand"', "expandTools is the legacy id");
+	has(keybindings, 'const configPath = join(agentDir, "keybindings.json");', "the file is keybindings.json in the agent dir");
+	has(keybindings, /if \(key !== nextKey && Object\.hasOwn\(rawConfig, nextKey\)\) \{\s*migrated = true;\s*continue;/, "the new id wins over the legacy one");
+	has(keybindings, "if (validateKeybindingValue.Check(binding))", "a value that is not a key id or a list of them is ignored");
+	has(keyIds, 'const modifiers = ["ctrl", "shift", "alt", "super"];', "the modifiers");
+	has(keyIds, /pattern: `\^\(\?!\.\*\(\?:\$\{duplicateModifierPattern\}\)\)\(\?:\(\?:\$\{modifiers\.join\("\|"\)\}\)\\\\\+\)\{0,4\}\$\{baseKeyPattern\}\$`/, "a key id: up to four distinct modifiers, then a key name");
+	has(config, "export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;", "the agent dir comes from <APP>_CODING_AGENT_DIR");
+	has(config, 'export const APP_NAME = piConfigName || "pi";', "the app is pi, so PI_CODING_AGENT_DIR");
+	has(config, 'return join(homedir(), CONFIG_DIR_NAME, "agent");', "else <home>/<config dir>/agent");
 });
