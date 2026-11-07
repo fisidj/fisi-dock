@@ -2,7 +2,9 @@
 
 **A side panel for [Gentle Shell](https://github.com/Gentleman-Programming/gentle-shell): your session, ODD phases, RDD reviews, CI, agents, todo list and changes at a glance.**
 
-Fisi Dock is a Pi package (an extension and a theme) that paints its own panel in Gentle Shell's fullscreen right rail, closes the prompt into a framed box, puts a welcome card on the start screen and adds a compact strip and cards on narrow screens such as a phone over SSH. It never changes a Gentle Shell file, and `/fisi-dock off` gives Gentle Shell everything back.
+Fisi Dock is an alternative look for Gentle Shell, for people who want a different interface from Gentle Shell's default one: a side panel layout with its own colors and its own `Fisi-Dock` theme. It is built on top of Gentle Shell and does not replace it: Gentle Shell stays installed and keeps running underneath, and Fisi Dock only repaints the parts you see.
+
+It is a Pi package (an extension and a theme) that paints its own panel in Gentle Shell's fullscreen right rail, closes the prompt into a framed box, puts a welcome card on the start screen and adds a compact strip and cards on narrow screens such as a phone over SSH. It never changes a Gentle Shell file, and `/fisi-dock off` gives Gentle Shell everything back.
 
 > Fisi Dock is a community project. It is not an official Gentle Shell or Gentleman Programming project, and it is not endorsed by them.
 
@@ -42,9 +44,8 @@ Fisi Dock is a Pi package (an extension and a theme) that paints its own panel i
 - **Start screen**: a welcome card in place of Gentle Shell's rose banner (Gentle Shell's version, the project and branch, the commands to begin with), and Pi's list of loaded skills, prompts and extensions folded into one `loaded` box under it. Your expand key (`ctrl+o` by default) shows Pi's full listing; Pi's warnings always show.
 - **Prompt box**: Gentle Shell's prompt framed, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.
-- **`/dock`**: the whole panel over the screen, scrollable with the arrows, the mouse wheel or a swipe.
-- **`/fisi-dock on` | `off`**: switch it without uninstalling; the choice is remembered across restarts.
-- **`Fisi-Dock` theme**: the panel's palette for the whole of Pi, optional.
+- **`/dock`** and **`/fisi-dock`**: the whole panel over the screen, and an on/off switch that needs no uninstall ([Commands](#commands)).
+- **`Fisi-Dock` theme**: the panel's palette for the whole of Pi, optional and never applied on its own ([Theme](#theme)).
 
 Every section, row and data source is described in [docs/reference.md](docs/reference.md).
 
@@ -89,29 +90,84 @@ Try it for one session without installing:
 gentle-shell -e git:github.com/fisidj/fisi-dock
 ```
 
-Then start Gentle Shell as usual. Fisi Dock is on from the first session; the `Fisi-Dock` theme is optional. To get it while keeping a way back to your theme, run `/fisi-dock off` and then `/fisi-dock on`: on remembers your theme and off puts it back. Picking `Fisi-Dock` in `/settings` works too, but then off has no theme of yours to return to and sets Gentle Shell's `Gentleman-Cute`.
+Then start Gentle Shell as usual. The panel, prompt box and welcome card are on from the first session. Your theme is not changed: see [Theme](#theme) to get the `Fisi-Dock` colors.
 
 As with any Pi package, Fisi Dock runs code on your machine: review the source before installing it.
 
-## Use
+## Commands
+
+Fisi Dock adds two commands:
 
 | Command | What it does |
 |---|---|
-| `/dock` | Shows the full panel over the whole screen. ↑/↓, Page Up/Page Down, the mouse wheel or a swipe scroll it; Esc closes it. |
-| `/fisi-dock on` \| `off` | Turns Fisi Dock on or off without uninstalling it, remembered across restarts. On switches to the `Fisi-Dock` theme and remembers yours; off gives Gentle Shell its panel back and puts your theme back. `/fisi-dock` alone opens a picker. |
+| `/dock` | Shows the full panel over the whole screen, live. Made for narrow screens without the side rail; works on wide ones too. While Fisi Dock is off it only says so. |
+| `/fisi-dock on` | Turns Fisi Dock back on, as at the start of a session, and switches Pi to the `Fisi-Dock` theme, remembering the theme you had. Already on: it says so and changes nothing. |
+| `/fisi-dock off` | Puts Fisi Dock to sleep without uninstalling it: Gentle Shell gets its own panel back, and your theme comes back (see [Theme](#theme)). New sessions start asleep until `/fisi-dock on`. |
+| `/fisi-dock` | Opens a picker titled with the current state (`Fisi Dock is on`), the change listed first: Enter switches it, Esc changes nothing. Typing `/fisi-dock ` with the space suggests `on` and `off`; any other argument shows the usage and changes nothing. |
 
-The choice is saved in `<Pi agent dir>/fisi-dock/state.json` (`PI_CODING_AGENT_DIR`, else `~/.pi/agent`).
+Inside `/dock`:
 
-## Update and remove
+| Key | Action |
+|---|---|
+| ↑ / ↓ | Scroll one row |
+| Page Up / Page Down | Scroll one page |
+| Mouse wheel, or a finger swipe on a phone terminal that sends swipes as the wheel | Scroll |
+| Esc | Close and return to the prompt |
+
+Gentle Shell and Pi controls that change what Fisi Dock shows:
+
+| Control | Effect on Fisi Dock |
+|---|---|
+| `/settings` → **Theme** | Picks any theme, `Fisi-Dock` included ([Theme](#theme)). |
+| Your expand key (`ctrl+o` by default) | Shows Pi's full list of loaded skills, prompts and extensions in place of the `loaded` box; press it again for the box. |
+| `/gentle:vim disable` | Turns Gentle Shell's Vim mode off, and with it the `INSERT`/`NORMAL` hint on the prompt box. `/gentle:vim enable` turns it back on. |
+| `"quietStartup": true` in Pi's `settings.json` | Pi prints no loaded-resources listing, so there is no `loaded` box. |
+
+## Theme
+
+`Fisi-Dock` is a Pi theme with the panel's palette and a pink-tinted selection. It colors the whole of Pi, not only the panel. It is optional: the panel keeps its own colors with any theme.
+
+**Installing Fisi Dock does not apply it.** Installing makes `Fisi-Dock` one more choice in `/settings`; your theme stays as it is, also on the first session. Only two things set it:
+
+| How | What happens |
+|---|---|
+| `/settings` → **Theme** → `Fisi-Dock` | Pi switches now and saves it as your theme setting. Fisi Dock remembers nothing, so a later `/fisi-dock off` sets Gentle Shell's `Gentleman-Cute`. |
+| `/fisi-dock off`, then `/fisi-dock on` | On is the only command that sets it (`/fisi-dock on` while already on changes nothing). On remembers the theme in use and off puts it back. |
+
+The second way has a catch: the first `/fisi-dock off` has no theme of yours remembered yet, so it sets `Gentleman-Cute`, and on then remembers `Gentleman-Cute`. That is Gentle Shell's default theme in its own home, so for most users nothing is lost. If you use another theme (for example with `--link`), use `/settings` instead and switch back there.
+
+To keep your own theme, do nothing: Fisi Dock never touches the theme at startup or while it runs. To switch back after trying it:
+
+- `/settings` → **Theme**, and pick any theme, Gentle Shell's `Gentleman-Cute` included; or
+- `/fisi-dock off`: it puts back the theme remembered by `/fisi-dock on`, else `Gentleman-Cute`. A remembered theme Pi no longer knows is skipped, and off says so.
+
+Both `/fisi-dock` and `/settings` go through Pi's own theme setting, so the change lasts across restarts.
+
+## Turn it off, disable or remove
+
+Three levels, from lightest to complete:
+
+| Goal | How | Back on |
+|---|---|---|
+| Turn it off for now, keep it installed | `/fisi-dock off` inside Gentle Shell. Remembered across restarts. | `/fisi-dock on` |
+| Disable the package, keep it installed | `gentle-shell config`: Pi's picker of the resources every installed package loads; turn off Fisi Dock's extension (and its theme, if you like). Applies on the next start. | `gentle-shell config` again |
+| Uninstall | `gentle-shell remove git:github.com/fisidj/fisi-dock` (`uninstall` is the same command) | `gentle-shell install git:github.com/fisidj/fisi-dock` |
+
+If you installed with `--link`, put it before the subcommand: `gentle-shell --link config`, `gentle-shell --link remove git:github.com/fisidj/fisi-dock`.
+
+**What you get back**, in all three cases: Gentle Shell's own panel (its rail sections, top row and status bar), its prompt editor in place of the box, Pi's own startup header and loaded-resources listing, and Gentle Shell's rose banner (on the next start or `/reload` after `/fisi-dock off`).
+
+**Your theme** comes back only with `/fisi-dock off`. `gentle-shell config` and `remove` leave Pi's theme setting as it is. If that setting is `Fisi-Dock` when the theme is no longer loaded, Pi falls back to its `system` theme without a warning. So run `/fisi-dock off` first, or pick a theme in `/settings` afterwards.
+
+**What stays**: the state file `fisi-dock/state.json` in Pi's agent dir (`PI_CODING_AGENT_DIR`, which Gentle Shell sets to its home: `~/.gentle-shell/agent/fisi-dock/state.json` by default, `~/.pi/agent/fisi-dock/state.json` with `--link`). It holds only the on/off choice and the remembered theme, for example `{ "enabled": false, "theme": "dark" }`. Removing Fisi Dock does not delete it, and it is safe to delete: without it Fisi Dock starts on and remembers no theme.
+
+## Update
 
 ```bash
 gentle-shell update git:github.com/fisidj/fisi-dock
-gentle-shell remove git:github.com/fisidj/fisi-dock
 ```
 
 `gentle-shell update <source>` runs Pi's update for that one package: without a tag it moves to the latest `main`; pinned to a tag it stays on that tag. To move to another release, run `gentle-shell install` again with the new tag; Pi replaces the entry. `gentle-shell update --extensions` updates every installed package at once (`gentle-shell update` alone updates Pi itself).
-
-`gentle-shell config` turns installed packages on and off without removing them.
 
 ## How it works
 
@@ -132,7 +188,7 @@ It reads the rest from Gentle Shell's events, its ODD phase and profile registri
 | Gentle Shell's subagent presence file | subagents already running after a `/reload` |
 | The project's `odd/tasks/*.md` | open ODD plans in `heads-up` |
 
-It writes only its own `state.json` and, when you run `/fisi-dock`, your Pi theme setting. When it unloads, or with `/fisi-dock off`, Gentle Shell and Pi get every original part back. Details: [docs/reference.md](docs/reference.md).
+It writes only its own `state.json` and, when `/fisi-dock` switches it on or off, your Pi theme setting. When it unloads, or with `/fisi-dock off`, Gentle Shell and Pi get every original part back. Details: [docs/reference.md](docs/reference.md).
 
 ## Develop
 
