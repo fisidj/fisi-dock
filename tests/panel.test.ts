@@ -704,6 +704,75 @@ test("mcp rows: `none configured` muted without a server; one row per server wit
 	for (const width of [58, 47, 34, 30, 20, 12, 5, 1]) for (const line of renderPanel({ session: ART_STATES.b }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
 });
 
+/** Servers named by `states`: c connected, u unknown (connecting), f failing; `s01`, `s02`, … in that config order. */
+const mcpServers = (states: string) => [...states].map((letter, index) => ({ name: `s${String(index + 1).padStart(2, "0")}`, state: ({ c: "connected", u: "unknown", f: "failing" } as const)[letter as "c" | "u" | "f"] }));
+/** The plain mcp rows of the session box (the server rows and the summary under them), trailing padding cut. */
+const mcpRows = (session: PanelModel["session"], width: number) => {
+	const box = sessionBox(session, width);
+	const start = box.findIndex((line) => line.startsWith("│ mcp"));
+	return box.slice(start, -1).map((line) => line.replace(/ +│$/, ""));
+};
+/** 3 failed, 2 connecting and 5 connected, mixed in config order. */
+const TEN = "cfucfcufcc";
+
+test("many MCP servers: at most 4 mcp rows, failed then connecting then connected in config order, the last a `+N more` summary of the rest (S5)", () => {
+	assert.deepEqual(mcpRows({ ...ART_SESSION, mcp: mcpServers(TEN) }, 47), ["│ mcp      ✗ s02     failed", "│          ✗ s05     failed", "│          ✗ s08     failed", "│            +7 more · 2 connecting"], "47: the connected count does not fit and drops");
+	assert.deepEqual(mcpRows({ ...ART_SESSION, mcp: mcpServers(TEN) }, 55), ["│ mcp      ✗ s02     failed", "│          ✗ s05     failed", "│          ✗ s08     failed", "│            +7 more · 2 connecting · 5 connected"]);
+	assert.deepEqual(mcpRows({ project: "p", mcp: mcpServers("cucucu") }, 47), ["│ mcp      ◌ s02  connecting", "│          ◌ s04  connecting", "│          ◌ s06  connecting", "│            +3 more · 3 connected"], "connecting before connected, in config order");
+	assert.deepEqual(mcpRows({ project: "p", mcp: mcpServers("cfucu") }, 47), ["│ mcp      ✗ s02  failed", "│          ◌ s03  connecting", "│          ◌ s05  connecting", "│            +2 more · 2 connected"], "5 servers: 3 rows and +2 more");
+	assert.deepEqual(mcpRows({ project: "p", mcp: mcpServers("ffffcf") }, 47), ["│ mcp      ✗ s01  failed", "│          ✗ s02  failed", "│          ✗ s03  failed", "│            +3 more · 2 failed · 1 connected"], "more failed servers than rows: the summary counts them first");
+	assert.deepEqual(mcpRows({ project: "p", mcp: mcpServers("cccccccccc") }, 47), ["│ mcp      ● s01  connected", "│          ● s02  connected", "│          ● s03  connected", "│            +7 more · 7 connected"], "all connected: config order");
+	const raw = sessionBox({ ...ART_SESSION, mcp: mcpServers(TEN) }, 55, true);
+	const summary = raw.find((line) => plain(line).includes("+7 more"))!;
+	assert.ok(summary.includes(`${fgCode(palette.muted)}+7 more`), "+N more muted");
+	assert.ok(summary.includes(`${fgCode(palette.muted)} · `), "muted ·");
+	assert.ok(summary.includes(`${fgCode(palette.amber)}2 connecting`), "connecting amber");
+	assert.ok(summary.includes(`${fgCode(palette.green)}5 connected`), "connected green");
+	assert.ok(sessionBox({ project: "p", mcp: mcpServers("ffffcf") }, 47, true).some((line) => line.includes(`${fgCode(palette.red)}2 failed`)), "failed red");
+});
+
+test("4 MCP servers or fewer: every one has its row, in config order, no summary (S5)", () => {
+	assert.deepEqual(mcpRows({ project: "p", mcp: mcpServers("cufc") }, 47), ["│ mcp      ● s01  connected", "│          ◌ s02  connecting", "│          ✗ s03  failed", "│          ● s04  connected"]);
+	assert.deepEqual(mcpRows({ project: "p", mcp: mcpServers("cf") }, 47), ["│ mcp      ● s01  connected", "│          ✗ s02  failed"]);
+});
+
+test("the MCP summary fits the rail: state counts drop from the right, then `+N more` alone, then it is cut (S5, 34 columns)", () => {
+	assert.deepEqual(mcpRows({ ...ART_SESSION, mcp: mcpServers(TEN) }, 34), ["│ mcp      ✗ s02     failed", "│          ✗ s05     failed", "│          ✗ s08     failed", "│            +7 more"]);
+	assert.equal(mcpRows({ project: "p", mcp: mcpServers("fffcuc") }, 51).at(-1), "│            +3 more · 1 connecting · 2 connected", "51: both counts just fit");
+	assert.equal(mcpRows({ project: "p", mcp: mcpServers("fffcuc") }, 50).at(-1), "│            +3 more · 1 connecting", "one column less: the last count drops");
+	assert.match(mcpRows({ project: "p", mcp: mcpServers(TEN) }, 20).at(-1)!, /^│ {12}\+7 m…$/, "too narrow even for +N more: ellipsized");
+	for (const width of [58, 55, 51, 50, 47, 34, 30, 20, 14, 12, 5, 1]) for (const line of renderPanel({ session: { ...ART_SESSION, mcp: mcpServers(TEN) } }, width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+});
+
+test("/dock lists every MCP server in config order, no summary (S5)", () => {
+	const lines = renderDock({ session: { ...ART_SESSION, mcp: mcpServers(TEN) } }, 49, 60).lines.map((line) => plain(line).trim());
+	const servers = lines.filter((line) => /^│ (mcp {6}| {9})[●◌✗] s\d\d/.test(line)).map((line) => line.replace(/ +│$/, ""));
+	assert.deepEqual(servers, [
+		"│ mcp      ● s01     connected",
+		"│          ✗ s02     failed",
+		"│          ◌ s03     connecting",
+		"│          ● s04     connected",
+		"│          ✗ s05     failed",
+		"│          ● s06     connected",
+		"│          ◌ s07     connecting",
+		"│          ✗ s08     failed",
+		"│          ● s09     connected",
+		"│          ● s10     connected",
+	]);
+	assert.ok(!lines.some((line) => line.includes("more")), "no summary");
+});
+
+test("short screens: the MCP summary is a session row like any other, so the labels drop when it does not fit (S5, S38)", () => {
+	const model: PanelModel = { session: { ...ART_SESSION, mcp: mcpServers(TEN) } };
+	const full = renderPanel(model, 47);
+	const session = sectionBody(full, "session");
+	assert.equal(session.filter((line) => /^│ (mcp {6}| {9}| {11})[✗+]/.test(line)).length, 4, "3 server rows and the summary");
+	assert.deepEqual(renderPanel(model, 47, { maxRows: full.length }).map(plain), full.map(plain), "exactly enough rows: the full shape");
+	const short = sectionBody(renderPanel(model, 47, { maxRows: full.length - 1 }), "session");
+	assert.ok(!short.some((line) => /(where|usage|connections) ──/.test(line)), "one row short: the group labels go");
+	assert.ok(short.at(-1)!.includes("+7 more"), "the summary stays");
+});
+
 test("the user's setup: fisi-dock on main, 5%, 53.5k/1M, claude, $0.127, engram connected with 0 saved, no MCP config", () => {
 	const real = { ...ART_SESSION, memory: { state: "connected" as const, saved: 0 } };
 	for (const width of [55, 47]) {

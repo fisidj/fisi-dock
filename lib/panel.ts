@@ -125,6 +125,8 @@ const READOUT_CELLS = 13;
 const MIN_METER_CELLS = 16;
 /** Connection names past this many cells are cut, so the state words keep one column. */
 const CONNECTION_NAME_CAP = 12;
+/** The rail's mcp rows at most (S5), the `+N more` summary included: artboard 02's three servers plus one, and the summary keeps `+N more` and a count on the 47-column rail. */
+const MCP_ROWS = 4;
 
 const sessionKey = (label: string) => muted(label.padEnd(KEY_CELLS));
 
@@ -186,22 +188,52 @@ const CONNECTION: Record<ConnectionState, { glyph: string; color: Rgb; word: str
 
 /** Today's MCP states: `unknown` is a server still connecting (or Pi cannot tell), `failing` one with no tools after the grace period. */
 const MCP_CONNECTION: Record<McpServerInfo["state"], ConnectionState> = { connected: "connected", unknown: "connecting", failing: "failed" };
+/** Which MCP servers keep a row when they do not all fit (S5): problems first. */
+const MCP_PRIORITY: ConnectionState[] = ["failed", "connecting", "connected"];
+
+const mcpState = (server: McpServerInfo): ConnectionState => (Object.hasOwn(MCP_CONNECTION, server.state) ? MCP_CONNECTION[server.state] : "connecting");
+
+/**
+ * The servers that get a row and, past `cap`, the states of the rest: `cap - 1`
+ * rows, failed then connecting then connected, each state in config order (S5).
+ */
+function cappedServers(servers: McpServerInfo[], cap: number): { shown: McpServerInfo[]; hidden: ConnectionState[] } {
+	if (servers.length <= cap) return { shown: servers, hidden: [] };
+	const ranked = MCP_PRIORITY.flatMap((state) => servers.filter((server) => mcpState(server) === state));
+	return { shown: ranked.slice(0, cap - 1), hidden: ranked.slice(cap - 1).map(mcpState) };
+}
+
+/** `+7 more · 2 connecting · 5 connected` under the names: the counts drop from the right until it fits, then `+N more` is cut. */
+function mcpSummaryRow(hidden: ConnectionState[], width: number): Row {
+	const lead = sessionKey("") + "  ";
+	const counts = MCP_PRIORITY.flatMap((state) => {
+		const count = hidden.filter((hiddenState) => hiddenState === state).length;
+		return count > 0 ? [muted(" · ") + fg(CONNECTION[state].color, `${count} ${CONNECTION[state].word}`)] : [];
+	});
+	for (let kept = counts.length; kept > 0; kept--) {
+		const text = lead + muted(`+${hidden.length} more`) + counts.slice(0, kept).join("");
+		if (visibleWidth(text) <= width) return { text };
+	}
+	return { text: ellipsize(lead + muted(`+${hidden.length} more`), width) };
+}
 
 /**
  * The memory row (Engram, lib/memory.ts), then one row per MCP server (S32), or
  * a muted `mcp none configured` without MCP config. Names and state words form
  * their own columns; the gap between them closes to one space when two would
- * not fit; the saved count drops before anything else.
+ * not fit; the saved count drops before anything else. Past `mcpCap` servers
+ * the last mcp row sums up the ones left out (S5); /dock passes no cap.
  */
-function connectionRows(session: SessionInfo, width: number): Row[] {
+function connectionRows(session: SessionInfo, width: number, mcpCap = MCP_ROWS): Row[] {
 	const items: { key: string; name: string; state: ConnectionState; tail?: string }[] = [];
 	const memory = session.memory;
 	if (memory) {
 		const state: ConnectionState = Object.hasOwn(CONNECTION, memory.state) ? memory.state : "missing";
 		items.push({ key: "memory", name: "engram", state, ...(state === "connected" && memory.saved !== undefined ? { tail: muted(` · ${memory.saved} saved`) } : {}) });
 	}
-	(session.mcp ?? []).forEach((server, index) => {
-		items.push({ key: index === 0 ? "mcp" : "", name: server.name, state: Object.hasOwn(MCP_CONNECTION, server.state) ? MCP_CONNECTION[server.state] : "connecting" });
+	const { shown, hidden } = cappedServers(session.mcp ?? [], mcpCap);
+	shown.forEach((server, index) => {
+		items.push({ key: index === 0 ? "mcp" : "", name: server.name, state: mcpState(server) });
 	});
 	const nameWidth = Math.min(CONNECTION_NAME_CAP, Math.max(0, ...items.map((item) => visibleWidth(item.name))));
 	const wordWidth = Math.max(0, ...items.map((item) => CONNECTION[item.state].word.length));
@@ -214,6 +246,7 @@ function connectionRows(session: SessionInfo, width: number): Row[] {
 		const whole = item.tail ? lead + item.tail : lead;
 		return { text: ellipsize(visibleWidth(whole) <= width ? whole : lead, width) };
 	});
+	if (hidden.length > 0) rows.push(mcpSummaryRow(hidden, width));
 	if (session.mcp?.length === 0) rows.push({ text: ellipsize(sessionKey("mcp") + muted("none configured"), width) });
 	return rows;
 }
@@ -221,16 +254,17 @@ function connectionRows(session: SessionInfo, width: number): Row[] {
 /**
  * `unpushed`: the heads-up already says how many commits are ahead, so ↑N is
  * left out (S8). `labels` false leaves out the group labels (short screens);
- * one group alone never has one: a label tells groups apart.
+ * one group alone never has one: a label tells groups apart. `mcpCap`: the
+ * mcp rows at most (S5).
  */
-function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, labels = true): Section {
+function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, labels = true, mcpCap = MCP_ROWS): Section {
 	const ahead = session.ahead && !unpushed ? ` ↑${session.ahead}` : "";
 	const branch = session.branch ? `  ${fg(palette.green, session.branch + ahead)}` : "";
 	const where: Row = { text: ellipsize(sessionKey("project") + bold(plainText(session.project)) + branch, width) };
 	const groups: [string, Row[]][] = [
 		["where", [where]],
 		["usage", [...(session.contextPercent !== undefined ? contextRows(session, width) : []), ...profileRows(session, width, footer)]],
-		["connections", connectionRows(session, width)],
+		["connections", connectionRows(session, width, mcpCap)],
 	];
 	const shown = groups.filter(([, rows]) => rows.length > 0);
 	const named = labels && shown.length > 1;
@@ -674,7 +708,7 @@ function logoLines(width: number): string[] {
 export interface PanelOptions {
 	/** Every todo task instead of the fixed-height summary (S26); /dock only, the rail stays compact (S7). */
 	todoExpanded?: boolean;
-	/** /dock only (S35): every agent and changed file instead of the first 4. */
+	/** /dock only (S35, S5): every agent, changed file and MCP server instead of the first 4. */
 	listsExpanded?: boolean;
 	/** /dock only (S52): every kept ODD step after the request settled, instead of the summary row. */
 	oddExpanded?: boolean;
@@ -724,7 +758,7 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const draw = (shape: Shape) => {
 		const sections = [
-			sessionSection(model.session, inner, unpushed, model.footer, shape.sessionLabels),
+			sessionSection(model.session, inner, unpushed, model.footer, shape.sessionLabels, options.listsExpanded ? Infinity : MCP_ROWS),
 			model.headsUp && headsUpSection(model.headsUp, inner),
 			oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
 			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails) : undefined,
