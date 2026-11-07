@@ -70,6 +70,9 @@ function simulate(
 	// Pi's picker (ctx.ui.select), recorded; it answers from `picks` in order, undefined (Esc) when empty (S98).
 	const selects: { title: string; options: string[] }[] = [];
 	const picks: (string | undefined)[] = [];
+	// Pi's startup header slot (ctx.ui.setHeader): a call before Pi built its own header is dropped;
+	// each call disposes the custom header it replaces; undefined restores Pi's built-in one.
+	const startHeader: { ready: boolean; current?: { render(width: number): string[]; dispose?(): void } } = { ready: true };
 	const ctx = {
 		hasUI: true,
 		cwd,
@@ -103,6 +106,13 @@ function simulate(
 				editorFactory = factory;
 				editorSets.push(factory);
 			},
+			setHeader: (factory?: (tui: unknown, theme: unknown) => { render(width: number): string[]; dispose?(): void }) => {
+				if (!startHeader.ready) return;
+				const previous = startHeader.current;
+				startHeader.current = undefined;
+				previous?.dispose?.();
+				startHeader.current = factory?.(tui, {});
+			},
 		},
 		sessionManager: { getSessionId: () => "s1", getCwd: () => cwd, getEntries: () => [], getBranch: options.branch ?? (() => []) },
 		getContextUsage: () => undefined,
@@ -124,7 +134,7 @@ function simulate(
 	(pi.events as { emit?: (channel: string, data: unknown) => void }).emit = emitEvent;
 	fisiDock(pi as never);
 	const setEditor = (factory: unknown) => void (editorFactory = factory);
-	return { parts, gentleHeader, gentleFooter, gentleParts, widgets, placements, commands, customs, notices, themes, selects, picks, ctx, tui, emit, emitEvent, handlers, channels, editorSets, setEditor };
+	return { startHeader, parts, gentleHeader, gentleFooter, gentleParts, widgets, placements, commands, customs, notices, themes, selects, picks, ctx, tui, emit, emitEvent, handlers, channels, editorSets, setEditor };
 }
 
 test("the extension takes over the header and Status slots and restores both on shutdown", () => {
@@ -2259,4 +2269,51 @@ test("S95 preserve: with the state file on, session_shutdown gives everything ba
 	assert.equal(listenerCount(sim), 0);
 	assert.deepEqual(sim.themes, []);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true });
+});
+
+// --- Welcome card instead of Gentle Shell's rose (S1) ------------------------
+
+const roseHeader = () => ({ render: () => ["rose"], invalidate() {} });
+const startCard = (sim: Sim) => (sim.startHeader.current?.render(100) ?? []).map(plain).join("\n");
+
+test("S1 the startup header is the welcome card, and it takes the slot back when Gentle Shell's rose replaces it", async (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\\DEV\\projects\\my-app");
+	sim.emit("session_start");
+	assert.match(startCard(sim), /Gentle Shell[\s\S]*with Fisi Dock[\s\S]*Ready in my-app[\s\S]*Resume session +\/resume/);
+
+	sim.ctx.ui.setHeader(roseHeader);
+	assert.equal(startCard(sim), "rose", "Gentle Shell's banner lands later");
+	await Promise.resolve();
+	assert.match(startCard(sim), /with Fisi Dock/, "the card is back on the next microtask");
+	sim.emit("session_shutdown");
+});
+
+test("S1 a header call Pi drops before its own header exists is tried again", (t) => {
+	stateDir(t, true);
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const sim = simulate("E:\\DEV\\projects\\my-app");
+	sim.startHeader.ready = false;
+	sim.emit("session_start");
+	assert.equal(sim.startHeader.current, undefined);
+	sim.startHeader.ready = true;
+	t.mock.timers.tick(100);
+	assert.match(startCard(sim), /with Fisi Dock/);
+	sim.emit("session_shutdown");
+});
+
+test("S1 /fisi-dock off gives the startup header back to Pi and stops reclaiming it; off at start installs none", async (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\\DEV\\projects\\my-app");
+	sim.emit("session_start");
+	await fisiDockCommand(sim, "off");
+	assert.equal(sim.startHeader.current, undefined, "Pi's built-in header");
+	sim.ctx.ui.setHeader(roseHeader);
+	await Promise.resolve();
+	assert.equal(startCard(sim), "rose", "nothing takes it back while off");
+
+	sim.emit("session_start");
+	await Promise.resolve();
+	assert.equal(startCard(sim), "rose", "a dormant start leaves the header alone");
+	sim.emit("session_shutdown");
 });

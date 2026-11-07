@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ciLive, gitPushTool, readCi, type CiRuns } from "../lib/ci.ts";
 import { dockStatePath, readDockEnabled, readDockTheme, writeDockEnabled } from "../lib/dock-state.ts";
@@ -33,11 +35,17 @@ import { createSlotTakeover, EMPTIED_PARTS, emptyPart, railOwnsHost, SIDEBAR_STA
 import { renderStrip } from "../lib/strip.ts";
 import { agentHomeDir, createSubagentTracker, NOTIFICATION_SOURCE_EVENT, readPresenceTasks } from "../lib/subagents.ts";
 import { frameUserLines, installUserFrame, USER_FRAME_HOOK } from "../lib/user-frame.ts";
+import { renderWelcomeCard, shellVersion } from "../lib/welcome-card.ts";
 
 const WIDGET_KEY = "fisi-dock";
 const PROMPT_LINE_KEY = "fisi-dock-prompt-line";
 const STRIP_KEY = "fisi-dock-strip";
 const STATUS_SLOT = "footer";
+/** The welcome card takes the startup header back at most this many times per session (S1). */
+const WELCOME_RECLAIMS = 5;
+/** A header call Pi dropped is tried again this often, this many times (S1). */
+const WELCOME_RETRY_MS = 50;
+const WELCOME_TRIES = 40;
 const HEADER_SLOT = "header";
 /** Pi's theme while Fisi Dock is on (themes/Fisi-Dock.json) (S95). */
 const FISI_DOCK_THEME = "Fisi-Dock";
@@ -549,6 +557,53 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	let live: LiveSession | undefined;
 	// The prompt box (S88): Gentle Shell's editor factory wrapped while this session runs.
 	let promptBox: PromptBoxInstall | undefined;
+	// Gives Pi's startup header back when the welcome card holds it.
+	let dropWelcome: (() => void) | undefined;
+
+	// The startup header is the welcome card instead of Gentle Shell's rose (S1).
+	// Gentle Shell sets its banner a little after session_start, and Pi disposes
+	// the header it replaces, so a card disposed by someone else takes the slot
+	// back on the next microtask (a few times per session, never a loop). Pi drops
+	// a call made before its own header exists, so that one is tried again.
+	const installWelcome = (ctx: ExtensionContext, session: LiveSession) => {
+		const home = agentHomeDir(process.env, attempt(() => homedir()) ?? "");
+		const version = shellVersion(attempt(() => readFileSync(join(dirname(home), "config.json"), "utf8")), home);
+		let card: object | undefined;
+		let reclaims = 0;
+		let tries = 0;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const install = () => {
+			timer = undefined;
+			if (live !== session) return;
+			attempt(() =>
+				ctx.ui.setHeader(() => {
+					const component = {
+						render: (width: number) => {
+							const { project, branch } = session.store.model().session;
+							return renderWelcomeCard({ version, project, branch }, width);
+						},
+						invalidate() {},
+						dispose: () => {
+							if (card !== component) return;
+							card = undefined;
+							if (live === session && reclaims++ < WELCOME_RECLAIMS) queueMicrotask(install);
+						},
+					};
+					card = component;
+					return component;
+				}),
+			);
+			if (!card && tries++ < WELCOME_TRIES) timer = setTimeout(install, WELCOME_RETRY_MS);
+		};
+		install();
+		return () => {
+			if (timer) clearTimeout(timer);
+			timer = undefined;
+			if (!card) return;
+			card = undefined;
+			attempt(() => ctx.ui.setHeader(undefined));
+		};
+	};
 
 	const stop = () => {
 		// Only our own hook: after /reload a newer Fisi Dock may already own it.
@@ -557,6 +612,8 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		// Gentle Shell's factory back, only while ours is still the current one.
 		attempt(() => promptBox?.restore());
 		promptBox = undefined;
+		attempt(() => dropWelcome?.());
+		dropWelcome = undefined;
 		const done = release;
 		release = undefined;
 		done?.();
@@ -595,6 +652,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	const start = (ctx: ExtensionContext) => {
 		const session = startLive(pi, ctx);
 		live = session;
+		dropWelcome = installWelcome(ctx, session);
 		// Pi's patched user message render asks this hook; without it, Pi's own lines.
 		(globalThis as Record<symbol, unknown>)[USER_FRAME_HOOK] = session.frameUser;
 		session.readPi();
