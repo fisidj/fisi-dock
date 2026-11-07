@@ -13,10 +13,11 @@ const APPROVED_WIDE = [
 	" ⠛⠛⠛ ⠛⠛⠛⠛ ⠛  ⠛  ⠛⠛  ⠛⠛⠛ ⠛⠛⠛⠛ ⠛⠛⠛  ⠛  ⠛ ⠛⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛",
 ];
 
-const PINK = [0xf2, 0xa7, 0xc9];
-const DEEP_PINK = [0xc9, 0x77, 0x9f];
+// SHELL takes Gentle Shell's Gentleman-Sexy theme pinks: accent #F43888 down to deepPink #BF0F50.
+const PINK = [0xf4, 0x38, 0x88];
+const DEEP_PINK = [0xbf, 0x0f, 0x50];
 const isGray = ([r, g, b]: number[]) => r === g && g === b;
-/** A tone between the theme's pink and deepPink, channel by channel. */
+/** A tone between the Sexy accent and deepPink, channel by channel. */
 const isPink = (color: number[]) => !isGray(color) && color.every((channel, index) => channel <= PINK[index] && channel >= DEEP_PINK[index]);
 
 /** Foreground colors painted on `line`, as [r, g, b]. */
@@ -95,19 +96,31 @@ test("wide logo draws the 08 letter shapes from braille dots, with one gap colum
 	assert.equal(pixelsOf(renderLogo(51))[5], ".".repeat(51), "no shadow row");
 });
 
-test("wide logo: GENTLE in a gray gradient, SHELL from pink to deep pink, no shadow or background", () => {
+test("wide logo: GENTLE in a gray gradient, SHELL from the Sexy pink to its deep pink, no shadow or background", () => {
 	const lines = renderLogo(51);
 	for (const line of lines) assert.ok(colorsOf(line).length > 0);
 	assertTint(lines, 29);
-	assert.deepEqual(cellColors(lines[0]).get(30), PINK, "SHELL's top pixel row is the theme pink");
+	assert.deepEqual(cellColors(lines[0]).get(30), PINK, "SHELL's top pixel row is the Sexy accent pink");
 	const joined = lines.join("");
 	assert.ok(!joined.includes(SHADOW), "no shadow color");
 	assert.ok(!joined.includes("\x1b[48;"), "no background halves");
 	assert.ok(!joined.includes("\x1b[0m"), "no full reset");
 });
 
-test("below 51 columns, the official 47-column rail included, the logo is one bold GENTLESHELL text row: GENTLE gray, SHELL pink", () => {
-	for (const width of [50, 47, 30, 20, 11]) {
+test("from 21 to 50 columns, the official 47-column rail included, the logo is one bold spaced G E N T L E S H E L L row: GENTLE gray, SHELL the Sexy pink", () => {
+	for (const width of [50, 47, 30, 21]) {
+		const lines = renderLogo(width);
+		assert.equal(lines.length, 1, `width ${width}`);
+		assert.equal(plain(lines[0]), "G E N T L E S H E L L");
+		assert.ok(lines[0].includes("\x1b[1m"), "bold");
+		const colors = cellColors(lines[0]);
+		for (let column = 0; column < 12; column += 2) assert.deepEqual(colors.get(column), [205, 205, 205], `gray at ${column}`);
+		for (let column = 12; column < 21; column += 2) assert.deepEqual(colors.get(column), PINK, `pink at ${column}`);
+	}
+});
+
+test("from 11 to 20 columns the logo is one bold joined GENTLESHELL text row: GENTLE gray, SHELL the Sexy pink", () => {
+	for (const width of [20, 15, 11]) {
 		const lines = renderLogo(width);
 		assert.equal(lines.length, 1, `width ${width}`);
 		assert.equal(plain(lines[0]), "GENTLESHELL");

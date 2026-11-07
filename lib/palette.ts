@@ -18,6 +18,9 @@ export const palette = {
 	red: [0xff, 0x6b, 0x6b],
 	/** High agent effort (S56). */
 	purple: [0xb4, 0x8c, 0xff],
+	/** Gentle Shell's Gentleman-Sexy theme accent and its deepPink: the wordmark's SHELL. */
+	sexyPink: [0xf4, 0x38, 0x88],
+	sexyDeepPink: [0xbf, 0x0f, 0x50],
 	/** Gentle Shell's banner rose. */
 	rose: [0xff, 0x76, 0xc3],
 	text: [0xe1, 0xe1, 0xe1],

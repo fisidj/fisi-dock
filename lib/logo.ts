@@ -4,10 +4,11 @@ import { bold, fg, palette, type Rgb } from "./palette.ts";
 // (S21, design rail-wordmark/04 "Tinted braille"). Each terminal cell holds two
 // pixels stacked: the upper pixel is the top two dot rows, the lower pixel the
 // bottom two, so 5 pixel rows take 3 terminal rows. The words are joined and told
-// apart by color: GENTLE in a gray fade, SHELL from pink to deep pink. Artboard 08's
+// apart by color: GENTLE in a gray fade, SHELL in Gentle Shell's Gentleman-Sexy pinks,
+// from its accent down to its deepPink. Artboard 08's
 // letters need 51 columns, so only Gentle Shell fisi/custom's wider rail draws them;
 // narrower rails, the official 47-column one included, get one bold text row in the
-// same two colors (design rail-wordmark/10 "Text mark").
+// same two colors, its letters spaced from 21 columns (design rail-wordmark/10 "Text mark").
 
 type Font = Record<string, string[]>;
 
@@ -26,8 +27,8 @@ const WIDE: Font = {
 const SHADES: Rgb[][] = [
 	// GENTLE: near white down to mid gray.
 	[230, 205, 180, 155, 130].map((level): Rgb => [level, level, level]),
-	// SHELL: the theme pink down to its deep pink.
-	[0, 1, 2, 3, 4].map((step): Rgb => palette.pink.map((channel, index) => Math.round(channel + ((palette.deepPink[index] - channel) * step) / 4)) as unknown as Rgb),
+	// SHELL: the Gentleman-Sexy accent down to its deepPink.
+	[0, 1, 2, 3, 4].map((step): Rgb => palette.sexyPink.map((channel, index) => Math.round(channel + ((palette.sexyDeepPink[index] - channel) * step) / 4)) as unknown as Rgb),
 ];
 
 const WORDS = ["GENTLE", "SHELL"];
@@ -63,15 +64,20 @@ function pixelLines(font: Font): string[] {
 }
 
 const WIDE_LINES = pixelLines(WIDE);
-const TEXT_LINE = bold(fg(SHADES[0][2], WORDS[0]) + fg(palette.pink, WORDS[1]));
+const spaced = (word: string) => [...word].join(" ");
+// Design rail-wordmark/10 "1 row, spaced": letters one column apart, so the row reads wider.
+const SPACED_LINE = bold(fg(SHADES[0][1], `${spaced(WORDS[0])} `) + fg(palette.sexyPink, spaced(WORDS[1])));
+const SPACED_WIDTH = spaced(WORDS.join("")).length;
+const TEXT_LINE = bold(fg(SHADES[0][2], WORDS[0]) + fg(palette.sexyPink, WORDS[1]));
 
 /** Visible columns of the wide wordmark (51); fisi/custom's 55-column rail fits it with its indent. */
 export const LOGO_WIDTH = pixelGrid(WIDE)[0].length;
 
-/** The wordmark for `width` columns: wide braille, plain text, then nothing. */
+/** The wordmark for `width` columns: wide braille, spaced text, joined text, then nothing. */
 export function renderLogo(width: number): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns >= LOGO_WIDTH) return WIDE_LINES;
+	if (columns >= SPACED_WIDTH) return [SPACED_LINE];
 	if (columns >= WORDS.join("").length) return [TEXT_LINE];
 	return [];
 }
