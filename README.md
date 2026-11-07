@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/banner.png" alt="GENTLESHELL wordmark in braille dots, FISI DOCK in pink, and the line: session, ODD, RDD, CI, agents, todo and changes at a glance" width="100%"></p>
+
 # Fisi Dock
 
 **A side panel for [Gentle Shell](https://github.com/Gentleman-Programming/gentle-shell): your session, ODD phases, RDD reviews, CI, agents, todo list and changes at a glance.**
