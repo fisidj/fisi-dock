@@ -31,7 +31,7 @@ On narrow or non-fullscreen terminals (a phone over SSH, a split pane) the rail 
 
 - **Your messages**: each message you send sits in a gray box with `you` in pink on its top rule (`╭─ you ───╮`), like the prompt box, so it stands apart from tool blocks of the same background. It shows whenever Gentle Shell's sidebar state is on the terminal (fullscreen mode, with or without the wide rail); without Gentle Shell, and on terminals under 10 columns, Pi's own message lines show unchanged.
 
-Without Gentle Shell, Fisi Dock paints nothing on its own (no rail parts, no strip, no agents or todo card); `/dock` still opens the panel when asked.
+Without Gentle Shell, Fisi Dock paints nothing on its own (no rail parts, no strip, no agents or todo card, and no welcome card or `loaded` box: without Gentle Shell's `gentle:banner` command Pi keeps its own startup header and listing); `/dock` still opens the panel when asked.
 
 ### Panel data
 

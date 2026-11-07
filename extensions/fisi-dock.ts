@@ -43,6 +43,8 @@ const WIDGET_KEY = "fisi-dock";
 const PROMPT_LINE_KEY = "fisi-dock-prompt-line";
 const STRIP_KEY = "fisi-dock-strip";
 const STATUS_SLOT = "footer";
+/** Gentle Shell's startup banner command: its presence says the rose banner is there to replace. */
+const GENTLE_BANNER_COMMAND = "gentle:banner";
 /** The welcome card takes the startup header back at most this many times per session (S1). */
 const WELCOME_RECLAIMS = 5;
 /** A header call Pi dropped is tried again this often, this many times (S1). */
@@ -583,6 +585,11 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// back on the next microtask (a few times per session, never a loop). Pi drops
 	// a call made before its own header exists, so that one is tried again.
 	const installWelcome = (ctx: ExtensionContext, session: LiveSession) => {
+		// The card names Gentle Shell and stands in for its banner, so without Gentle
+		// Shell's banner command Pi keeps its own header. A host without getCommands
+		// cannot say, and gets the card as before.
+		const commands = attempt(() => pi.getCommands());
+		if (Array.isArray(commands) && !commands.some((command) => command?.name === GENTLE_BANNER_COMMAND)) return () => {};
 		const home = agentHomeDir(process.env, attempt(() => homedir()) ?? "");
 		const version = shellVersion(attempt(() => readFileSync(join(dirname(home), "config.json"), "utf8")), home);
 		let card: object | undefined;

@@ -38,7 +38,7 @@ type Custom = {
 // In-memory Pi, session and terminal with Gentle Shell's rail parts registered.
 function simulate(
 	cwd: string,
-	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[] } = {},
+	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; commands?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[] } = {},
 ) {
 	const { ownsHost } = options;
 	// Pi's editor factory slot (setEditorComponent / getEditorComponent): Gentle Shell's marked factory when a test seeds one (S88).
@@ -59,6 +59,8 @@ function simulate(
 		exec: options.exec ?? (async () => ({ code: 1, stdout: "", stderr: "" })),
 		getThinkingLevel: () => "high",
 		getAllTools: options.tools ?? (() => []),
+		// Pi's command list (pi.getCommands); left out unless a test seeds it, like older hosts.
+		...(options.commands ? { getCommands: options.commands } : {}),
 	};
 	const widgets = new Map<string, Factory | undefined>();
 	const placements = new Map<string, string | undefined>();
@@ -2520,4 +2522,18 @@ test("S4 a TUI tree Fisi Dock does not recognize leaves Pi's output alone and th
 	assert.deepEqual(odd.render(100).map(plain), ["a message"]);
 	sim.emit("session_shutdown");
 	assert.ok(!Object.hasOwn(odd, "render"));
+});
+
+test("S6 the welcome card replaces only Gentle Shell's banner: without Gentle Shell's commands Pi keeps its own header", async (t) => {
+	stateDir(t, true);
+	const bare = simulate("E:/DEV/projects/my-app", { commands: () => [{ name: "skill:btw", source: "skill" }] });
+	bare.emit("session_start");
+	await Promise.resolve();
+	assert.equal(bare.startHeader.current, undefined, "Pi's built-in header stays");
+	bare.emit("session_shutdown");
+
+	const shell = simulate("E:/DEV/projects/my-app", { commands: () => [{ name: "gentle:banner", source: "extension" }] });
+	shell.emit("session_start");
+	assert.match(startCard(shell), /with Fisi Dock/);
+	shell.emit("session_shutdown");
 });
