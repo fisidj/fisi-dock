@@ -213,6 +213,10 @@ node scripts/preview.ts 58 --rows 28
 
 `--strip` prints the narrow-screen strip, `--dock` the `/dock` box, `--header` the narrow top row, and `--rows <n>` the panel as it fits a terminal `<n>` rows tall. `tmp/` is git-ignored.
 
+## Contributing
+
+Issues and pull requests are welcome: [CONTRIBUTING.md](CONTRIBUTING.md) covers what makes a good bug report, the test and docs rules, and how to try a checkout in Gentle Shell. Report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes.
+
 ## License
 
 [MIT](LICENSE)

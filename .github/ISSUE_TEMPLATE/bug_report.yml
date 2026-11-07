@@ -1,0 +1,94 @@
+name: Bug report
+description: Something Fisi Dock paints wrong, or a session it breaks.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Most layout bugs show at one width and one state only, so the size and the screenshot matter.
+        Does it happen with `/fisi-dock off` too? Then it is Gentle Shell's own: please report it to Gentle Shell instead.
+        Leave out tokens, keys and private paths.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and where (side panel, strip, prompt box, welcome card, `/dock`).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start Gentle Shell in a 60-column terminal
+        2. Send a prompt
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: gentle-shell-version
+    attributes:
+      label: Gentle Shell version
+      description: The `gentle-shell` and `pi` lines of `gentle-shell --version`.
+      placeholder: gentle-shell 4.6.0, pi 1.5.0
+    validations:
+      required: true
+  - type: input
+    id: fisi-dock-version
+    attributes:
+      label: Fisi Dock version or commit
+      description: A release tag, or the commit you follow on `main`.
+      placeholder: v0.2.0 or 2cb164d
+    validations:
+      required: true
+  - type: input
+    id: os-terminal
+    attributes:
+      label: OS and terminal
+      placeholder: Windows 11, Windows Terminal / macOS 15, iTerm2 / Android, Termux over SSH
+    validations:
+      required: true
+  - type: input
+    id: terminal-size
+    attributes:
+      label: Terminal size (columns × rows)
+      description: Phone or desktop, and the size if you know it.
+      placeholder: desktop, 160 × 45
+    validations:
+      required: true
+  - type: dropdown
+    id: fullscreen
+    attributes:
+      label: Fullscreen mode
+      options:
+        - "On"
+        - "Off"
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag an image here. A screenshot shows what words cannot.
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: Anything that changes what the panel paints.
+      placeholder: |
+        Theme: Fisi-Dock
+        Vim mode: on
+        mcp.json: 3 servers
+        gentle-engram: installed
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Error messages, logs, or what you already tried.
