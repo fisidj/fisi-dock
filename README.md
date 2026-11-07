@@ -8,6 +8,12 @@ It is a Pi package (an extension and a theme) that paints its own panel in Gentl
 
 > Fisi Dock is a community project. It is not an official Gentle Shell or Gentleman Programming project, and it is not endorsed by them.
 
+![Fisi Dock in Gentle Shell on a desktop terminal: the welcome card, the loaded box, the side panel with session, ODD, RDD and todo, and the framed prompt](docs/images/desktop.png)
+
+<p align="center"><img src="docs/images/phone.jpg" alt="Fisi Dock on a phone over SSH: the compact top row, the welcome card, the loaded box and the framed prompt" width="320"></p>
+
+<p align="center"><sub>On a desktop terminal with the side rail, and on a phone over SSH.</sub></p>
+
 ```text
 ╭─ session ───────────────────────────────────╮
 │ where ──                                    │
