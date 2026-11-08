@@ -7,9 +7,10 @@ import test, { after, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import fisiDock from "../extensions/fisi-dock.ts";
+import { renderPromptLine } from "../lib/prompt-line.ts";
 import { SIDEBAR_CACHE, SIDEBAR_STATE } from "../lib/slot.ts";
 import { visibleWidth } from "../lib/text.ts";
-import { USER_FRAME_HOOK } from "../lib/user-frame.ts";
+import { frameUserLines, USER_FRAME_HOOK } from "../lib/user-frame.ts";
 
 const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
 /** The wide rail's first two columns (sidebar-chrome): the divider, a neutral gray `│` or a blank where it fades out, then a blank. */
@@ -2105,7 +2106,7 @@ test("S95 a restart with the state file off stays dormant from the start until /
 	assert.equal(sim.customs.length, 0);
 	assert.equal(sim.notices.at(-1), "Fisi Dock is off · /fisi-dock on turns it back on");
 	await fisiDockCommand(sim, "");
-	assert.deepEqual(sim.selects.at(-1), { title: "Fisi Dock is off", options: ["on", "off"] }, "alone, the picker says it is off");
+	assert.deepEqual(sim.selects.at(-1), { title: "Fisi Dock is off", options: ["on", "off", "settings"] }, "alone, the picker says it is off");
 	assert.equal(sim.widgets.size, 0, "Esc keeps it off");
 
 	await fisiDockCommand(sim, "on");
@@ -2123,7 +2124,7 @@ test("S95 an unknown argument shows the usage and changes nothing", async (t) =>
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	for (const args of ["maybe", "of", "on off"]) {
 		await fisiDockCommand(sim, args);
-		assert.equal(sim.notices.at(-1), "Usage: /fisi-dock on | off (alone: pick on or off)");
+		assert.equal(sim.notices.at(-1), "Usage: /fisi-dock on | off | settings (alone: pick one)");
 	}
 	assert.equal(sim.selects.length, 0, "an argument never opens the picker");
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true }, "no state written");
@@ -2134,7 +2135,7 @@ test("S95 an unknown argument shows the usage and changes nothing", async (t) =>
 	await fisiDockCommand(sim, " OFF ");
 	assertGentleShellOwns(sim, "off, any case and spacing");
 	await fisiDockCommand(sim, "bogus");
-	assert.equal(sim.notices.at(-1), "Usage: /fisi-dock on | off (alone: pick on or off)");
+	assert.equal(sim.notices.at(-1), "Usage: /fisi-dock on | off | settings (alone: pick one)");
 	await fisiDockCommand(sim, "off");
 	assert.equal(sim.notices.at(-1), "Fisi Dock is already off");
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, themeApplied: true });
@@ -2152,7 +2153,7 @@ test("S98 /fisi-dock alone opens an on/off picker, the change first, that switch
 
 	// On: Esc keeps everything as it was, with no notice and nothing saved.
 	await fisiDockCommand(sim, "");
-	assert.deepEqual(sim.selects, [{ title: "Fisi Dock is on", options: ["off", "on"] }]);
+	assert.deepEqual(sim.selects, [{ title: "Fisi Dock is on", options: ["off", "on", "settings"] }]);
 	assert.deepEqual(sim.notices, []);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, themeApplied: true });
 	assert.deepEqual(sim.themes, []);
@@ -2171,7 +2172,7 @@ test("S98 /fisi-dock alone opens an on/off picker, the change first, that switch
 	// Off: the picker says so and offers on first; picking the current state says so.
 	sim.picks.push("off");
 	await fisiDockCommand(sim, "");
-	assert.deepEqual(sim.selects.at(-1), { title: "Fisi Dock is off", options: ["on", "off"] });
+	assert.deepEqual(sim.selects.at(-1), { title: "Fisi Dock is off", options: ["on", "off", "settings"] });
 	assert.equal(sim.notices.at(-1), "Fisi Dock is already off");
 	sim.picks.push("on");
 	await fisiDockCommand(sim, "");
@@ -2494,10 +2495,10 @@ test("T9 a delegated child session (GENTLE_PI_AGENTS_CHILD=1) or a session witho
 	headless.emit("session_shutdown");
 });
 
-test("S95 /fisi-dock offers on and off as completions", () => {
+test("S95 /fisi-dock offers on and off as completions, then settings (S1)", () => {
 	const sim = simulate("E:\\DEV\\app");
 	const command = sim.commands.get("fisi-dock") as Command & { getArgumentCompletions?(prefix: string): { value: string }[] | null };
-	assert.deepEqual(command.getArgumentCompletions?.("")?.map((item) => item.value), ["on", "off"]);
+	assert.deepEqual(command.getArgumentCompletions?.("")?.map((item) => item.value), ["on", "off", "settings"]);
 	assert.deepEqual(command.getArgumentCompletions?.("of")?.map((item) => item.value), ["off"]);
 });
 
@@ -2748,5 +2749,311 @@ test("T9 without Gentle Shell (no gentle:banner command) the first start leaves 
 	sim.emit("session_start");
 	assert.deepEqual(sim.themes, [], "plain Pi keeps its theme");
 	assert.equal(existsSync(path) ? readState(path).themeApplied : undefined, undefined, "the step stays pending");
+	sim.emit("session_shutdown");
+});
+
+// --- /fisi-dock settings (look settings S1, S5, S6) ---------------------------
+
+/** Opens `/fisi-dock settings` (or runs `args`) and mounts its overlay on a `columns` x `rows` terminal. */
+async function openSettings(sim: Sim, columns = 60, rows = 24, args = "settings") {
+	const count = sim.customs.length;
+	let closed = false;
+	const pending = Promise.resolve(fisiDockCommand(sim, args)).then(() => (closed = true));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(sim.customs.length, count + 1, "one overlay opened");
+	const custom = sim.customs.at(-1)!;
+	let renders = 0;
+	const tui = { terminal: { ...sim.tui.terminal, columns, rows }, requestRender: () => void renders++ };
+	const view = custom.factory(tui, {}, KEYS, custom.closed);
+	return { custom, view, pending, closed: () => closed, renders: () => renders, width: overlayWidth(custom, columns) };
+}
+const UP = "\x1b[A";
+const DOWN = "\x1b[B";
+const LEFT = "\x1b[D";
+const RIGHT = "\x1b[C";
+type Rail = { render(width: number): string[]; digest(): string };
+const hasBraille = (lines: string[]) => lines.slice(0, 4).some((line) => /[\u2800-\u28ff]/.test(plain(line)));
+
+test("S1 /fisi-dock settings opens the look overlay: rows, values, hint and a live preview, every row the overlay width; Esc closes", async (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const settings = await openSettings(sim);
+	assert.equal(settings.custom.options?.overlay, true);
+	assert.equal(settings.width, 60);
+	const lines = settings.view.render(settings.width);
+	assert.equal(lines.length, 24, "the whole screen height");
+	for (const line of lines) assert.equal(visibleWidth(line), 60, "opaque: every row the overlay width");
+	const shown = lines.map(plain);
+	assert.match(shown[0], /^ Fisi Dock look/);
+	assert.match(shown[2], /^ › logo +‹ braille › *$/);
+	assert.match(shown[3], /^ {3}frames +‹ faded › *$/);
+	assert.match(shown[4], /^ {3}colors +‹ vivid › *$/);
+	assert.ok(shown.some((line) => line.includes("session")), "the live preview of the rail");
+	assert.match(shown.at(-1)!, /^ ↑↓ choose · ←→ change · Esc close *$/);
+	console.log(`--- simulated /fisi-dock settings, 60x24, default look\n${shown.join("\n")}`);
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(RIGHT);
+	const after = settings.view.render(60).map(plain);
+	assert.match(after[3], /^ › frames +‹ classic › *$/);
+	console.log(`--- simulated /fisi-dock settings, 60x24, after ↓ →\n${after.join("\n")}`);
+	assert.equal(settings.closed(), false);
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	assert.ok(settings.closed());
+	sim.emit("session_shutdown");
+});
+
+test("S1 S5 each change applies at once and is saved: the rail repaints (memo and digest follow the look), state.json keeps its other keys", async (t) => {
+	const path = stateDir(t, true);
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = sim.parts.get("footer") as Rail;
+	const before = rail.render(57);
+	const digest = rail.digest();
+	assert.ok(hasBraille(before), "today's braille logo (S6)");
+	const settings = await openSettings(sim);
+
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(RIGHT);
+	assert.ok(settings.renders() > 0, "a change repaints");
+	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "classic", colors: "vivid" } });
+	const classic = rail.render(57);
+	assert.notDeepEqual(classic, before, "the frames changed with no other model change");
+	assert.notEqual(rail.digest(), digest, "Gentle Shell's rail memo sees the change");
+
+	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.("l");
+	settings.view.handleInput?.("l");
+	assert.equal(readState(path).look.logo, "none");
+	assert.ok(!hasBraille(rail.render(57)), "no logo");
+
+	settings.view.handleInput?.("j");
+	settings.view.handleInput?.("j");
+	settings.view.handleInput?.("\r");
+	assert.equal(readState(path).look.colors, "soft", "Enter cycles forward");
+	const soft = rail.render(57);
+	settings.view.handleInput?.(LEFT);
+	assert.notDeepEqual(rail.render(57), soft, "the colors repaint too");
+
+	// Back to the default look: the very first rail again.
+	settings.view.handleInput?.("k");
+	settings.view.handleInput?.("k");
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.("j");
+	settings.view.handleInput?.(LEFT);
+	assert.deepEqual(readState(path).look, { logo: "braille", frames: "faded", colors: "vivid" });
+	assert.deepEqual(rail.render(57), before);
+	assert.equal(rail.digest(), digest);
+	settings.view.handleInput?.("q");
+	await settings.pending;
+	sim.emit("session_shutdown");
+});
+
+test("S1 the prompt line, the user frame, the narrow cards, the prompt box and /dock paint in the chosen look", async (t) => {
+	stateDir(t, true);
+	class UserMessageComponent {
+		children: unknown[] = [];
+		render(width: number): string[] {
+			return [" hola".padEnd(width)];
+		}
+	}
+	const message = new UserMessageComponent();
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false, branch: () => todoBranch(1, 3), editor: gentleEditorFactory() });
+	Object.assign(sim.tui, { children: [{ children: [message] }] });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const strip = sim.widgets.get("fisi-dock-strip")!(sim.tui);
+	const promptLine = sim.widgets.get("fisi-dock-prompt-line")!(sim.tui);
+	const editor = (sim.ctx.ui.getEditorComponent() as EditorFactory)(sim.tui, {}, {});
+	const labels = { mode: undefined, modelId: "claude-opus-5-5", effort: "high" };
+	const vivid = { user: message.render(20), cards: strip.render(53), box: editor.render(60) };
+	editor.render(12);
+	const vividLine = promptLine.render(100);
+	assert.deepEqual(vividLine, renderPromptLine(labels, 100), "the box did not fit: the line under the prompt");
+
+	const settings = await openSettings(sim);
+	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(RIGHT);
+	editor.render(12);
+	assert.deepEqual(promptLine.render(100), renderPromptLine(labels, 100, "soft"), "the line under the prompt");
+	assert.notDeepEqual(promptLine.render(100), vividLine);
+	assert.deepEqual(message.render(20), frameUserLines((width) => [" hola".padEnd(width)], 20, "soft"), "the user frame");
+	assert.notDeepEqual(message.render(20), vivid.user);
+	assert.ok(strip.render(53).some((line) => plain(line).startsWith("╭─ todo")));
+	assert.notDeepEqual(strip.render(53), vivid.cards, "the todo card (its memo follows the look)");
+	assert.notDeepEqual(editor.render(60), vivid.box, "the prompt box labels");
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+
+	// /dock draws the panel in the chosen look too.
+	const dockOpen = Promise.resolve(sim.commands.get("dock")!.handler("", sim.ctx));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	const dock = sim.customs.at(-1)!;
+	const dockView = dock.factory({ terminal: { ...sim.tui.terminal, columns: 64, rows: 36 }, requestRender() {} }, {}, KEYS, dock.closed);
+	const softDock = dockView.render(64);
+	const second = await openSettings(sim);
+	second.view.handleInput?.(DOWN);
+	second.view.handleInput?.(RIGHT);
+	second.view.handleInput?.("\x1b");
+	await second.pending;
+	assert.notDeepEqual(dockView.render(64), softDock, "the frames change in /dock");
+	dockView.handleInput?.("\x1b");
+	await dockOpen;
+	sim.emit("session_shutdown");
+});
+
+test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's theme is in use; the user's theme is never remembered as Fisi Dock's, and off puts it back", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "dark", themeApplied: true });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const settings = await openSettings(sim);
+	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(RIGHT);
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"]);
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft" } });
+	settings.view.handleInput?.(RIGHT);
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock"]);
+	settings.view.handleInput?.(LEFT);
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock", "Fisi-Dock-Soft"]);
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+
+	// Off from Fisi-Dock-Soft puts the user's theme back; on remembers nothing of Fisi Dock's and takes the soft theme.
+	await fisiDockCommand(sim, "off");
+	assert.equal(sim.ctx.ui.theme.name, "dark");
+	assert.equal(readState(path).theme, "dark");
+	await fisiDockCommand(sim, "on");
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
+	assert.match(sim.notices.at(-1)!, /^Fisi Dock on · theme Fisi-Dock-Soft/);
+	assert.equal(readState(path).theme, "dark");
+	sim.emit("session_shutdown");
+
+	// A user theme in use is the user's: colors change the dock, never the theme.
+	const own = stateDir(t, true);
+	const mine = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "light" });
+	mine.emit("session_start");
+	const other = await openSettings(mine);
+	other.view.handleInput?.(UP);
+	other.view.handleInput?.(RIGHT);
+	assert.deepEqual(mine.themes, []);
+	assert.equal(readState(own).look.colors, "soft");
+	other.view.handleInput?.("\x1b");
+	await other.pending;
+	mine.emit("session_shutdown");
+});
+
+test("S1 Fisi-Dock-Soft in use counts as Fisi Dock's own theme: on and the first start never remember it, and the first start applies the saved colors' theme", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: false, theme: "light", themeApplied: true });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock-Soft" });
+	sim.emit("session_start");
+	await fisiDockCommand(sim, "on");
+	assert.equal(readState(path).theme, "light", "Fisi-Dock-Soft is never remembered");
+	await fisiDockCommand(sim, "off");
+	assert.equal(sim.ctx.ui.theme.name, "light");
+	sim.emit("session_shutdown");
+
+	const fresh = stateDir(t);
+	const soft = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock-Soft" });
+	soft.emit("session_start");
+	assert.deepEqual(soft.themes, []);
+	assert.deepEqual(readState(fresh), { enabled: true, themeApplied: true }, "the step is done, nothing remembered");
+	soft.emit("session_shutdown");
+
+	const first = stateDir(t);
+	mkdirSync(join(first, ".."), { recursive: true });
+	writeFileSync(first, JSON.stringify({ look: { colors: "soft" } }));
+	const start = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	start.emit("session_start");
+	assert.deepEqual(start.themes, ["Fisi-Dock-Soft"], "the first start applies the soft theme");
+	assert.deepEqual(readState(first), { look: { colors: "soft" }, enabled: true, theme: "dark", themeApplied: true });
+	assert.match(start.notices.at(-1)!, /^Fisi Dock applied its theme/);
+	start.emit("session_shutdown");
+});
+
+test("S5 a saved look is used from the next session start; S6 without one the look is today's", async (t) => {
+	const path = stateDir(t, true);
+	const plainSim = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	plainSim.emit("session_start");
+	plainSim.widgets.get("fisi-dock")!(plainSim.tui);
+	const today = (plainSim.parts.get("footer") as Rail).render(57);
+	assert.ok(hasBraille(today));
+	const settings = await openSettings(plainSim);
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(LEFT);
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	const picked = (plainSim.parts.get("footer") as Rail).render(57);
+	plainSim.emit("session_shutdown");
+	assert.deepEqual(readState(path).look, { logo: "none", frames: "none", colors: "vivid" });
+
+	const next = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	next.emit("session_start");
+	next.widgets.get("fisi-dock")!(next.tui);
+	const rail = (next.parts.get("footer") as Rail).render(57);
+	assert.ok(!hasBraille(rail), "no logo from the start");
+	assert.deepEqual(rail, picked);
+	assert.notDeepEqual(rail, today);
+	next.emit("session_shutdown");
+});
+
+test("S5 while off, /fisi-dock settings still saves the look and sets no theme; /fisi-dock on applies it", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: false, theme: "dark", themeApplied: true });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
+	sim.emit("session_start");
+	const settings = await openSettings(sim);
+	const shown = settings.view.render(60).map(plain);
+	assert.match(shown[2], /‹ braille ›/);
+	assert.ok(shown.some((line) => line.includes("session")), "a preview even while off");
+	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	assert.deepEqual(readState(path), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "classic", colors: "soft" } });
+	assert.deepEqual(sim.themes, [], "off: the theme is the user's");
+	assertGentleShellOwns(sim, "still off");
+	await fisiDockCommand(sim, "on");
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"]);
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = (sim.parts.get("footer") as Rail).render(57);
+	sim.emit("session_shutdown");
+	const reference = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	reference.emit("session_start");
+	reference.widgets.get("fisi-dock")!(reference.tui);
+	assert.deepEqual((reference.parts.get("footer") as Rail).render(57), rail, "the same look as a fresh start with it saved");
+	reference.emit("session_shutdown");
+});
+
+test("S1 without a UI, /fisi-dock settings only says the look; the picker offers settings after on and off, and completions name it", async (t) => {
+	const path = stateDir(t, true);
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	sim.emit("session_start");
+	sim.ctx.hasUI = false;
+	await fisiDockCommand(sim, "settings");
+	assert.equal(sim.customs.length, 0);
+	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · /fisi-dock settings changes it in the interactive UI");
+	assert.deepEqual(readState(path), { enabled: true, themeApplied: true });
+	sim.ctx.hasUI = true;
+
+	sim.picks.push("settings");
+	const settings = await openSettings(sim, 60, 24, "");
+	assert.deepEqual(sim.selects.at(-1), { title: "Fisi Dock is on", options: ["off", "on", "settings"] });
+	assert.match(settings.view.render(60).map(plain)[0], /Fisi Dock look/);
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	const command = sim.commands.get("fisi-dock") as Command & { getArgumentCompletions?(prefix: string): { value: string }[] | null };
+	assert.deepEqual(command.getArgumentCompletions?.("s")?.map((item) => item.value), ["settings"]);
+	assert.match(command.description ?? "", /settings/);
 	sim.emit("session_shutdown");
 });

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { ciLive, gitPushTool, readCi, type CiRuns } from "../lib/ci.ts";
-import { dockStatePath, readDockEnabled, readDockTheme, readDockThemeApplied, writeDockEnabled } from "../lib/dock-state.ts";
+import { dockStatePath, readDockEnabled, readDockLook, readDockTheme, readDockThemeApplied, writeDockEnabled, writeDockLook } from "../lib/dock-state.ts";
 import { headerPath, renderHeaderLine, renderNarrowHeader } from "../lib/header.ts";
 import { readHeadsUpGit, readOddPlans } from "../lib/heads-up.ts";
 import {
@@ -20,12 +20,14 @@ import {
 } from "../lib/live-data.ts";
 import { createLiveStore, createSerialRefresh, createSpinnerClock, readGit, type LiveStore } from "../lib/live-store.ts";
 import { installLoadedBox } from "../lib/loaded-box.ts";
+import { COLOR_MODES, type Look, lookKey, themeNameFor } from "../lib/look.ts";
 import { MCP_GRACE_MS, mcpConfigPaths, mcpServerStates, readMcpServerNames } from "../lib/mcp.ts";
 import { memoryCallEnd, memoryInfo, NO_MEMORY_CALLS } from "../lib/memory.ts";
 import { readSessionProfile } from "../lib/profile.ts";
 import { createOddTracker, type OddTracker } from "../lib/odd-timeline.ts";
 import { readOrbMotion } from "../lib/orbs.ts";
 import { renderAgentsCard, renderDock, renderRail, renderTodoCard } from "../lib/panel.ts";
+import type { PanelModel } from "../lib/panel-model.ts";
 import { estimateSessionCost, registryPrices, type ModelFinder } from "../lib/pricing.ts";
 import { createWaveClock, type WaveClock } from "../lib/label-wave.ts";
 import { createPromptBox, type EditorHost, type PromptBoxInstall } from "../lib/prompt-box.ts";
@@ -33,6 +35,7 @@ import { renderPromptLine } from "../lib/prompt-line.ts";
 import { reduceReviews, reviewSnapshot, withTrail, type RddRow } from "../lib/rdd.ts";
 import { createReviewModeReader, gentleAiBinary, REVIEW_MODE_TIMEOUT_MS } from "../lib/rdd-mode.ts";
 import { trailEnd, trailStart, type ReviewTrail } from "../lib/rdd-detail.ts";
+import { reduceSettings, renderSettings, settingsAction, type SettingsAction, type SettingsState } from "../lib/settings-menu.ts";
 import { createSlotTakeover, EMPTIED_PARTS, emptyPart, railOwnsHost, SIDEBAR_STATE } from "../lib/slot.ts";
 import { renderStrip } from "../lib/strip.ts";
 import { agentHomeDir, createSubagentTracker, NOTIFICATION_SOURCE_EVENT, readPresenceTasks } from "../lib/subagents.ts";
@@ -53,14 +56,16 @@ const WELCOME_TRIES = 40;
 /** Card renders that look for Pi's loaded-resources container before giving up for the session. */
 const LOADED_BOX_TRIES = 20;
 const HEADER_SLOT = "header";
-/** Pi's theme while Fisi Dock is on (themes/Fisi-Dock.json) (S95). */
-const FISI_DOCK_THEME = "Fisi-Dock";
+/** Pi's themes while Fisi Dock is on (S95, look settings S4): themes/Fisi-Dock.json, or Fisi-Dock-Soft.json in soft colors. Never remembered as the user's. */
+const FISI_DOCK_THEMES: readonly string[] = COLOR_MODES.map(themeNameFor);
+const isDockTheme = (name: unknown) => typeof name === "string" && FISI_DOCK_THEMES.includes(name);
 // Off puts back the theme in use before /fisi-dock on (S7); without one, or when it
 // is gone, Gentle Shell's own theme: gentle-pi's DEFAULT_THEME_NAME
 // (scripts/install-tui-mode-setting.mjs, themes/Gentleman-Cute.json).
 const GENTLE_SHELL_THEME = "Gentleman-Cute";
 const OFF_NOTICE = "Fisi Dock is off · /fisi-dock on turns it back on";
-const USAGE_NOTICE = "Usage: /fisi-dock on | off (alone: pick on or off)";
+const USAGE_NOTICE = "Usage: /fisi-dock on | off | settings (alone: pick one)";
+const SETTINGS_CHOICE = "settings";
 // Gentle Shell's permission mode (S84): its lib/yolo-session-policy.ts answers
 // this pi.events request with an adapter (readSnapshot/readMode, observe,
 // dispose), the same discovery its own /gentle:customize uses; nothing is
@@ -116,7 +121,7 @@ function terminalRows(tui: Host): number | undefined {
  * The /dock overlay: the live panel, scrolled with the selection keys when it
  * is taller than the screen; Esc (Pi's cancel binding) closes it.
  */
-function dockOverlay(session: LiveSession, tui: Host, keys: Keys, done: () => void) {
+function dockOverlay(session: LiveSession, tui: Host, keys: Keys, look: () => Look, done: () => void) {
 	let offset = 0;
 	const rows = () => terminalRows(tui) ?? DOCK_FALLBACK_ROWS;
 	const is = (data: string, keybinding: string) => attempt(() => keys.matches(data, keybinding)) === true;
@@ -125,7 +130,7 @@ function dockOverlay(session: LiveSession, tui: Host, keys: Keys, done: () => vo
 	};
 	return {
 		render: (width: number) => {
-			const view = renderDock(session.store.model(), width, rows(), offset);
+			const view = renderDock(session.store.model(), width, rows(), offset, look());
 			offset = view.offset;
 			return view.lines;
 		},
@@ -145,6 +150,39 @@ function dockOverlay(session: LiveSession, tui: Host, keys: Keys, done: () => vo
 			scroll(Math.trunc(event.wheelDelta));
 			return { handled: true, render: true };
 		},
+		invalidate() {},
+	};
+}
+
+/**
+ * `/fisi-dock settings` (look settings S1): the look rows over the screen, with the
+ * rail in the chosen look under them. Pi's selection keys or the arrows and h/j/k/l
+ * move and change; each change goes to `change` at once and repaints. Esc or q closes.
+ */
+function settingsOverlay(tui: Host, keys: Keys, look: Look, model: () => PanelModel, change: (look: Look) => void, done: () => void) {
+	let state: SettingsState = { row: 0, look };
+	const is = (data: string, keybinding: string) => attempt(() => keys.matches(data, keybinding)) === true;
+	const bindings: [string, SettingsAction][] = [
+		["tui.select.cancel", "close"],
+		["tui.select.up", "up"],
+		["tui.select.down", "down"],
+		["tui.editor.cursorLeft", "prev"],
+		["tui.editor.cursorRight", "next"],
+		["tui.select.confirm", "enter"],
+	];
+	return {
+		render: (width: number) => renderSettings(state, width, terminalRows(tui) ?? DOCK_FALLBACK_ROWS, attempt(model)),
+		handleInput: (data: string) => {
+			const action = bindings.find(([keybinding]) => is(data, keybinding))?.[1] ?? settingsAction(data);
+			if (!action) return;
+			const step = reduceSettings(state, action);
+			if (step.close) return done();
+			state = step.state;
+			if (step.changed) attempt(() => change(state.look));
+			attempt(() => tui.requestRender());
+		},
+		// Pointer events stop here, as in /dock, so a tap never reaches the conversation behind.
+		handleMouse: () => ({ handled: true, render: false }),
 		invalidate() {},
 	};
 }
@@ -204,7 +242,7 @@ interface LiveSession {
  * Live data for one session. Every source is optional: a failing read leaves
  * its field out. Reads happen on triggers, never per frame; a change repaints.
  */
-function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
+function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): LiveSession {
 	const sessionId = attempt(() => ctx.sessionManager.getSessionId()) ?? "";
 	const cwd = attempt(() => ctx.sessionManager.getCwd()) ?? attempt(() => ctx.cwd) ?? "";
 	const store = createLiveStore(projectName(cwd), Date.now, { motion: () => readOrbMotion(process.env, homedir()) });
@@ -468,7 +506,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext): LiveSession {
 		// host yet, so Pi's own lines show until the first frame.
 		frameUser: (render, width) => {
 			const terminal = attempt(() => host?.terminal as Record<symbol, unknown> | undefined);
-			return terminal?.[SIDEBAR_STATE] ? frameUserLines(render, width) : render(width);
+			return terminal?.[SIDEBAR_STATE] ? frameUserLines(render, width, look().colors) : render(width);
 		},
 		readPi: () => {
 			const entries = attempt(() => ctx.sessionManager.getEntries());
@@ -569,6 +607,10 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// everything, from the start of each session.
 	const statePath = () => dockStatePath(process.env, attempt(() => homedir()) ?? "");
 	let enabled = readDockEnabled(statePath());
+	// The look picked in `/fisi-dock settings` (look settings S1, S5): read at each
+	// session start and on, shared by every renderer, and changed live by the menu.
+	let look = readDockLook(statePath());
+	const currentLook = () => look;
 	// Says Fisi Dock is loaded (S24). Globals survive /reload, so the marker
 	// follows the session: a removed (or dormant) Fisi Dock never leaves it set.
 	setLoaded(enabled);
@@ -682,7 +724,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 				(tui, _theme, keybindings, done) => {
 					session.setHost(tui as Host);
 					// SAFETY: Pi's KeybindingsManager has matches(data, keybinding): boolean, the only member Keys uses.
-					return dockOverlay(session, tui as Host, keybindings as unknown as Keys, () => done());
+					return dockOverlay(session, tui as Host, keybindings as unknown as Keys, currentLook, () => done());
 				},
 				{ overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } },
 			);
@@ -693,7 +735,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// take Gentle Shell's rail parts and top row over. Run at session_start and
 	// by `/fisi-dock on`; stop() undoes all of it.
 	const start = (ctx: ExtensionContext) => {
-		const session = startLive(pi, ctx);
+		const session = startLive(pi, ctx, currentLook);
 		live = session;
 		dropWelcome = installWelcome(ctx, session);
 		// Pi's patched user message render asks this hook; without it, Pi's own lines.
@@ -727,6 +769,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			labels,
 			waveAt: () => live?.wave.at(),
 			onScanning: (scanning) => live?.wave.report(scanning),
+			colors: () => look.colors,
 		});
 		promptBox = box;
 		if (!box.ensure()) {
@@ -746,7 +789,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 					const terminal = tui.terminal as Record<symbol, unknown> | undefined;
 					// Only with Gentle Shell; neither of our top rows (wide or narrow) shows the model.
 					if (live !== session || !terminal?.[SIDEBAR_STATE] || box.boxed()) return [];
-					return renderPromptLine(labels(), width);
+					return renderPromptLine(labels(), width, look.colors);
 				},
 				invalidate() {},
 			}),
@@ -771,10 +814,10 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						const model = session.store.model();
 						const now = Date.now();
 						const running = model.agents?.some((agent) => agent.state === "running") ?? false;
-						const key = `${width}:${session.store.digest()}:${running ? Math.floor(now / 1000) : ""}`;
+						const key = `${width}:${lookKey(look)}:${session.store.digest()}:${running ? Math.floor(now / 1000) : ""}`;
 						if (drawn?.key !== key) {
-							const agents = renderAgentsCard(model.agents, width, model.spinner, now);
-							const todo = renderTodoCard(model.todo, width, model.spinner);
+							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors);
+							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors);
 							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0 }), ...agents, ...todo] };
 						}
 						return drawn.lines;
@@ -790,17 +833,18 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			session.setHost(tui);
 			let drawn: { key: string; lines: string[] } | undefined;
 			// Short screens (S34b, S38): the panel fits the rows under the top row, so the
-			// rows are part of the memo key and of the digest Gentle Shell caches on.
+			// rows are part of the memo key and of the digest Gentle Shell caches on; so is
+			// the look (look settings S1), so a change in the menu repaints at once.
 			const maxRows = () => {
 				const rows = terminalRows(tui);
 				return rows === undefined ? undefined : Math.max(0, rows - RAIL_TOP_ROWS);
 			};
 			const rail = {
-				digest: () => `${session.store.digest()}:${maxRows() ?? ""}`,
+				digest: () => `${session.store.digest()}:${maxRows() ?? ""}:${lookKey(look)}`,
 				render: (width: number) => {
 					const rows = maxRows();
-					const key = `${width}:${rows ?? ""}:${session.store.digest()}`;
-					if (drawn?.key !== key) drawn = { key, lines: renderRail(session.store.model(), width, { maxRows: rows }) };
+					const key = `${width}:${rows ?? ""}:${lookKey(look)}:${session.store.digest()}`;
+					if (drawn?.key !== key) drawn = { key, lines: renderRail(session.store.model(), width, { maxRows: rows, ...look }) };
 					return drawn.lines;
 				},
 				// Gentle Shell main wraps rail parts in its own card on a transparent surface:
@@ -882,12 +926,14 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		const path = statePath();
 		// Plain Pi gets no panel, so it keeps its theme; the step stays pending.
 		if (process.env.GENTLE_PI_AGENTS_CHILD === "1" || readDockThemeApplied(path) || !gentleShellLoaded()) return;
-		if (attempt(() => ctx.ui.getTheme(FISI_DOCK_THEME)) === undefined) return;
+		// The theme of the saved colors (look settings S4).
+		const dockTheme = themeNameFor(look.colors);
+		if (attempt(() => ctx.ui.getTheme(dockTheme)) === undefined) return;
 		const inUse = attempt(() => ctx.ui.theme.name);
-		if (inUse === FISI_DOCK_THEME) return void writeDockEnabled(path, true, readDockTheme(path), true);
+		if (isDockTheme(inUse)) return void writeDockEnabled(path, true, readDockTheme(path), true);
 		const remembered = typeof inUse === "string" && inUse !== "" ? inUse : readDockTheme(path);
 		if (!writeDockEnabled(path, true, remembered)) return;
-		if (!attempt(() => ctx.ui.setTheme(FISI_DOCK_THEME))?.success) return;
+		if (!attempt(() => ctx.ui.setTheme(dockTheme))?.success) return;
 		writeDockEnabled(path, true, remembered, true);
 		const back = remembered ? `your theme ${remembered}` : `theme ${GENTLE_SHELL_THEME}`;
 		attempt(() => ctx.ui.notify(`Fisi Dock applied its theme · /fisi-dock off puts ${back} back`, "info"));
@@ -896,6 +942,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		stop();
 		enabled = readDockEnabled(statePath());
+		look = readDockLook(statePath());
 		setLoaded(enabled);
 		if (!enabled || !ctx.hasUI) return;
 		applyThemeOnce(ctx);
@@ -905,12 +952,46 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// On/off inside Gentle Shell (S95): Pi cannot unload an extension mid-session,
 	// so off is the unload path (stop) plus a dormant flag, and on is the
 	// session_start path again. The choice is saved; the theme follows it: on
-	// remembers the theme in use (never Fisi-Dock itself) and off puts it back (S7).
-	// An on that set Fisi-Dock also counts as the first start's theme step (T9).
+	// remembers the theme in use (never Fisi-Dock or Fisi-Dock-Soft) and off puts it back (S7).
+	// An on that set Fisi Dock's theme also counts as the first start's theme step (T9).
+	// `settings` opens the look menu (look settings S1), also while off.
+
+	// A look picked in the menu: in use at once, saved (S5), and with Fisi Dock on and
+	// its own theme in use, Pi's theme follows the colors (S4). Off, only saved.
+	const changeLook = (ctx: ExtensionContext, next: Look): boolean => {
+		const colorsChanged = next.colors !== look.colors;
+		look = next;
+		const saved = writeDockLook(statePath(), next);
+		if (colorsChanged && enabled && isDockTheme(attempt(() => ctx.ui.theme.name))) {
+			const name = themeNameFor(next.colors);
+			if (attempt(() => ctx.ui.getTheme(name)) !== undefined) attempt(() => ctx.ui.setTheme(name));
+		}
+		return saved;
+	};
+	const openSettings = async (ctx: ExtensionContext) => {
+		if (!ctx.hasUI) {
+			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · /fisi-dock settings changes it in the interactive UI`, "info"));
+			return;
+		}
+		// Off there is no live store: the preview draws the project alone.
+		let still: PanelModel | undefined;
+		const model = () => live?.store.model() ?? (still ??= createLiveStore(projectName(attempt(() => ctx.sessionManager.getCwd()) ?? attempt(() => ctx.cwd) ?? "")).model());
+		let warned = false;
+		await ctx.ui.custom<void>(
+			(tui, _theme, keybindings, done) =>
+				// SAFETY: Pi's KeybindingsManager has matches(data, keybinding): boolean, the only member Keys uses.
+				settingsOverlay(tui as Host, keybindings as unknown as Keys, look, model, (next) => {
+					if (changeLook(ctx, next) || warned) return;
+					warned = true;
+					attempt(() => ctx.ui.notify(`Fisi Dock look not saved to ${statePath()}, so a restart keeps the previous look`, "warning"));
+				}, () => done()),
+			{ overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } },
+		);
+	};
 	pi.registerCommand("fisi-dock", {
-		description: "Turn Fisi Dock on or off (remembered across restarts; off gives Gentle Shell its panel and you your theme back); alone, pick on or off",
+		description: "Turn Fisi Dock on or off (remembered across restarts; off gives Gentle Shell its panel and you your theme back), or pick its look with settings; alone, pick one",
 		getArgumentCompletions: (prefix) => {
-			const items = ["on", "off"].filter((value) => value.startsWith(prefix.trim().toLowerCase()));
+			const items = ["on", "off", SETTINGS_CHOICE].filter((value) => value.startsWith(prefix.trim().toLowerCase()));
 			return items.length > 0 ? items.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
@@ -923,20 +1004,23 @@ export default function fisiDock(pi: ExtensionAPI): void {
 				if (!ctx.hasUI) return status();
 				let picked: string | undefined;
 				try {
-					picked = await ctx.ui.select(enabled ? "Fisi Dock is on" : "Fisi Dock is off", enabled ? ["off", "on"] : ["on", "off"]);
+					picked = await ctx.ui.select(enabled ? "Fisi Dock is on" : "Fisi Dock is off", [...(enabled ? ["off", "on"] : ["on", "off"]), SETTINGS_CHOICE]);
 				} catch {
 					return status();
 				}
 				if (picked === undefined) return;
 				choice = picked;
 			}
+			if (choice === SETTINGS_CHOICE) return openSettings(ctx);
 			if (choice !== "on" && choice !== "off") return notify(USAGE_NOTICE, "warning");
 			const next = choice === "on";
 			if (next === enabled) return notify(`Fisi Dock is already ${choice}`);
 			enabled = next;
 			const path = statePath();
+			if (next) look = readDockLook(path);
+			const dockTheme = themeNameFor(look.colors);
 			const inUse = attempt(() => ctx.ui.theme.name);
-			const remembered = next && typeof inUse === "string" && inUse !== "" && inUse !== FISI_DOCK_THEME ? inUse : readDockTheme(path);
+			const remembered = next && typeof inUse === "string" && inUse !== "" && !isDockTheme(inUse) ? inUse : readDockTheme(path);
 			const applied = readDockThemeApplied(path);
 			const saved = writeDockEnabled(path, next, remembered, applied);
 			stop();
@@ -949,7 +1033,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			// Pi's setter falls to its system theme on an unknown name.
 			const setTheme = (name: string) => attempt(() => ctx.ui.setTheme(name)) ?? { success: false };
 			const known = (name: string) => attempt(() => ctx.ui.getTheme(name)) !== undefined;
-			let themeName = next ? FISI_DOCK_THEME : (remembered ?? GENTLE_SHELL_THEME);
+			let themeName = next ? dockTheme : (remembered ?? GENTLE_SHELL_THEME);
 			let lost: string | undefined;
 			let theme = !next && remembered !== undefined && !known(remembered) ? { success: false } : setTheme(themeName);
 			if (!next && themeName !== GENTLE_SHELL_THEME && !theme.success) {
@@ -961,7 +1045,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			const back = themeName === remembered ? `your theme ${themeName}` : `theme ${themeName}`;
 			const notes = [
 				next
-					? `Fisi Dock on${theme.success ? ` · theme ${FISI_DOCK_THEME}` : ""}`
+					? `Fisi Dock on${theme.success ? ` · theme ${dockTheme}` : ""}`
 					: `Fisi Dock off · Gentle Shell's panel ${theme.success ? `and ${back} are` : "is"} back; /fisi-dock on turns it back on`,
 				...(lost ? [lost] : []),
 				...(theme.success ? [] : [`theme not changed: ${theme.error ?? "unknown theme"}`]),

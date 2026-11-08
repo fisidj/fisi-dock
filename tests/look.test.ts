@@ -36,3 +36,12 @@ test("S4 themeNameFor: Fisi-Dock for vivid, Fisi-Dock-Soft for soft", async () =
 	assert.equal(themeNameFor("soft"), "Fisi-Dock-Soft");
 	assert.equal(themeNameFor(DEFAULT_LOOK.colors), "Fisi-Dock", "S6 the default look keeps today's theme");
 });
+
+test("S1 lookKey names the look for memo keys: each field changes it, equal looks share it", async () => {
+	const { lookKey } = await import("../lib/look.ts");
+	assert.equal(lookKey(DEFAULT_LOOK), "braille/faded/vivid");
+	assert.equal(lookKey({ logo: "text", frames: "none", colors: "soft" }), "text/none/soft");
+	assert.equal(lookKey(normalizeLook({ frames: "classic" })), lookKey({ ...DEFAULT_LOOK, frames: "classic" }));
+	const keys = new Set([DEFAULT_LOOK, { ...DEFAULT_LOOK, logo: "none" }, { ...DEFAULT_LOOK, frames: "none" }, { ...DEFAULT_LOOK, colors: "soft" }].map((look) => lookKey(look as typeof DEFAULT_LOOK)));
+	assert.equal(keys.size, 4);
+});

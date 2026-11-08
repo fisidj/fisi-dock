@@ -41,3 +41,8 @@ export function normalizeLook(value: unknown): Look {
 		colors: pick(COLOR_MODES, raw.colors, DEFAULT_LOOK.colors),
 	};
 }
+
+/** A short name for `look`, `braille/faded/vivid`, for the memo keys and digests of what it paints (S1). */
+export function lookKey(look: Look): string {
+	return `${look.logo}/${look.frames}/${look.colors}`;
+}
