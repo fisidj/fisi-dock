@@ -2,9 +2,10 @@
 // as tool blocks, so Fisi Dock boxes them like the prompt box, with `you` on the
 // top rule. Pi is never imported: the live UserMessageComponent class is found
 // in the TUI tree and its render goes through a global hook, so a removed or
-// reloaded Fisi Dock leaves Pi's own lines.
-import type { ColorMode } from "./look.ts";
-import { fg, labelAccent, palette } from "./palette.ts";
+// reloaded Fisi Dock leaves Pi's own lines. The box takes the look's `frames`
+// (look-more S3), like the prompt box.
+import type { ColorMode, FrameStyle } from "./look.ts";
+import { dim, fadeAmount, fadedEdge, fg, labelAccent, palette } from "./palette.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
 
 export const USER_FRAME_HOOK = Symbol.for("fisi-dock.user-frame");
@@ -38,8 +39,12 @@ const blank = (line: string) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x
  * `╰─…─╯`. Pi renders two columns narrower; its blank padding rows go. Under
  * MIN_WIDTH columns, or when nothing shows, Pi's lines stay as they are.
  * `you` in vivid pink, or its pastel in soft `colors` (look settings S4).
+ * `frames` (look-more S3): classic (the default) flat gray; faded the same box,
+ * the top and bottom faded by column and the sides by row; none the top rule
+ * alone as a fading line with `you` in its place, a space for each side and no
+ * bottom row, the prompt zone closing on the last text row.
  */
-export function frameUserLines(render: Render, width: number, colors?: ColorMode): string[] {
+export function frameUserLines(render: Render, width: number, colors?: ColorMode, frames: FrameStyle = "classic"): string[] {
 	if (width < MIN_WIDTH) return render(width);
 	const inner = width - 2;
 	const rows = render(inner).map((line) => line.replace(ZONE_MARK, ""));
@@ -48,12 +53,16 @@ export function frameUserLines(render: Render, width: number, colors?: ColorMode
 	while (first <= last && blank(rows[first])) first++;
 	while (last >= first && blank(rows[last])) last--;
 	if (first > last) return render(width);
-	const side = fg(palette.frame, "│");
-	return [
-		`${ZONE_START}${fg(palette.frame, "╭─ ")}${fg(labelAccent(palette.pink, colors), "you")}${fg(palette.frame, ` ${"─".repeat(width - TOP_RULE_CHROME)}╮`)}`,
-		...rows.slice(first, last + 1).map((row) => `${side}${padEnd(truncateToWidth(row, inner), inner)}${side}`),
-		`${ZONE_END}${fg(palette.frame, `╰${"─".repeat(inner)}╯`)}`,
-	];
+	const text = rows.slice(first, last + 1);
+	const height = text.length + 2;
+	// Frame glyphs from column `start`: flat gray in classic, faded by column otherwise; none's rule has no corners.
+	const edge = (glyphs: string, start: number) => (frames === "classic" ? fg(palette.frame, glyphs) : fadedEdge(glyphs, start, width));
+	const corner = (glyph: string) => (frames === "none" ? "─" : glyph);
+	const side = (index: number) => (frames === "classic" ? fg(palette.frame, "│") : frames === "none" ? " " : fg(dim(palette.text, fadeAmount(index + 1, height)), "│"));
+	const body = text.map((row, index) => `${side(index)}${padEnd(truncateToWidth(row, inner), inner)}${side(index)}`);
+	const top = `${ZONE_START}${edge(`${corner("╭")}─ `, 0)}${fg(labelAccent(palette.pink, colors), "you")}${edge(` ${"─".repeat(width - TOP_RULE_CHROME)}${corner("╮")}`, 6)}`;
+	if (frames === "none") return [top, ...body.slice(0, -1), `${ZONE_END}${body.at(-1)}`];
+	return [top, ...body, `${ZONE_END}${edge(`╰${"─".repeat(inner)}╯`, 0)}`];
 }
 
 type Node = { children?: unknown; constructor?: { name?: unknown } };

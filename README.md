@@ -147,7 +147,7 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 | Setting | Values (default first) |
 |---|---|
 | `logo` | `braille`: the GENTLESHELL wordmark in braille dots. `text`: one bold `GENTLESHELL` row. `none`: no logo, the panel starts at its first section. |
-| `frames` | `faded`: boxes whose edges fade toward the corners. `classic`: the flat gray boxes of 0.3.1. `none`: no box, each title on a fading rule with a blank row between sections. |
+| `frames` | `faded`: boxes whose edges fade toward the corners. `classic`: the flat gray boxes of 0.3.1. `none`: no box, each title on a fading rule with a blank row between sections. The prompt box and your messages follow: faded, flat gray, or only their top line as a fading rule with the same labels (no sides, no bottom). |
 | `colors` | `vivid`: the vivid titles and labels of 0.3.x. `soft`: the softer pastel tones from before 0.3.0, on the panel, the prompt box and your messages. |
 | `divider` | `medium`: the fading line between the chat and the rail, as before. `off`: no line; its column stays blank, so the panel does not move. `subtle`: dimmer. `strong`: brighter. |
 | `motion` | `on`: spinners, the ODD orb and its shine, the prompt label wave and petal, and the entrance of new rows move as before. `off`: all of them stand still on one frame and new rows appear at once in their own colors; every state keeps its glyph (`✓`, `●`, `◌`, `✗`, `!`). |

@@ -6,7 +6,7 @@ import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
-import { RESET, bgCode, bold, dim, fg, palette, panelAccent, type Rgb } from "./palette.ts";
+import { FADE_PEAK, RESET, bgCode, bold, dim, fadeAmount, fadedEdge, fg, palette, panelAccent, type Rgb } from "./palette.ts";
 import { ellipsize, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
 // Pure model-to-lines renderer for the rail (design 07, S2/S8/S9). Gentle Shell
@@ -686,20 +686,6 @@ function drawSection(section: Section, width: number, colors?: ColorMode): strin
 		return `${side}${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m${side}`;
 	});
 	return [topBorder(section, width, colors), ...body, fg(frame, `╰${"─".repeat(Math.max(0, width - 2))}╯`)];
-}
-
-/** The divider's and the box frames' brightest cell, at their middle: this share of the text color over the background. */
-const FADE_PEAK = 0.35;
-
-/** Cell `index` of a `count`-cell line's share of `peak`: all of it at the middle, easing to 0 at both ends (smoothstep). */
-function fadeAmount(index: number, count: number, peak = FADE_PEAK): number {
-	const middle = 1 - Math.abs(((index + 0.5) / count) * 2 - 1);
-	return peak * middle * middle * (3 - 2 * middle);
-}
-
-/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. */
-function fadedEdge(text: string, start: number, width: number): string {
-	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(dim(palette.text, fadeAmount(start + index, width)), glyph))).join("");
 }
 
 /** topBorder's geometry with every frame glyph faded by its column (sidebar-chrome/02). */

@@ -11,10 +11,11 @@
 // with its rail sections, empty while Fisi Dock paints them) is left out, and rows that do not
 // look like its panel chrome come back unchanged. An ODD phase label gets `ODD `
 // before it (S96); with the clock the wave sweeps both and the petal turns by
-// the same clock (S97).
+// the same clock (S97). The frame takes the look's `frames` (look-more S3): classic
+// flat gray, faded like the rail boxes, or none, the labels on a fading top rule alone.
 import { waveLabel, wavePetal } from "./label-wave.ts";
-import type { ColorMode } from "./look.ts";
-import { fg, labelAccent, palette } from "./palette.ts";
+import type { ColorMode, FrameStyle } from "./look.ts";
+import { dim, fadeAmount, fadedEdge, fg, labelAccent, palette } from "./palette.ts";
 import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
 
@@ -56,6 +57,8 @@ export interface PromptBox {
 	buttonDropped: boolean;
 	/** True when Gentle Shell painted its label as a working scan. */
 	scanning: boolean;
+	/** Index of Gentle Shell's row the box left out (its blank last row with frames `none`), or -1: rows under it sit one row higher. */
+	leftOut: number;
 }
 
 interface Segment {
@@ -119,10 +122,15 @@ function isIdleLabel(label: string, scanning: boolean): boolean {
  * `waveAt` in Gentle Shell's label gray (S96). Too tight for `ODD ` the bare label stays.
  * Too tight for an idle label and the labels, the petal alone keeps them (S2); too tight for
  * the full labels even so, they compact step by step (S3). `colors` paints the dot, the labels
- * and the clock petal vivid (the default) or soft (look settings S4).
+ * and the clock petal vivid (the default) or soft (look settings S4). `frames` (look-more S3):
+ * classic (the default) is the flat gray box; faded the same box with the top and bottom
+ * faded by column and the sides by row over the box's current height, like the rail boxes;
+ * none keeps the rule alone as a fading line with the labels in their places, the rows in
+ * their columns with a space for each side, and leaves out the blank last row (a selection
+ * label keeps its row, without a border).
  */
-export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number, colors?: ColorMode): PromptBox {
-	const unchanged: PromptBox = { rows, boxed: false, ruleShift: 0, buttonDropped: false, scanning: false };
+export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number, colors?: ColorMode, frames: FrameStyle = "classic"): PromptBox {
+	const unchanged: PromptBox = { rows, boxed: false, ruleShift: 0, buttonDropped: false, scanning: false, leftOut: -1 };
 	const columns = Math.floor(width);
 	const top = Math.max(0, Math.min(rows.length, Number.isInteger(topRowCount) ? topRowCount : 0));
 	const rule = rows[top];
@@ -202,17 +210,28 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 		if (idle) compact.some((step) => [...withHint(step), step].some((choice) => fit(bare, [choice]) || fit(petalOnly, [choice])));
 		else fit(head, right ? compact.flatMap(withHint) : compact);
 	}
-	const ruleRow = `${frame("╭─ ")}${petal} ${head.plain === "" ? "" : `${head.styled} `}${frame("─".repeat(fill))}${right ? ` ${right.styled} ${frame("─╮")}` : frame("─╮")}`;
+	// Frame glyphs from column `start`: flat gray in classic, faded by column otherwise; none's rule has no corners.
+	const edge = (text: string, start: number) => (frames === "classic" ? frame(text) : fadedEdge(text, start, columns));
+	const corner = (glyph: string) => (frames === "none" ? "─" : glyph);
+	const fillStart = 3 + glyphWidth + 1 + (head.plain === "" ? 0 : visibleWidth(head.plain) + 1);
+	const end = edge(`─${corner("╮")}`, columns - 2);
+	const ruleRow = `${edge(`${corner("╭")}─ `, 0)}${petal} ${head.plain === "" ? "" : `${head.styled} `}${edge("─".repeat(fill), fillStart)}${right ? ` ${right.styled} ${end}` : end}`;
 	const ruleShift = LEFT_COLUMNS;
 
 	const inner = columns - FRAME_COLUMNS;
-	const side = frame("│");
-	const content = rows.slice(top + 1, bottom).map((row) => `${side} ${padEnd(truncateToWidth(row, inner), inner)} ${side}`);
+	const textRows = rows.slice(top + 1, bottom);
+	const height = textRows.length + 2;
+	const side = (index: number) => (frames === "classic" ? frame("│") : frames === "none" ? " " : fg(dim(palette.text, fadeAmount(index + 1, height)), "│"));
+	const content = textRows.map((row, index) => `${side(index)} ${padEnd(truncateToWidth(row, inner), inner)} ${side(index)}`);
 	const selection = strip(rows[bottom]).trim();
-	const bottomRow = selection === ""
-		? frame(`╰${"─".repeat(columns - 2)}╯`)
-		: `${frame("╰─ ")}${fg(palette.muted, ellipsize(selection, columns - 6))} ${frame(`${"─".repeat(Math.max(0, columns - 5 - visibleWidth(ellipsize(selection, columns - 6))))}╯`)}`;
-	return { rows: [...rows.slice(0, top), ruleRow, ...content, bottomRow, ...rows.slice(bottom + 1)], boxed: true, ruleShift, buttonDropped, scanning };
+	const cut = ellipsize(selection, columns - 6);
+	const bottomRows = selection === ""
+		? (frames === "none" ? [] : [edge(`╰${"─".repeat(columns - 2)}╯`, 0)])
+		: frames === "none"
+			? [`   ${fg(palette.muted, cut)}${" ".repeat(Math.max(0, columns - 3 - visibleWidth(cut)))}`]
+			: [`${edge("╰─ ", 0)}${fg(palette.muted, cut)} ${edge(`${"─".repeat(Math.max(0, columns - 5 - visibleWidth(cut)))}╯`, 4 + visibleWidth(cut))}`];
+	const leftOut = bottomRows.length === 0 ? bottom : -1;
+	return { rows: [...rows.slice(0, top), ruleRow, ...content, ...bottomRows, ...rows.slice(bottom + 1)], boxed: true, ruleShift, buttonDropped, scanning, leftOut };
 }
 
 /** Pi TUI's mouse event, the members the box reads; passed on with the rest untouched. */
@@ -245,6 +264,8 @@ export interface PromptBoxDeps {
 	onScanning?(scanning: boolean): void;
 	/** The color mode for the labels and petal, read per frame (look settings S4); vivid when absent. */
 	colors?(): ColorMode;
+	/** The frame style, read per frame (look-more S3); classic when absent. */
+	frames?(): FrameStyle;
 }
 
 /** True when the row after `topRowCount` is Gentle Shell's panel rule. */
@@ -268,7 +289,7 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 		const editor = original(tui, theme, keybindings);
 		const render = editor.render;
 		const handleMouse = editor.handleMouse;
-		let frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false };
+		let frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false, leftOut: -1 };
 		// Gentle Shell's render advances its animation on every call, so a frame must
 		// not render twice. After a fallback this width renders straight at the full
 		// width; `retry`: the fallback was not panel chrome, so the box is tried again
@@ -276,7 +297,7 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 		// a new width.
 		let direct: { width: number; retry: boolean } | undefined;
 		const unboxed = (rows: string[]): string[] => {
-			frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false };
+			frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false, leftOut: -1 };
 			deps.onRender?.(false);
 			deps.onScanning?.(false);
 			return rows;
@@ -294,10 +315,10 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 			}
 			const rows = render.call(editor, columns - FRAME_COLUMNS);
 			const top = topRowsOf(editor);
-			const box = boxPromptRows(rows, columns, top, deps.labels(), deps.waveAt?.(), deps.colors?.());
+			const box = boxPromptRows(rows, columns, top, deps.labels(), deps.waveAt?.(), deps.colors?.(), deps.frames?.());
 			if (box.boxed) {
 				direct = undefined;
-				frame = { boxed: true, ruleShift: box.ruleShift, top, buttonDropped: box.buttonDropped };
+				frame = { boxed: true, ruleShift: box.ruleShift, top, buttonDropped: box.buttonDropped, leftOut: box.leftOut };
 				deps.onRender?.(true);
 				deps.onScanning?.(box.scanning);
 				return box.rows;
@@ -311,7 +332,9 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 				// The rule row holds Gentle Shell's dropped `[ Panel ]` button: a click there stays with the box.
 				if (event.y === frame.top && frame.buttonDropped) return undefined;
 				const shift = event.y === frame.top ? frame.ruleShift : LEFT_COLUMNS;
-				return handleMouse.call(editor, { ...event, x: Math.max(0, event.x - shift), width: event.width - FRAME_COLUMNS });
+				// Rows under the row the box left out sit one higher than in Gentle Shell's rows.
+				const y = frame.leftOut >= 0 && event.y >= frame.leftOut ? event.y + 1 : event.y;
+				return handleMouse.call(editor, { ...event, x: Math.max(0, event.x - shift), y, width: event.width - FRAME_COLUMNS });
 			};
 		}
 		return editor;

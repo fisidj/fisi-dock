@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fgCode, palette, vivid } from "../lib/palette.ts";
+import { BACKGROUND, dim, fadeAmount, fgCode, palette, vivid } from "../lib/palette.ts";
 import { boxPromptRows, createPromptBox, FRAME_COLUMNS, MIN_BOX_WIDTH, PROMPT_OWNER, wrapPromptFactory } from "../lib/prompt-box.ts";
 import { WAVE_STEP_MS } from "../lib/label-wave.ts";
 import { SIDEBAR_STATE } from "../lib/slot.ts";
@@ -652,5 +652,136 @@ test("S4 soft colors on the rule: the dot and mode pastel red, the effort pastel
 	assert.ok(vividRule.includes(`${fgCode(vivid(palette.red))}●`), "read per frame");
 	const defaults = wrapPromptFactory(factory, { painting: () => true, labels: () => LABELS })(undefined, undefined, undefined);
 	assert.equal(defaults.render(60)[0], vividRule, "no colors dep: vivid");
+});
+
+
+// --- look-more S3: the prompt box follows `frames` --------------------------------------
+
+/** Each visible cell of `line` with the 24-bit foreground in force on it (undefined after a `39`). */
+function cells(line: string): { glyph: string; color: string | undefined }[] {
+	const out: { glyph: string; color: string | undefined }[] = [];
+	let color: string | undefined;
+	for (const match of line.matchAll(/\x1b\[([0-9;]*)m|\x1b_[^\x07]*\x07|\x1b\][^\x07]*\x07|(.)/gsu)) {
+		if (match[2] !== undefined) out.push({ glyph: match[2], color });
+		else if (match[1]?.startsWith("38;2;")) color = `\x1b[${match[1]}m`;
+		else if (match[1] === "39" || match[1] === "0") color = undefined;
+	}
+	return out;
+}
+const fade = (index: number, count: number) => fgCode(dim(palette.text, fadeAmount(index, count)));
+const FRAME_GLYPHS = new Set([..."╭╮╰╯─│"]);
+/** The colors of the frame glyphs on `line`, by column. */
+const frameColors = (line: string) => cells(line).flatMap((cell, column) => (FRAME_GLYPHS.has(cell.glyph) ? [[column, cell.color] as const] : []));
+
+test("S3 classic is today's box byte for byte; omitting the style is classic", () => {
+	for (const width of [60, 40, 30]) {
+		for (const options of [{ text: ["hello"] }, { text: ["a", "b"], hint: "INSERT" }, { text: ["abc"], bottom: " 3 chars selected - Del deletes - Alt+a select all " }, { label: "checking…", scan: true }]) {
+			const rows = gentleRows(width - 4, options);
+			assert.deepEqual(boxPromptRows(rows, width, 0, LABELS, undefined, undefined, "classic"), boxPromptRows(rows, width, 0, LABELS), `${width} ${JSON.stringify(options)}`);
+		}
+	}
+});
+
+test("S3 faded: classic's geometry and labels; the top and bottom fade by column, the sides by row, corners at the background, mirrored", () => {
+	for (const width of [60, 40]) {
+		const rows = gentleRows(width - 4, { text: ["hello", "world"] });
+		const classic = boxPromptRows(rows, width, 0, LABELS);
+		const faded = boxPromptRows(rows, width, 0, LABELS, undefined, undefined, "faded");
+		assert.equal(faded.boxed, true);
+		assert.deepEqual(faded.rows.map(plain), classic.rows.map(plain), `${width}: same words and places`);
+		for (const row of faded.rows) assert.equal(visibleWidth(row), width);
+		const height = faded.rows.length;
+		for (const index of [0, height - 1]) {
+			const colors = frameColors(faded.rows[index]);
+			for (const [column, color] of colors) assert.equal(color, fade(column, width), `${width} row ${index} col ${column}`);
+			const byColumn = new Map(colors);
+			for (const [column, color] of colors) if (byColumn.has(width - 1 - column)) assert.equal(color, byColumn.get(width - 1 - column), "mirrored");
+			assert.equal(byColumn.get(0), fgCode(BACKGROUND), "the left corner sinks into the background");
+			assert.equal(byColumn.get(width - 1), fgCode(BACKGROUND), "the right corner too");
+		}
+		for (let index = 1; index < height - 1; index++) {
+			const row = cells(faded.rows[index]);
+			assert.deepEqual([row[0], row[width - 1]], [{ glyph: "│", color: fade(index, height) }, { glyph: "│", color: fade(index, height) }], `${width} side ${index}`);
+			assert.equal(fade(index, height), fade(height - 1 - index, height), "the sides mirror top to bottom");
+		}
+	}
+	const rule = boxPromptRows(gentleRows(56, { text: ["hello"] }), 60, 0, LABELS, undefined, undefined, "faded").rows[0];
+	assert.ok(rule.includes(PETAL) && rule.includes(gsLabel("waiting for input")), "Gentle Shell's petal and label as it painted them");
+	assert.ok(rule.includes(`${fgCode(vivid(palette.red))}●`) && rule.includes(`${fgCode(vivid(palette.blue))}high`) && rule.includes(`${fgCode(palette.muted)}opus-5.5`), "the labels keep their colors");
+	const selected = boxPromptRows(gentleRows(36, { text: ["abc"], bottom: " 3 chars selected - Del deletes - Alt+a select all " }), 40, 0, {}, undefined, undefined, "faded").rows.at(-1)!;
+	assert.equal(plain(selected), "╰─ 3 chars selected - Del deletes - … ─╯");
+	for (const [column, color] of frameColors(selected)) assert.equal(color, fade(column, 40));
+	assert.ok(selected.includes(`${fgCode(palette.muted)}3 chars selected`), "the selection label stays muted");
+});
+
+test("S3 faded: the sides follow the box's current height as the text grows", () => {
+	const side = (lines: string[]) => {
+		const rows = boxPromptRows(gentleRows(36, { text: lines }), 40, 0, {}, undefined, undefined, "faded").rows;
+		return rows.slice(1, -1).map((row) => cells(row)[0].color);
+	};
+	assert.deepEqual(side(["one"]), [fade(1, 3)]);
+	assert.deepEqual(side(["one", "two", "three", "four"]), [1, 2, 3, 4].map((index) => fade(index, 6)));
+});
+
+test("S3 none: the labels on a fading top rule in their places; no sides, no bottom; the text keeps its columns", () => {
+	const at40 = boxPromptRows(gentleRows(36, { text: ["first", "", "third"] }), 40, 0, {}, undefined, undefined, "none");
+	assert.equal(at40.boxed, true);
+	assert.deepEqual(at40.rows.map(plain), [
+		`── ✿ waiting for input ${"─".repeat(17)}`,
+		`  ${"› first".padEnd(36)}  `,
+		" ".repeat(40),
+		`  ${"  third".padEnd(36)}  `,
+	]);
+	const rows = gentleRows(56, { text: ["hello"], autocomplete: ["/dock   the panel"] });
+	const classic = boxPromptRows(rows, 60, 0, LABELS);
+	const none = boxPromptRows(rows, 60, 0, LABELS, undefined, undefined, "none");
+	assert.deepEqual(none.rows.map(plain), [
+		"── ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high ──",
+		`  ${"› hello".padEnd(56)}  `,
+		plain(rows.at(-1)!),
+	]);
+	assert.equal(none.rows.length, classic.rows.length - 1, "the bottom border row is gone");
+	assert.equal(none.rows.at(-1), rows.at(-1), "the autocomplete row untouched, right under the text");
+	assert.equal(plain(none.rows[0]), plain(classic.rows[0]).replace("╭", "─").replace("╮", "─"), "every label in classic's place");
+	assert.equal(plain(none.rows[1]), plain(classic.rows[1]).replaceAll("│", " "), "the text in classic's columns");
+	assert.ok(none.rows[1].includes(rows[1]), "Gentle Shell's row bytes inside");
+	for (const row of none.rows.slice(0, -1)) assert.equal(visibleWidth(row), 60);
+	const dashes = frameColors(none.rows[0]);
+	assert.equal(dashes.length, 8, "the corners turned dashes, the fill and the end");
+	for (const [column, color] of dashes) assert.equal(color, fade(column, 60), `rule col ${column}`);
+	assert.equal(new Map(dashes).get(0), fgCode(BACKGROUND), "the rule sinks into the background at its ends");
+	assert.ok(none.rows[0].includes(PETAL) && none.rows[0].includes(`${fgCode(vivid(palette.red))}●`), "labels keep their colors");
+	assert.ok(!none.rows.slice(1).some((row) => /[│╰╯╭╮]/u.test(plain(row))), "no side or bottom glyph");
+	// A selection label keeps its row, without a border, in the bottom rule's place.
+	const selected = boxPromptRows(gentleRows(36, { text: ["abc"], bottom: " 3 chars selected - Del deletes - Alt+a select all " }), 40, 0, {}, undefined, undefined, "none");
+	assert.equal(plain(selected.rows.at(-1)!), `   ${"3 chars selected - Del deletes - …".padEnd(37)}`);
+	assert.equal(selected.rows.length, 3);
+	// Gentle Shell's hint stays on the rule.
+	assert.equal(plain(boxPromptRows(gentleRows(76, { hint: "esc again to clear" }), 80, 0, LABELS, undefined, undefined, "none").rows[0]), "── ✿ waiting for input ──── ● SUPER-YOLO  opus-5.5 · high  esc again to clear ──");
+});
+
+test("S3 the wrapper reads the frames per frame; with none a click under the text reaches Gentle Shell's row under its blank row", () => {
+	const gentle = markedFactory({ text: ["hola"], top: ["work row"], autocomplete: ["/dock   the panel"] });
+	let frames: "faded" | "classic" | "none" = "classic";
+	const editor = wrapPromptFactory(gentle.factory, { painting, labels: () => LABELS, frames: () => frames })(tuiWith(true), {}, {}) as FakeGentleEditor;
+	const classic = editor.render(60);
+	assert.deepEqual(classic.map(plain), boxPromptRows(gentleRows(56, { text: ["hola"], top: ["work row"], autocomplete: ["/dock   the panel"] }), 60, 1, LABELS).rows.map(plain));
+	frames = "faded";
+	const faded = editor.render(60);
+	assert.notDeepEqual(faded, classic, "faded at once");
+	assert.deepEqual(faded.map(plain), classic.map(plain));
+	frames = "none";
+	const none = editor.render(60);
+	assert.equal(none.length, classic.length - 1);
+	assert.equal(plain(none[1]).slice(0, 2), "──");
+	const click = (y: number) => editor.handleMouse({ x: 10, y, width: 60, height: none.length, type: "click", button: "left" });
+	click(2);
+	assert.deepEqual(editor.mouse.at(-1), { x: 8, y: 2, width: 56, height: none.length, type: "click", button: "left" }, "the text row as before");
+	click(3);
+	assert.equal(editor.mouse.at(-1)!.y, 4, "the autocomplete row, past the blank row the box left out");
+	click(0);
+	assert.equal(editor.mouse.at(-1)!.y, 0, "top rows untouched");
+	const defaults = wrapPromptFactory(gentle.factory, { painting, labels: () => LABELS })(tuiWith(true), {}, {});
+	assert.deepEqual(defaults.render(60), classic, "no frames dep: classic");
 });
 

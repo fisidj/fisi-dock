@@ -6,7 +6,7 @@
 
 - `/fisi-dock settings`: a look menu over the whole screen with the rail drawn under it as a live preview. ↑↓ (or k j) move between `logo`, `frames`, `colors`, `divider` and `motion`, ←→ (or h l, and Enter) change the value, Esc (or q) closes. Each change repaints the rail, `/dock`, the cards, the prompt box and your messages at once. The plain `/fisi-dock` picker offers `settings` after `on` and `off`, and `/fisi-dock ` suggests it.
 - `logo`: `braille` (the wordmark as before), `text` (one bold `GENTLESHELL` row) or `none` (the panel starts at its first section).
-- `frames`: `faded` (as before), `classic` (the flat gray boxes of 0.3.1) or `none` (each title on a fading rule, a blank row between sections; on short screens those blank rows go first).
+- `frames`: `faded` (as before), `classic` (the flat gray boxes of 0.3.1) or `none` (each title on a fading rule, a blank row between sections; on short screens those blank rows go first). The prompt box and the box around your messages follow it too: `faded` fades their frame like the rail's, `classic` is their flat gray box as before, `none` keeps only their top line as a fading rule with the same labels (`you`, the working label, mode, model, effort, hints), no sides and no bottom rule.
 - `colors`: `vivid` (as before) or `soft`, the pastel tones from before 0.3.0 on the panel titles and counters, the prompt labels and petal and `you`, with the new `Fisi-Dock-Soft` theme (the `Fisi-Dock` theme of 0.2.1). The menu switches between the two themes when it closes, only while one of them is in use; neither is ever remembered as your theme.
 - `divider`: `medium` (as before), `off` (no divider line; its blank column stays so the panel does not move), `subtle` (dimmer) or `strong` (brighter). Only the rail's divider changes; the box frames keep their fade.
 - `motion`: `on` (as before) or `off`: spinners, the ODD orb and its shine, the prompt label wave and petal stand still on one frame, and new rows appear at once without their entrance; every state keeps its glyph. The timers that only animate stop; data reads go on.
@@ -14,6 +14,7 @@
 
 ### Changed
 
+- The prompt box and your message boxes now fade their frame by default, like the rail's sections (the default `frames` is `faded`); `/fisi-dock settings` → `frames` → `classic` brings back their flat gray frame.
 - Side rail (design sidebar-chrome/02): the section frames keep their boxes but fade, each edge a neutral gray brightest at its middle that sinks into the background at the corners; titles, counters and rows keep their colors. `/dock` draws the same frames; the narrow-screen todo and agents cards keep the flat gray frame.
 - A divider line runs between the chat and the panel in the rail's first column, brightest halfway down and fading out at the top and bottom, with a blank column before the panel (the panel is two columns narrower than the rail). The rail fills the screen's rows so the divider spans them.
 - The session section drops its group labels (`where ──`, `usage ──`, `connections ──`): project, context, profile, memory and mcp follow each other. On short screens the spacer rows between ODD steps and RDD reviews are now the first to go.

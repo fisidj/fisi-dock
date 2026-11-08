@@ -39,6 +39,20 @@ export function dim(color: Rgb, amount = 0.4): Rgb {
 	return color.map((channel, index) => Math.round(channel * amount + BACKGROUND[index] * (1 - amount))) as unknown as Rgb;
 }
 
+/** The divider's and the box frames' brightest cell, at their middle: this share of the text color over the background. */
+export const FADE_PEAK = 0.35;
+
+/** Cell `index` of a `count`-cell line's share of `peak`: all of it at the middle, easing to 0 at both ends (smoothstep). */
+export function fadeAmount(index: number, count: number, peak = FADE_PEAK): number {
+	const middle = 1 - Math.abs(((index + 0.5) / count) * 2 - 1);
+	return peak * middle * middle * (3 - 2 * middle);
+}
+
+/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. */
+export function fadedEdge(text: string, start: number, width: number): string {
+	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(dim(palette.text, fadeAmount(start + index, width)), glyph))).join("");
+}
+
 /** The WCAG contrast of `color` on the panel background. */
 function contrast(color: Rgb): number {
 	const luminance = (rgb: Rgb) => {

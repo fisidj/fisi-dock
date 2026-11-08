@@ -521,7 +521,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 		// host yet, so Pi's own lines show until the first frame.
 		frameUser: (render, width) => {
 			const terminal = attempt(() => host?.terminal as Record<symbol, unknown> | undefined);
-			return terminal?.[SIDEBAR_STATE] ? frameUserLines(render, width, look().colors) : render(width);
+			return terminal?.[SIDEBAR_STATE] ? frameUserLines(render, width, look().colors, look().frames) : render(width);
 		},
 		readPi: () => {
 			const entries = attempt(() => ctx.sessionManager.getEntries());
@@ -785,6 +785,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			waveAt: () => live?.wave.at(),
 			onScanning: (scanning) => live?.wave.report(scanning),
 			colors: () => look.colors,
+			frames: () => look.frames,
 		});
 		promptBox = box;
 		if (!box.ensure()) {

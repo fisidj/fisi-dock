@@ -2887,7 +2887,7 @@ test("S1 the prompt line, the user frame, the narrow cards, the prompt box and /
 	editor.render(12);
 	assert.deepEqual(promptLine.render(100), renderPromptLine(labels, 100, "soft"), "the line under the prompt");
 	assert.notDeepEqual(promptLine.render(100), vividLine);
-	assert.deepEqual(message.render(20), frameUserLines((width) => [" hola".padEnd(width)], 20, "soft"), "the user frame");
+	assert.deepEqual(message.render(20), frameUserLines((width) => [" hola".padEnd(width)], 20, "soft", "faded"), "the user frame");
 	assert.notDeepEqual(message.render(20), vivid.user);
 	assert.ok(strip.render(53).some((line) => plain(line).startsWith("╭─ todo")));
 	assert.notDeepEqual(strip.render(53), vivid.cards, "the todo card (its memo follows the look)");
@@ -2909,6 +2909,45 @@ test("S1 the prompt line, the user frame, the narrow cards, the prompt box and /
 	assert.notDeepEqual(dockView.render(64), softDock, "the frames change in /dock");
 	dockView.handleInput?.("\x1b");
 	await dockOpen;
+	sim.emit("session_shutdown");
+});
+
+test("look-more S3 the prompt box and the user frame follow the frames: faded by default, classic and none at once from the menu", async (t) => {
+	stateDir(t, true);
+	class UserMessageComponent {
+		children: unknown[] = [];
+		render(width: number): string[] {
+			return [" hola".padEnd(width)];
+		}
+	}
+	const message = new UserMessageComponent();
+	const pi = (width: number) => [" hola".padEnd(width)];
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false, editor: gentleEditorFactory() });
+	Object.assign(sim.tui, { children: [{ children: [message] }] });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const editor = (sim.ctx.ui.getEditorComponent() as EditorFactory)(sim.tui, {}, {});
+	const faded = { user: message.render(30), box: editor.render(60) };
+	assert.deepEqual(faded.user, frameUserLines(pi, 30, "vivid", "faded"), "the default look: faded");
+	assert.equal(plain(faded.box[0]).slice(0, 2), "╭─");
+
+	const settings = await openSettings(sim);
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(RIGHT);
+	const classic = { user: message.render(30), box: editor.render(60) };
+	assert.deepEqual(classic.user, frameUserLines(pi, 30), "classic: today's user frame");
+	assert.notDeepEqual(classic.user, faded.user);
+	assert.notDeepEqual(classic.box, faded.box, "the prompt box repaints at once");
+	assert.deepEqual(classic.box.map(plain), faded.box.map(plain), "same geometry");
+	settings.view.handleInput?.(RIGHT);
+	const none = { user: message.render(30), box: editor.render(60) };
+	assert.deepEqual(none.user, frameUserLines(pi, 30, "vivid", "none"));
+	assert.deepEqual(none.user.map((line) => plain(line).replace(/\x1b\]133;[ABC]\x07/g, "")), [`── you ${"─".repeat(23)}`, `  hola${" ".repeat(24)}`]);
+	assert.equal(none.box.length, classic.box.length - 1, "no bottom border");
+	assert.ok(plain(none.box.find((row) => plain(row).includes("✿"))!).startsWith("── ✿"), "the labels on a bare rule");
+	assert.ok(!none.box.some((row) => /[│╭╮╰╯]/u.test(plain(row))));
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
 	sim.emit("session_shutdown");
 });
 
