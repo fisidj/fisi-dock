@@ -326,3 +326,30 @@ function fakeClockStill() {
 	});
 	return { state, clock };
 }
+
+// look-more S4, S7: the wave head and the petal's pink tones follow the accent; lilac stays lilac; omitting it is pink.
+test("look-more S4 the wave head in the accent's base tone and the petal's pink tones on the accent; lilac stays; omitting the accent is pink (S7)", async () => {
+	const { accentBase, accentLabel, accentTone, labelAccent } = await import("../lib/palette.ts");
+	const label = "ODD checking…";
+	for (let step = 0; step < 16; step++) {
+		const at = step * WAVE_STEP_MS + 5;
+		assert.equal(waveLabel(label, at, "pink"), waveLabel(label, at), `step ${step}: pink wave`);
+		for (const colors of ["vivid", "soft"] as const) assert.equal(wavePetal(at, colors, "pink"), wavePetal(at, colors), `step ${step} ${colors}: pink petal`);
+	}
+	for (const accent of ["teal", "lilac", "amber", "green"] as const) {
+		const wave = waveLabel(label, WAVE_STEP_MS * 6, accent);
+		assert.equal(plain(wave), label);
+		assert.ok(wave.includes(fgCode(accentBase(accent))), `${accent}: the head`);
+		assert.ok(!wave.includes(fgCode(palette.pink)), `${accent}: no pink head`);
+		assert.equal(wave.replaceAll(fgCode(accentBase(accent)), fgCode(palette.pink)), waveLabel(label, WAVE_STEP_MS * 6), `${accent}: only the head's color changes`);
+		for (const colors of ["vivid", "soft"] as const) {
+			const deep = accentTone(labelAccent(palette.deepPink, colors), accent, colors);
+			const tones = [deep, labelAccent(palette.lilac, colors), accentLabel(accent, colors), accentLabel(accent, colors), accentLabel(accent, colors), labelAccent(palette.lilac, colors), deep, deep];
+			for (let step = 0; step < 8; step++) {
+				const at = step * WAVE_STEP_MS + 5;
+				const petal = wavePetal(at, colors, accent);
+				assert.equal(petal, `${fgCode(tones[step])}\x1b[1m${plain(petal)}\x1b[22m\x1b[39m`, `${accent} ${colors} step ${step}`);
+			}
+		}
+	}
+});

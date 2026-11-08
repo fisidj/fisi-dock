@@ -1,12 +1,12 @@
 import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
-import type { ColorMode, DividerLevel, FrameStyle, LogoStyle, MotionMode } from "./look.ts";
+import type { Accent, ColorMode, DividerLevel, FrameStyle, LogoStyle, MotionMode } from "./look.ts";
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
-import { FADE_PEAK, RESET, bgCode, bold, dim, fadeAmount, fadedEdge, fg, palette, panelAccent, type Rgb } from "./palette.ts";
+import { FADE_PEAK, RESET, accentBase, bgCode, bold, dim, fadeAmount, fadedEdge, fg, palette, panelAccent, type Rgb } from "./palette.ts";
 import { ellipsize, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
 // Pure model-to-lines renderer for the rail (design 07, S2/S8/S9). Gentle Shell
@@ -292,19 +292,19 @@ const TASK_GLYPH: Record<Exclude<TodoTask["state"], "active">, string> = {
 	dropped: fg(palette.faint, "-"),
 };
 
-/** The active task's row: the spinner and the bold title, entering at `entrance` (S54). */
-function activeTaskRow(title: string, width: number, spinner?: number, entrance?: number): Row {
+/** The active task's row: the spinner in the accent's tone `pink` (look-more S4) and the bold title, entering at `entrance` (S54). */
+function activeTaskRow(title: string, width: number, spinner?: number, entrance?: number, pink: Rgb = palette.pink): Row {
 	const text = (rest: number) => {
 		const cut = ellipsize(title, rest);
 		return entering([{ text: cut, color: palette.text, bold: true }], palette.coral, entrance, bold(plainText(cut)));
 	};
-	return { text: item(fg(glyphColor(palette.pink, palette.coral, entrance), spinnerAt(spinner)), text, width), highlight: true };
+	return { text: item(fg(glyphColor(pink, palette.coral, entrance), spinnerAt(spinner)), text, width), highlight: true };
 }
 
 /** One row per task, in list order (S26): /dock, and the rail while the list fits (S58). */
-function taskRows(tasks: TodoTask[], width: number, spinner?: number, entrance?: number): Row[] {
+function taskRows(tasks: TodoTask[], width: number, spinner?: number, entrance?: number, pink?: Rgb): Row[] {
 	return tasks.map((task) => {
-		if (task.state === "active") return activeTaskRow(task.title, width, spinner, entrance);
+		if (task.state === "active") return activeTaskRow(task.title, width, spinner, entrance, pink);
 		const style = task.state === "done" || task.state === "dropped" ? muted : plainText;
 		return { text: item(TASK_GLYPH[task.state] ?? TASK_GLYPH.pending, (rest) => style(ellipsize(task.title, rest)), width) };
 	});
@@ -324,8 +324,8 @@ function moreTodoRow(more: number, width: number): Row {
  * task before the active one (else the first open task, else the last task) and
  * the tasks after it fold into `+N more`.
  */
-function railTaskRows(tasks: TodoTask[], width: number, spinner?: number, entrance?: number): Row[] {
-	if (tasks.length <= RAIL_TASKS) return taskRows(tasks, width, spinner, entrance);
+function railTaskRows(tasks: TodoTask[], width: number, spinner?: number, entrance?: number, pink?: Rgb): Row[] {
+	if (tasks.length <= RAIL_TASKS) return taskRows(tasks, width, spinner, entrance, pink);
 	const active = tasks.findIndex((task) => task.state === "active");
 	const open = tasks.findIndex((task) => task.state === "pending" || task.state === "blocked");
 	const anchor = active >= 0 ? active : open >= 0 ? open : tasks.length - 1;
@@ -336,7 +336,7 @@ function railTaskRows(tasks: TodoTask[], width: number, spinner?: number, entran
 		const label = tasks.slice(0, start).every((task) => task.state === "done") ? `${start} earlier done` : `${start} earlier`;
 		rows.push({ text: item(fg(palette.green, "✓"), (rest) => muted(ellipsize(label, rest)), width) });
 	}
-	rows.push(...taskRows(tasks.slice(start, end), width, spinner, entrance));
+	rows.push(...taskRows(tasks.slice(start, end), width, spinner, entrance, pink));
 	if (end < tasks.length) rows.push(moreTodoRow(tasks.length - end, width));
 	return rows;
 }
@@ -349,16 +349,17 @@ function emptyTodoSection(width: number): Section {
 	return { title: "todo", color: palette.coral, rows: [{ text: item(fg(palette.faint, "○"), (rest) => muted(ellipsize("no tasks · the list shows while I plan", rest)), width) }] };
 }
 
-function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: number, compact = false, colors?: ColorMode): Section | undefined {
+function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: number, compact = false, colors?: ColorMode, accent?: Accent): Section | undefined {
 	if (todo.total <= 0) return undefined;
 	const color = palette.coral;
+	const pink = accentBase(accent);
 	const right = fg(panelAccent(color, colors), `${todo.done}/${todo.total}`);
-	if (expanded && todo.tasks?.length) return { title: "todo", color, right, rows: taskRows(todo.tasks, width, spinner, todo.entrance) };
+	if (expanded && todo.tasks?.length) return { title: "todo", color, right, rows: taskRows(todo.tasks, width, spinner, todo.entrance, pink) };
 	if (!compact && todo.tasks?.length) {
 		// S58: the listed rail keeps the progress bar, on the title before done/total.
 		const cells = Math.min(todo.total, BAR_CELLS);
 		const bar = meter(cells, Math.round((todo.done / todo.total) * cells), dim(color, 0.7), dim(color, 0.7));
-		return { title: "todo", color, right: `${bar} ${right}`, rows: railTaskRows(todo.tasks, width, spinner, todo.entrance) };
+		return { title: "todo", color, right: `${bar} ${right}`, rows: railTaskRows(todo.tasks, width, spinner, todo.entrance, pink) };
 	}
 	// Fixed height (S7): done collapses to one row, then active, next and a summary.
 	const rows: Row[] = [];
@@ -367,7 +368,7 @@ function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: 
 		const bar = meter(cells, Math.round((todo.done / todo.total) * cells), dim(color, 0.7), dim(color, 0.7));
 		rows.push({ text: spread(`${fg(palette.green, "✓")} ${muted(`${todo.done} done`)}`, bar, width) });
 	}
-	if (todo.active) rows.push(activeTaskRow(todo.active, width, spinner, todo.entrance));
+	if (todo.active) rows.push(activeTaskRow(todo.active, width, spinner, todo.entrance, pink));
 	if (todo.next) rows.push({ text: item(fg(palette.faint, "○"), (rest) => plainText(ellipsize(todo.next!, rest)), width) });
 	if (todo.more > 0) rows.push(moreTodoRow(todo.more, width));
 	return { title: "todo", color, right, rows };
@@ -674,7 +675,7 @@ function topBorder(section: Section, width: number, colors?: ColorMode): string 
 	return fg(frame, truncateToWidth(`╭${"─".repeat(Math.max(0, width - 2))}╮`, width));
 }
 
-function drawSection(section: Section, width: number, colors?: ColorMode): string[] {
+function drawSection(section: Section, width: number, colors?: ColorMode, accent?: Accent): string[] {
 	const frame = palette.frame;
 	const inner = width - 4;
 	const side = fg(frame, "│");
@@ -683,7 +684,7 @@ function drawSection(section: Section, width: number, colors?: ColorMode): strin
 		if (!row.highlight) return `${side} ${text} ${side}`;
 		// Cut points end in a full reset; put the row background back after each.
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
-		return `${side}${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m${side}`;
+		return `${side}${HIGHLIGHT}${fg(accentBase(accent), "▎")}${lit} \x1b[49m${side}`;
 	});
 	return [topBorder(section, width, colors), ...body, fg(frame, `╰${"─".repeat(Math.max(0, width - 2))}╯`)];
 }
@@ -712,7 +713,7 @@ function fadedTopBorder(section: Section, width: number, colors?: ColorMode): st
  * top and bottom fade by column, the sides by row over the box's full height, so
  * each edge is brightest at its middle and the corners sink into the background.
  */
-function drawFaded(section: Section, width: number, colors?: ColorMode): string[] {
+function drawFaded(section: Section, width: number, colors?: ColorMode, accent?: Accent): string[] {
 	const inner = width - 4;
 	const height = section.rows.length + 2;
 	const body = section.rows.map((row, index) => {
@@ -721,7 +722,7 @@ function drawFaded(section: Section, width: number, colors?: ColorMode): string[
 		if (!row.highlight) return `${side} ${text} ${side}`;
 		// Cut points end in a full reset; put the row background back after each.
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
-		return `${side}${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m${side}`;
+		return `${side}${HIGHLIGHT}${fg(accentBase(accent), "▎")}${lit} \x1b[49m${side}`;
 	});
 	return [fadedTopBorder(section, width, colors), ...body, fadedEdge(`╰${"─".repeat(Math.max(0, width - 2))}╯`, 0, width)];
 }
@@ -747,27 +748,27 @@ function ruleHeader(section: Section, width: number, colors?: ColorMode): string
 }
 
 /** A section with no box (S3): its title on a fading rule, then its rows two cells in, highlighted rows in the boxed rows' columns. */
-function drawBare(section: Section, width: number, colors?: ColorMode): string[] {
+function drawBare(section: Section, width: number, colors?: ColorMode, accent?: Accent): string[] {
 	const inner = width - 4;
 	const body = section.rows.map((row) => {
 		const text = padEnd(ellipsize(row.text, inner), inner);
 		if (!row.highlight) return `  ${text}  `;
 		// Cut points end in a full reset; put the row background back after each.
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
-		return ` ${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m `;
+		return ` ${HIGHLIGHT}${fg(accentBase(accent), "▎")}${lit} \x1b[49m `;
 	});
 	return [ruleHeader(section, width, colors), ...body];
 }
 
-/** Every section of the panel in frame style `frames` and color mode `colors`; `gaps` puts a blank row between consecutive no-box sections (S3). */
-function drawSections(sections: Section[], width: number, frames: FrameStyle, gaps: boolean, colors?: ColorMode): string[] {
-	if (frames === "classic") return sections.flatMap((section) => drawSection(section, width, colors));
-	if (frames !== "none") return sections.flatMap((section) => drawFaded(section, width, colors));
-	return sections.flatMap((section, index) => [...(gaps && index > 0 ? [" ".repeat(width)] : []), ...drawBare(section, width, colors)]);
+/** Every section of the panel in frame style `frames`, color mode `colors` and the highlight bar in `accent`; `gaps` puts a blank row between consecutive no-box sections (S3). */
+function drawSections(sections: Section[], width: number, frames: FrameStyle, gaps: boolean, colors?: ColorMode, accent?: Accent): string[] {
+	if (frames === "classic") return sections.flatMap((section) => drawSection(section, width, colors, accent));
+	if (frames !== "none") return sections.flatMap((section) => drawFaded(section, width, colors, accent));
+	return sections.flatMap((section, index) => [...(gaps && index > 0 ? [" ".repeat(width)] : []), ...drawBare(section, width, colors, accent)]);
 }
 
-function logoLines(width: number, style?: LogoStyle): string[] {
-	const lines = renderLogo(width, style);
+function logoLines(width: number, style?: LogoStyle, accent?: Accent): string[] {
+	const lines = renderLogo(width, style, accent);
 	const widest = Math.max(0, ...lines.map(visibleWidth));
 	// Centered over the sections, at most two columns in.
 	const indent = " ".repeat(Math.max(0, Math.min(2, Math.floor((width - widest) / 2))));
@@ -787,6 +788,8 @@ export interface PanelOptions {
 	frames?: FrameStyle;
 	/** The section titles' and counters' colors (look settings S4): vivid (the default, S6) or soft, their own pastel as before 0.3.0. */
 	colors?: ColorMode;
+	/** Fisi Dock's own pink (look-more S4): the highlight bar, the active todo spinner and the logo's SHELL in the accent; pink (the default) is today's. Section titles keep their hues. */
+	accent?: Accent;
 	/** The rail logo (look settings S2): the braille wordmark (the default, S6), the bold GENTLESHELL text row, or none, so the panel starts at its first section. */
 	logo?: LogoStyle;
 	/** The rail divider's brightness (look-more S1), renderRail only: medium (the default, today's), off, subtle or strong. */
@@ -851,6 +854,7 @@ export function renderPanel(moving: PanelModel, width: number, options: PanelOpt
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const frames = options.frames ?? "faded";
 	const colors = options.colors;
+	const accent = options.accent;
 	const draw = (shape: Shape, gaps: boolean) => {
 		const sections = [
 			sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS),
@@ -859,10 +863,10 @@ export function renderPanel(moving: PanelModel, width: number, options: PanelOpt
 			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails, colors) : undefined,
 			(ciUrgent ? shape.ci : shape.settledCi) ? ciSection(model.ci, inner, shape.ciDetails, model.spinner) : undefined,
 			model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP),
-			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors)) || emptyTodoSection(inner),
+			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors, accent)) || emptyTodoSection(inner),
 			shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined,
 		].filter((section): section is Section => section !== undefined);
-		return [...logoLines(columns, options.logo), ...drawSections(sections, columns, frames, gaps, colors)];
+		return [...logoLines(columns, options.logo, accent), ...drawSections(sections, columns, frames, gaps, colors, accent)];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;
 	// No-box sections give up their blank rows first, then the panel shrinks as usual.
@@ -908,15 +912,15 @@ export function renderRail(model: PanelModel, width: number, options: PanelOptio
  * The panel's todo section alone, framed to `width` (S28): narrow screens show it
  * above the prompt. Compact, fixed height even with a task list (S7); [] without a todo.
  * `spinner` is the active row's frame (PanelModel.spinner); motion off holds the still
- * frame and plays no entrance (look-more S2).
+ * frame and plays no entrance (look-more S2). `accent` paints the bar and the spinner (look-more S4).
  */
-export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinner?: number, colors?: ColorMode, motion?: MotionMode): string[] {
+export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinner?: number, colors?: ColorMode, motion?: MotionMode, accent?: Accent): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	const still = motion === "off";
 	const shown = still && todo ? { ...todo, entrance: undefined } : todo;
-	const section = columns > 0 && shown ? todoSection(shown, columns - 4, false, still ? undefined : spinner, true, colors) : undefined;
+	const section = columns > 0 && shown ? todoSection(shown, columns - 4, false, still ? undefined : spinner, true, colors, accent) : undefined;
 	if (!section) return [];
-	return drawSection(section, columns, colors).map((line) => truncateToWidth(line, columns));
+	return drawSection(section, columns, colors, accent).map((line) => truncateToWidth(line, columns));
 }
 
 /** Agent names past this many cells are cut, so the tasks keep one column. */
@@ -964,7 +968,7 @@ function boxed(text: string, width: number): string {
 }
 
 /** How /dock draws its panel: the rail's look (S3). */
-export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "logo" | "motion">;
+export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "accent" | "logo" | "motion">;
 
 export interface DockView {
 	lines: string[];
@@ -987,7 +991,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, logo: options.logo, motion: options.motion }) : [];
+	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));

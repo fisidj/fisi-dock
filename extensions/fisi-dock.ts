@@ -20,7 +20,7 @@ import {
 } from "../lib/live-data.ts";
 import { createLiveStore, createSerialRefresh, createSpinnerClock, readGit, type LiveStore } from "../lib/live-store.ts";
 import { installLoadedBox } from "../lib/loaded-box.ts";
-import { COLOR_MODES, type Look, lookKey, themeNameFor } from "../lib/look.ts";
+import { FISI_DOCK_THEMES, type Look, lookKey, themeNameFor } from "../lib/look.ts";
 import { MCP_GRACE_MS, mcpConfigPaths, mcpServerStates, readMcpServerNames } from "../lib/mcp.ts";
 import { memoryCallEnd, memoryInfo, NO_MEMORY_CALLS } from "../lib/memory.ts";
 import { readSessionProfile } from "../lib/profile.ts";
@@ -56,8 +56,8 @@ const WELCOME_TRIES = 40;
 /** Card renders that look for Pi's loaded-resources container before giving up for the session. */
 const LOADED_BOX_TRIES = 20;
 const HEADER_SLOT = "header";
-/** Pi's themes while Fisi Dock is on (S95, look settings S4): themes/Fisi-Dock.json, or Fisi-Dock-Soft.json in soft colors. Never remembered as the user's. */
-const FISI_DOCK_THEMES: readonly string[] = COLOR_MODES.map(themeNameFor);
+// Pi's themes while Fisi Dock is on (S95, look settings S4, look-more S4): themes/Fisi-Dock.json,
+// Fisi-Dock-Soft.json in soft colors, or an accent's Fisi-Dock-<Accent>[-Soft].json. Never remembered as the user's.
 const isDockTheme = (name: unknown) => typeof name === "string" && FISI_DOCK_THEMES.includes(name);
 // Off puts back the theme in use before /fisi-dock on (S7); without one, or when it
 // is gone, Gentle Shell's own theme: gentle-pi's DEFAULT_THEME_NAME
@@ -521,7 +521,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 		// host yet, so Pi's own lines show until the first frame.
 		frameUser: (render, width) => {
 			const terminal = attempt(() => host?.terminal as Record<symbol, unknown> | undefined);
-			return terminal?.[SIDEBAR_STATE] ? frameUserLines(render, width, look().colors, look().frames) : render(width);
+			return terminal?.[SIDEBAR_STATE] ? frameUserLines(render, width, look().colors, look().frames, look().accent) : render(width);
 		},
 		readPi: () => {
 			const entries = attempt(() => ctx.sessionManager.getEntries());
@@ -786,6 +786,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			onScanning: (scanning) => live?.wave.report(scanning),
 			colors: () => look.colors,
 			frames: () => look.frames,
+			accent: () => look.accent,
 		});
 		promptBox = box;
 		if (!box.ensure()) {
@@ -833,7 +834,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						const key = `${width}:${lookKey(look)}:${session.store.digest()}:${running ? Math.floor(now / 1000) : ""}`;
 						if (drawn?.key !== key) {
 							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors, look.motion);
-							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors, look.motion);
+							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors, look.motion, look.accent);
 							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0, motion: look.motion }), ...agents, ...todo] };
 						}
 						return drawn.lines;
@@ -942,8 +943,8 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		const path = statePath();
 		// Plain Pi gets no panel, so it keeps its theme; the step stays pending.
 		if (process.env.GENTLE_PI_AGENTS_CHILD === "1" || readDockThemeApplied(path) || !gentleShellLoaded()) return;
-		// The theme of the saved colors (look settings S4).
-		const dockTheme = themeNameFor(look.colors);
+		// The theme of the saved colors and accent (look settings S4, look-more S4).
+		const dockTheme = themeNameFor(look.colors, look.accent);
 		if (attempt(() => ctx.ui.getTheme(dockTheme)) === undefined) return;
 		const inUse = attempt(() => ctx.ui.theme.name);
 		if (isDockTheme(inUse)) return void writeDockEnabled(path, true, readDockTheme(path), true);
@@ -968,12 +969,12 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// On/off inside Gentle Shell (S95): Pi cannot unload an extension mid-session,
 	// so off is the unload path (stop) plus a dormant flag, and on is the
 	// session_start path again. The choice is saved; the theme follows it: on
-	// remembers the theme in use (never Fisi-Dock or Fisi-Dock-Soft) and off puts it back (S7).
+	// remembers the theme in use (never one of Fisi Dock's own) and off puts it back (S7).
 	// An on that set Fisi Dock's theme also counts as the first start's theme step (T9).
 	// `settings` opens the look menu (look settings S1), also while off.
 
 	// A look picked in the menu: in use at once and saved (S5). Pi's theme follows the
-	// colors (S4) with followTheme, once the menu closed.
+	// colors (S4) and the accent (look-more S4) with followTheme, once the menu closed.
 	const changeLook = (next: Look): boolean => {
 		const moved = next.motion !== look.motion;
 		look = next;
@@ -981,25 +982,25 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		return writeDockLook(statePath(), next);
 	};
 	// With Fisi Dock on and its own theme in use, Pi's theme becomes the one of the
-	// colors (S4), when it is not already. Off, or with the user's theme, nothing.
-	// Only after the menu changed the colors, so a menu closed with them as they were
-	// leaves a Fisi Dock theme picked in /settings alone.
+	// colors and accent (S4, look-more S4), when it is not already. Off, or with the user's
+	// theme, nothing. Only after the menu changed the colors or the accent, so a menu closed
+	// with them as they were leaves a Fisi Dock theme picked in /settings alone.
 	const followTheme = (ctx: ExtensionContext) => {
 		const inUse = attempt(() => ctx.ui.theme.name);
-		const name = themeNameFor(look.colors);
+		const name = themeNameFor(look.colors, look.accent);
 		if (!enabled || !isDockTheme(inUse) || inUse === name) return;
 		if (attempt(() => ctx.ui.getTheme(name)) !== undefined) attempt(() => ctx.ui.setTheme(name));
 	};
 	const openSettings = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) {
-			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · divider ${look.divider} · motion ${look.motion} · /fisi-dock settings changes it in the interactive UI`, "info"));
+			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · accent ${look.accent} · divider ${look.divider} · motion ${look.motion} · /fisi-dock settings changes it in the interactive UI`, "info"));
 			return;
 		}
 		// Off there is no live store: the preview draws the project alone.
 		let still: PanelModel | undefined;
 		const model = () => live?.store.model() ?? (still ??= createLiveStore(projectName(attempt(() => ctx.sessionManager.getCwd()) ?? attempt(() => ctx.cwd) ?? "")).model());
 		let warned = false;
-		const colors = look.colors;
+		const theme = themeNameFor(look.colors, look.accent);
 		await ctx.ui.custom<void>(
 			(tui, _theme, keybindings, done) =>
 				// SAFETY: Pi's KeybindingsManager has matches(data, keybinding): boolean, the only member Keys uses.
@@ -1012,9 +1013,9 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		);
 		// Pi's theme setter invalidates and repaints the whole UI and saves its settings
 		// synchronously; called from the menu's key handler at every ←→, the menu froze
-		// in Gentle Shell (L8). So the theme follows once, for the last colors picked,
-		// after the menu is gone and its key handler returned.
-		if (look.colors === colors) return;
+		// in Gentle Shell (L8). So the theme follows once, for the last colors and accent
+		// picked, after the menu is gone and its key handler returned.
+		if (themeNameFor(look.colors, look.accent) === theme) return;
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		followTheme(ctx);
 	};
@@ -1048,7 +1049,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			enabled = next;
 			const path = statePath();
 			if (next) look = readDockLook(path);
-			const dockTheme = themeNameFor(look.colors);
+			const dockTheme = themeNameFor(look.colors, look.accent);
 			const inUse = attempt(() => ctx.ui.theme.name);
 			const remembered = next && typeof inUse === "string" && inUse !== "" && !isDockTheme(inUse) ? inUse : readDockTheme(path);
 			const applied = readDockThemeApplied(path);

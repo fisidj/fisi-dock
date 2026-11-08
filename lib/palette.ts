@@ -1,6 +1,6 @@
 // Design 07 palette in 24-bit color. The panel paints with its own accents
 // instead of Pi theme roles so each section keeps its hue (S9).
-import type { ColorMode } from "./look.ts";
+import type { Accent, ColorMode } from "./look.ts";
 
 export type Rgb = readonly [number, number, number];
 
@@ -53,29 +53,45 @@ export function fadedEdge(text: string, start: number, width: number): string {
 	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(dim(palette.text, fadeAmount(start + index, width)), glyph))).join("");
 }
 
-/** The WCAG contrast of `color` on the panel background. */
-function contrast(color: Rgb): number {
-	const luminance = (rgb: Rgb) => {
-		const [r, g, b] = rgb.map((channel) => channel / 255).map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
-		return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-	};
-	return (luminance(color) + 0.05) / (luminance(BACKGROUND) + 0.05);
+/** The WCAG relative luminance of `color`. */
+function luminance(color: Rgb): number {
+	const [r, g, b] = color.map((channel) => channel / 255).map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
-/** `color`'s hue at HSL saturation 0.9 and `lightness`. */
-function withLightness(color: Rgb, lightness: number): Rgb {
+/** The WCAG contrast of `color` on `background`, the panel background by default. */
+export function contrast(color: Rgb, background: Rgb = BACKGROUND): number {
+	const [light, dark] = [luminance(color), luminance(background)].sort((a, b) => b - a);
+	return (light + 0.05) / (dark + 0.05);
+}
+
+/** `color` as HSL: hue in degrees, saturation and lightness from 0 to 1. */
+function toHsl(color: Rgb): [number, number, number] {
 	const [r, g, b] = color.map((channel) => channel / 255);
 	const max = Math.max(r, g, b);
 	const spread = max - Math.min(r, g, b);
 	let hue = 0;
 	if (spread) hue = max === r ? ((g - b) / spread) % 6 : max === g ? (b - r) / spread + 2 : (r - g) / spread + 4;
 	hue = (hue * 60 + 360) % 360;
-	const chroma = (1 - Math.abs(2 * lightness - 1)) * 0.9;
+	const lightness = (max + max - spread) / 2;
+	return [hue, spread ? spread / (1 - Math.abs(2 * lightness - 1)) : 0, lightness];
+}
+
+/** The HSL color `hue`, `saturation`, `lightness`, unrounded channels from 0 to 255. */
+function hslChannels(hue: number, saturation: number, lightness: number): number[] {
+	const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
 	const x = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
 	const m = lightness - chroma / 2;
 	const sextant = Math.floor(hue / 60);
 	const [r1, g1, b1] = [[chroma, x, 0], [x, chroma, 0], [0, chroma, x], [0, x, chroma], [x, 0, chroma], [chroma, 0, x]][sextant];
-	return [r1, g1, b1].map((value) => Math.round((value + m) * 255)) as unknown as Rgb;
+	return [r1, g1, b1].map((value) => (value + m) * 255);
+}
+
+const fromHsl = (hue: number, saturation: number, lightness: number): Rgb => hslChannels(hue, saturation, lightness).map(Math.round) as unknown as Rgb;
+
+/** `color`'s hue at HSL saturation 0.9 and `lightness`. */
+function withLightness(color: Rgb, lightness: number): Rgb {
+	return fromHsl(toHsl(color)[0], 0.9, lightness);
 }
 
 /**
@@ -108,6 +124,50 @@ export function labelAccent(color: Rgb, mode: ColorMode = "vivid"): Rgb {
 /** A side panel title or counter in color mode `mode` (look settings S4): panelVivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0. */
 export function panelAccent(color: Rgb, mode: ColorMode = "vivid"): Rgb {
 	return mode === "soft" ? color : panelVivid(color);
+}
+
+/** `color` itself when it reads `floor` on `background`; else lighter in HSL steps of 0.005, hue and saturation kept, until it does. */
+export function liftContrast(color: Rgb, floor: number, background: Rgb = BACKGROUND): Rgb {
+	if (contrast(color, background) >= floor) return color;
+	const [hue, saturation, lightness] = toHsl(color);
+	for (let step = 1; lightness + step * 0.005 < 1; step++) {
+		const out = fromHsl(hue, saturation, lightness + step * 0.005);
+		if (contrast(out, background) >= floor) return out;
+	}
+	return fromHsl(hue, saturation, 1);
+}
+
+/** `color` on `toward`'s hue: its own HSL saturation and the lightness that keeps its luminance, so it reads as bright as before. */
+export function retone(color: Rgb, toward: Rgb): Rgb {
+	const [hue] = toHsl(toward);
+	const [, saturation] = toHsl(color);
+	const target = luminance(color);
+	let [low, high] = [0, 1];
+	for (let step = 0; step < 40; step++) {
+		const middle = (low + high) / 2;
+		if (luminance(hslChannels(hue, saturation, middle) as unknown as Rgb) < target) low = middle;
+		else high = middle;
+	}
+	return fromHsl(hue, saturation, (low + high) / 2);
+}
+
+/**
+ * The accent's own tone in color mode `mode` (look-more S4): labelAccent of its palette color,
+ * lifted where it would read under pink's (only lilac). Pink is labelAccent(palette.pink), today's.
+ * The accent themes' pink var is this tone too (scripts/build-themes.mjs).
+ */
+export function accentLabel(accent: Accent = "pink", mode: ColorMode = "vivid"): Rgb {
+	return liftContrast(labelAccent(palette[accent], mode), contrast(labelAccent(palette.pink, mode)));
+}
+
+/** The accent's pastel (look-more S4), where the panel paints palette.pink as itself: the highlight bar, the wave head, the menu. */
+export function accentBase(accent: Accent = "pink"): Rgb {
+	return accentLabel(accent, "soft");
+}
+
+/** A pink-family `color` (deepPink, the selection tint, the logo's SHELL) on the accent: retone toward accentLabel(accent, mode); pink keeps it as it is. */
+export function accentTone(color: Rgb, accent: Accent = "pink", mode: ColorMode = "vivid"): Rgb {
+	return accent === "pink" ? color : retone(color, accentLabel(accent, mode));
 }
 
 export const fgCode = ([r, g, b]: Rgb) => `\x1b[38;2;${r};${g};${b}m`;

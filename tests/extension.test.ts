@@ -2792,8 +2792,9 @@ test("S1 /fisi-dock settings opens the look overlay: rows, values, hint and a li
 	assert.match(shown[2], /^ › logo +‹ braille › *$/);
 	assert.match(shown[3], /^ {3}frames +‹ faded › *$/);
 	assert.match(shown[4], /^ {3}colors +‹ vivid › *$/);
-	assert.match(shown[5], /^ {3}divider +‹ medium › *$/);
-	assert.match(shown[6], /^ {3}motion +‹ on › *$/);
+	assert.match(shown[5], /^ {3}accent +‹ pink › *$/);
+	assert.match(shown[6], /^ {3}divider +‹ medium › *$/);
+	assert.match(shown[7], /^ {3}motion +‹ on › *$/);
 	assert.ok(shown.some((line) => line.includes("session")), "the live preview of the rail");
 	assert.match(shown.at(-1)!, /^ ↑↓ choose · ←→ change · Esc close *$/);
 	console.log(`--- simulated /fisi-dock settings, 60x24, default look\n${shown.join("\n")}`);
@@ -2825,7 +2826,7 @@ test("S1 S5 each change applies at once and is saved: the rail repaints (memo an
 	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(RIGHT);
 	assert.ok(settings.renders() > 0, "a change repaints");
-	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "classic", colors: "vivid", divider: "medium", motion: "on" } });
+	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "classic", colors: "vivid", accent: "pink", divider: "medium", motion: "on" } });
 	const classic = rail.render(57);
 	assert.notDeepEqual(classic, before, "the frames changed with no other model change");
 	assert.notEqual(rail.digest(), digest, "Gentle Shell's rail memo sees the change");
@@ -2850,7 +2851,7 @@ test("S1 S5 each change applies at once and is saved: the rail repaints (memo an
 	settings.view.handleInput?.(RIGHT);
 	settings.view.handleInput?.("j");
 	settings.view.handleInput?.(LEFT);
-	assert.deepEqual(readState(path).look, { logo: "braille", frames: "faded", colors: "vivid", divider: "medium", motion: "on" });
+	assert.deepEqual(readState(path).look, { logo: "braille", frames: "faded", colors: "vivid", accent: "pink", divider: "medium", motion: "on" });
 	assert.deepEqual(rail.render(57), before);
 	assert.equal(rail.digest(), digest);
 	settings.view.handleInput?.("q");
@@ -2969,7 +2970,7 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	await changeColors(RIGHT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"]);
 	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
-	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", divider: "medium", motion: "on" } });
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", accent: "pink", divider: "medium", motion: "on" } });
 	await changeColors(RIGHT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock"]);
 	await changeColors(LEFT);
@@ -3046,7 +3047,7 @@ test("S1 S4 L8 colors never switch Pi's theme inside the menu's key handler: the
 	assert.deepEqual(duringKey, [], "not in the closing key's handler either");
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"], "one switch, after the menu closed, to the last colors' theme");
 	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
-	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", divider: "medium", motion: "on" } });
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", accent: "pink", divider: "medium", motion: "on" } });
 
 	// Back and forth to the colors already in use: no switch at all.
 	const again = await openSettings(sim);
@@ -3120,7 +3121,7 @@ test("S5 a saved look is used from the next session start; S6 without one the lo
 	assert.ok(mcpRead(plainSim), "the MCP row shows");
 	const picked = (plainSim.parts.get("footer") as Rail).render(57);
 	plainSim.emit("session_shutdown");
-	assert.deepEqual(readState(path).look, { logo: "none", frames: "none", colors: "vivid", divider: "medium", motion: "on" });
+	assert.deepEqual(readState(path).look, { logo: "none", frames: "none", colors: "vivid", accent: "pink", divider: "medium", motion: "on" });
 
 	const next = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	next.emit("session_start");
@@ -3149,7 +3150,7 @@ test("S5 while off, /fisi-dock settings still saves the look and sets no theme; 
 	settings.view.handleInput?.(RIGHT);
 	settings.view.handleInput?.("\x1b");
 	await settings.pending;
-	assert.deepEqual(readState(path), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "classic", colors: "soft", divider: "medium", motion: "on" } });
+	assert.deepEqual(readState(path), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "classic", colors: "soft", accent: "pink", divider: "medium", motion: "on" } });
 	assert.deepEqual(sim.themes, [], "off: the theme is the user's");
 	assertGentleShellOwns(sim, "still off");
 	await fisiDockCommand(sim, "on");
@@ -3171,7 +3172,7 @@ test("S1 without a UI, /fisi-dock settings only says the look; the picker offers
 	sim.ctx.hasUI = false;
 	await fisiDockCommand(sim, "settings");
 	assert.equal(sim.customs.length, 0);
-	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · divider medium · motion on · /fisi-dock settings changes it in the interactive UI");
+	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · accent pink · divider medium · motion on · /fisi-dock settings changes it in the interactive UI");
 	assert.deepEqual(readState(path), { enabled: true, themeApplied: true });
 	sim.ctx.hasUI = true;
 
@@ -3229,9 +3230,9 @@ test("look-more S2 motion off in the menu stops the running spinner's timer at o
 
 	const settings = await openSettings(sim);
 	settings.view.handleInput?.(UP);
-	assert.match(plain(settings.view.render(60)[6]), /^ › motion +‹ on › *$/);
+	assert.match(plain(settings.view.render(60)[7]), /^ › motion +‹ on › *$/);
 	settings.view.handleInput?.(RIGHT);
-	assert.match(plain(settings.view.render(60)[6]), /^ › motion +‹ off › *$/);
+	assert.match(plain(settings.view.render(60)[7]), /^ › motion +‹ off › *$/);
 	settings.view.handleInput?.("\x1b");
 	await settings.pending;
 	assert.equal(readState(path).look.motion, "off", "saved");
@@ -3264,8 +3265,8 @@ test("look-more S1 the divider row repaints the rail live and is saved: off leav
 	const digest = rail.digest();
 	assert.ok(medium.some((line) => plain(line)[0] === "│"), "today's divider");
 	const settings = await openSettings(sim);
-	for (let index = 0; index < 3; index++) settings.view.handleInput?.(DOWN);
-	assert.match(plain(settings.view.render(60)[5]), /^ › divider +‹ medium › *$/);
+	for (let index = 0; index < 4; index++) settings.view.handleInput?.(DOWN);
+	assert.match(plain(settings.view.render(60)[6]), /^ › divider +‹ medium › *$/);
 	settings.view.handleInput?.(RIGHT);
 	assert.equal(readState(path).look.divider, "off");
 	const off = rail.render(57);
@@ -3281,4 +3282,131 @@ test("look-more S1 the divider row repaints the rail live and is saved: off leav
 	settings.view.handleInput?.("q");
 	await settings.pending;
 	sim.emit("session_shutdown");
+});
+
+// --- look-more S4 accent ---------------------------------------------------------------
+
+test("look-more S4 the accent row repaints at once and, once the menu closes, switches Pi's theme to the accent's one, once; off puts the user's theme back", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "dark", themeApplied: true });
+	class UserMessageComponent {
+		children: unknown[] = [];
+		render(width: number): string[] {
+			return [" hola".padEnd(width)];
+		}
+	}
+	const message = new UserMessageComponent();
+	const pi = (width: number) => [" hola".padEnd(width)];
+	const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	Object.assign(sim.tui, { children: [{ children: [message] }] });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = sim.parts.get("footer") as Rail;
+	const pinkRail = rail.render(57);
+	const digest = rail.digest();
+	assert.deepEqual(message.render(30), frameUserLines(pi, 30, "vivid", "faded"), "pink `you`");
+
+	const settings = await openSettings(sim);
+	for (let index = 0; index < 3; index++) settings.view.handleInput?.(DOWN);
+	assert.match(plain(settings.view.render(60)[5]), /^ › accent +‹ pink › *$/);
+	settings.view.handleInput?.(RIGHT);
+	assert.match(plain(settings.view.render(60)[5]), /^ › accent +‹ teal › *$/);
+	assert.equal(readState(path).look.accent, "teal", "saved at once");
+	assert.notEqual(rail.digest(), digest, "Gentle Shell's rail memo sees the change");
+	assert.notDeepEqual(rail.render(57), pinkRail, "the rail repaints in teal (the logo's SHELL)");
+	assert.deepEqual(message.render(30), frameUserLines(pi, 30, "vivid", "faded", "teal"), "`you` in teal");
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.(LEFT);
+	assert.deepEqual(sim.themes, [], "no theme switch while the menu is open");
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Teal"], "one switch, to the accent's theme");
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Teal");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "vivid", accent: "teal", divider: "medium", motion: "on" } });
+
+	// Soft colors with the teal accent: Fisi-Dock-Teal-Soft.
+	const soft = await openSettings(sim);
+	soft.view.handleInput?.(DOWN);
+	soft.view.handleInput?.(DOWN);
+	soft.view.handleInput?.(RIGHT);
+	soft.view.handleInput?.("\x1b");
+	await soft.pending;
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Teal", "Fisi-Dock-Teal-Soft"]);
+
+	// An accent changed and put back: no switch.
+	const same = await openSettings(sim);
+	for (let index = 0; index < 3; index++) same.view.handleInput?.(DOWN);
+	same.view.handleInput?.(RIGHT);
+	same.view.handleInput?.(LEFT);
+	same.view.handleInput?.("\x1b");
+	await same.pending;
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Teal", "Fisi-Dock-Teal-Soft"]);
+
+	// Back to pink: the pink soft theme.
+	const back = await openSettings(sim);
+	for (let index = 0; index < 3; index++) back.view.handleInput?.(DOWN);
+	back.view.handleInput?.(LEFT);
+	back.view.handleInput?.("\x1b");
+	await back.pending;
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Teal", "Fisi-Dock-Teal-Soft", "Fisi-Dock-Soft"]);
+	assert.equal(readState(path).look.accent, "pink");
+
+	// Off from an accent theme puts the user's theme back; on takes the saved look's theme and remembers nothing of Fisi Dock's.
+	const green = await openSettings(sim);
+	for (let index = 0; index < 3; index++) green.view.handleInput?.(DOWN);
+	green.view.handleInput?.(LEFT);
+	green.view.handleInput?.("\x1b");
+	await green.pending;
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Green-Soft");
+	await fisiDockCommand(sim, "off");
+	assert.equal(sim.ctx.ui.theme.name, "dark");
+	assert.equal(readState(path).theme, "dark");
+	await fisiDockCommand(sim, "on");
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Green-Soft");
+	assert.match(sim.notices.at(-1)!, /^Fisi Dock on · theme Fisi-Dock-Green-Soft/);
+	assert.equal(readState(path).theme, "dark");
+	sim.emit("session_shutdown");
+
+	// A user theme in use: the accent changes the dock, never the theme.
+	const own = stateDir(t, true);
+	const mine = simulate("E:\DEV\app", { ownsHost: () => true, theme: "light" });
+	mine.emit("session_start");
+	const other = await openSettings(mine);
+	for (let index = 0; index < 3; index++) other.view.handleInput?.(DOWN);
+	other.view.handleInput?.(RIGHT);
+	other.view.handleInput?.("\x1b");
+	await other.pending;
+	assert.deepEqual(mine.themes, []);
+	assert.equal(readState(own).look.accent, "teal");
+	mine.emit("session_shutdown");
+});
+
+test("look-more S4 every Fisi Dock theme counts as its own: on never remembers it, off restores the user's theme from it, and the first start applies the saved look's theme", async (t) => {
+	const { FISI_DOCK_THEMES } = await import("../lib/look.ts");
+	for (const name of FISI_DOCK_THEMES) {
+		const path = stateDir(t);
+		seedState(path, { enabled: false, theme: "light", themeApplied: true });
+		const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: name });
+		sim.emit("session_start");
+		await fisiDockCommand(sim, "on");
+		assert.equal(readState(path).theme, "light", `${name} is never remembered`);
+		await fisiDockCommand(sim, "off");
+		assert.equal(sim.ctx.ui.theme.name, "light", `off from ${name}`);
+		sim.emit("session_shutdown");
+
+		const fresh = stateDir(t);
+		const start = simulate("E:\DEV\app", { ownsHost: () => true, theme: name });
+		start.emit("session_start");
+		assert.deepEqual(start.themes, [], `${name} in use at the first start: no switch`);
+		assert.deepEqual(readState(fresh), { enabled: true, themeApplied: true }, `${name}: the step is done, nothing remembered`);
+		start.emit("session_shutdown");
+	}
+	const first = stateDir(t);
+	mkdirSync(join(first, ".."), { recursive: true });
+	writeFileSync(first, JSON.stringify({ look: { accent: "lilac" } }));
+	const start = simulate("E:\DEV\app", { ownsHost: () => true, theme: "dark" });
+	start.emit("session_start");
+	assert.deepEqual(start.themes, ["Fisi-Dock-Lilac"], "the first start applies the lilac theme");
+	assert.deepEqual(readState(first), { look: { accent: "lilac" }, enabled: true, theme: "dark", themeApplied: true });
+	start.emit("session_shutdown");
 });

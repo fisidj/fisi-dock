@@ -2822,3 +2822,71 @@ test("look-more S2 motion off: the narrow todo and agents cards hold the still f
 	assert.deepEqual(agents(4, 0), renderAgentsCard(entranceModel().agents, 47, undefined, 10_000), "the still agents card");
 	assert.deepEqual(renderTodoCard(movingModel(4, 0).todo, 47, 4, undefined, "on"), renderTodoCard(movingModel(4, 0).todo, 47, 4), "on is today");
 });
+
+// --- look-more S4: the accent -------------------------------------------------------
+
+const ACCENTS = ["pink", "teal", "lilac", "amber", "green"] as const;
+const BAR = (color: readonly [number, number, number]) => `${fgCode(color)}▎`;
+
+test("look-more S4 the highlight bar and the active todo spinner take the accent's base tone; every other row, title and counter stays", async () => {
+	const { accentBase } = await import("../lib/palette.ts");
+	for (const frames of ["faded", "classic", "none"] as const) {
+		const pink = renderPanel(lookModel, 55, { frames, logo: "none" });
+		for (const accent of ACCENTS.slice(1)) {
+			const base = accentBase(accent);
+			const lines = renderPanel(lookModel, 55, { frames, logo: "none", accent });
+			assert.equal(lines.length, pink.length);
+			assert.deepEqual(lines.map(plain), pink.map(plain), `${frames} ${accent}: same words and layout`);
+			assert.ok(lines.some((line) => line.includes(BAR(base))), `${frames} ${accent}: the bar`);
+			assert.ok(!lines.some((line) => line.includes(BAR(palette.pink))), `${frames} ${accent}: no pink bar`);
+			const todo = lines.find((line) => plain(line).includes("Confirm CI is green"))!;
+			assert.ok(todo.includes(`${fgCode(base)}⠹`), `${frames} ${accent}: the todo spinner`);
+			lines.forEach((line, index) => {
+				if (!line.includes("▎")) assert.equal(line, pink[index], `${frames} ${accent}: row ${index} without the bar is today's`);
+			});
+		}
+	}
+});
+
+test("look-more S4 the SHELL half of the logo takes the accent; GENTLE and the pink logo stay", async () => {
+	const { renderLogo } = await import("../lib/logo.ts");
+	const { accentTone } = await import("../lib/palette.ts");
+	for (const width of [55, 47, 30, 12]) {
+		for (const style of ["braille", "text"] as const) {
+			assert.deepEqual(renderLogo(width, style, "pink"), renderLogo(width, style), `${width} ${style}: pink is today's`);
+			const pink = renderLogo(width, style);
+			for (const accent of ACCENTS.slice(1)) {
+				const lines = renderLogo(width, style, accent);
+				assert.deepEqual(lines.map(plain), pink.map(plain), `${width} ${style} ${accent}: same glyphs`);
+				assert.ok(lines.join("").includes(fgCode(accentTone(palette.sexyPink, accent))), `${width} ${style} ${accent}: SHELL in the accent`);
+				assert.ok(!lines.join("").includes(fgCode(palette.sexyPink)), `${width} ${style} ${accent}: no sexy pink`);
+				assert.ok(lines.join("").includes(fgCode([230, 230, 230])) || lines.join("").includes(fgCode([205, 205, 205])) || lines.join("").includes(fgCode([180, 180, 180])), "GENTLE gray");
+			}
+		}
+	}
+	assert.deepEqual(renderLogo(55, "none", "teal"), []);
+	assert.ok(renderPanel(lookModel, 55, { accent: "teal" })[0].includes(fgCode(accentTone(palette.sexyPink, "teal"))), "the rail's logo follows the accent");
+});
+
+test("look-more S7 omitting the accent draws pink, byte for byte, on the panel, the rail, /dock and the todo card", () => {
+	for (const frames of ["faded", "classic", "none"] as const) {
+		for (const colors of ["vivid", "soft"] as const) {
+			for (const width of [55, 47, 30]) {
+				assert.deepEqual(renderPanel(lookModel, width, { frames, colors }), renderPanel(lookModel, width, { frames, colors, accent: "pink" }), `panel ${frames} ${colors} ${width}`);
+				assert.deepEqual(renderRail(lookModel, width, { frames, colors, maxRows: 40 }), renderRail(lookModel, width, { frames, colors, maxRows: 40, accent: "pink" }), `rail ${frames} ${colors} ${width}`);
+			}
+			assert.deepEqual(renderDock(lookModel, 60, 50, 0, { frames, colors }), renderDock(lookModel, 60, 50, 0, { frames, colors, accent: "pink" }), `dock ${frames} ${colors}`);
+		}
+	}
+	assert.deepEqual(renderTodoCard(lookModel.todo, 64, 1), renderTodoCard(lookModel.todo, 64, 1, undefined, undefined, "pink"));
+	assert.ok(renderPanel(lookModel, 55).some((line) => line.includes(BAR(palette.pink))), "today's bar is the pastel pink");
+});
+
+test("look-more S4 /dock and the narrow todo card follow the accent too", async () => {
+	const { accentBase } = await import("../lib/palette.ts");
+	const dock = renderDock(lookModel, 60, 50, 0, { accent: "green" }).lines;
+	assert.ok(dock.some((line) => line.includes(BAR(accentBase("green")))), "/dock bar");
+	const card = renderTodoCard(lookModel.todo, 64, 1, undefined, undefined, "lilac");
+	assert.ok(card.some((line) => line.includes(BAR(accentBase("lilac")))), "todo card bar");
+	assert.deepEqual(card.map(plain), renderTodoCard(lookModel.todo, 64, 1).map(plain));
+});

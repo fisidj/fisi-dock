@@ -7,13 +7,13 @@
 // Only while Gentle Shell itself scans, in quality and performance (S93: there
 // Gentle Shell steps its wave once a second).
 // The petal before the label turns on the same clock (S97). With motion off (look-more
-// S2) both stand still on the moment WAVE_STILL_AT.
+// S2) both stand still on the moment WAVE_STILL_AT. The head and the petal's pink tones
+// take the accent (look-more S4); its lilac tones stay.
 import type { OrbMotion } from "./orbs.ts";
-import type { ColorMode } from "./look.ts";
-import { bold, fg, labelAccent, palette } from "./palette.ts";
+import type { Accent, ColorMode } from "./look.ts";
+import { accentBase, accentLabel, accentTone, bold, fg, labelAccent, palette, type Rgb } from "./palette.ts";
 
 export const WAVE_STEP_MS = 120;
-const WAVE_HEAD = palette.pink;
 const WAVE_SOFT = palette.lilac;
 /** Gentle Shell's wave enters three columns before the label; a short label rests between sweeps. */
 const ENTRY_STEPS = 3;
@@ -24,30 +24,43 @@ const FRAME_WINDOW_MS = 2000;
 /** The fixed moment motion off paints (look-more S2): the wave not yet on the label, all muted, and the first petal. */
 export const WAVE_STILL_AT = 0;
 
-/** `label` with the wave at the moment `now`. */
-export function waveLabel(label: string, now: number): string {
+/** `label` with the wave at the moment `now`, its head in `accent`'s pastel (pink by default). */
+export function waveLabel(label: string, now: number, accent: Accent = "pink"): string {
+	const head = accentBase(accent);
 	const chars = Array.from(label);
 	const steps = Math.max(MIN_STEPS, chars.length + ENTRY_STEPS * 2);
-	const head = (Math.floor(now / WAVE_STEP_MS) % steps) - ENTRY_STEPS;
+	const at = (Math.floor(now / WAVE_STEP_MS) % steps) - ENTRY_STEPS;
 	return chars
 		.map((char, index) => {
-			const distance = Math.abs(head - index);
-			return fg(distance <= 1 ? WAVE_HEAD : distance === 2 ? WAVE_SOFT : palette.muted, char);
+			const distance = Math.abs(at - index);
+			return fg(distance <= 1 ? head : distance === 2 ? WAVE_SOFT : palette.muted, char);
 		})
 		.join("");
 }
 
 /** Gentle Shell's working petal (lib/shell-prompt.ts PETAL_FRAMES): four flowers, one column each. */
 const PETAL_FRAMES = ["✿", "❀", "❁", "✾"] as const;
-/** Its tones (PETAL_TONE_FRAMES: mdQuoteBorder, thinkingHigh, accent, borderAccent, accent, thinkingHigh, mdQuoteBorder twice) in the Fisi-Dock theme's colors. */
-const PETAL_BASE = [palette.deepPink, palette.lilac, palette.pink, palette.pink, palette.pink, palette.lilac, palette.deepPink, palette.deepPink];
-/** The tones per color mode (look settings S4): the vivid theme's, or Fisi-Dock-Soft's pastels. */
-const PETAL_TONES = { vivid: PETAL_BASE.map((tone) => labelAccent(tone, "vivid")), soft: PETAL_BASE.map((tone) => labelAccent(tone, "soft")) } as const;
+/**
+ * Its tones (PETAL_TONE_FRAMES: mdQuoteBorder, thinkingHigh, accent, borderAccent, accent, thinkingHigh,
+ * mdQuoteBorder twice) in the colors of the Fisi Dock theme for color mode `mode` (look settings S4)
+ * and `accent` (look-more S4): the vivid theme's or the soft pastels, deepPink and pink on the accent.
+ */
+function petalTones(mode: ColorMode, accent: Accent): Rgb[] {
+	const deep = accentTone(labelAccent(palette.deepPink, mode), accent, mode);
+	const pink = accentLabel(accent, mode);
+	const lilac = labelAccent(palette.lilac, mode);
+	return [deep, lilac, pink, pink, pink, lilac, deep, deep];
+}
 
-/** Gentle Shell's working petal at the moment `now`, in `colors` (vivid by default). Gentle Shell turns the petal and the wave on one tick, so one frame per wave step. */
-export function wavePetal(now: number, colors: ColorMode = "vivid"): string {
+const PETAL_TONES = new Map<string, Rgb[]>();
+
+/** Gentle Shell's working petal at the moment `now`, in `colors` (vivid by default) and `accent` (pink by default). Gentle Shell turns the petal and the wave on one tick, so one frame per wave step. */
+export function wavePetal(now: number, colors: ColorMode = "vivid", accent: Accent = "pink"): string {
 	const step = Math.floor(now / WAVE_STEP_MS);
-	const tones = PETAL_TONES[colors === "soft" ? "soft" : "vivid"];
+	const mode = colors === "soft" ? "soft" : "vivid";
+	const key = `${mode}/${accent}`;
+	const tones = PETAL_TONES.get(key) ?? petalTones(mode, accent);
+	PETAL_TONES.set(key, tones);
 	return fg(tones[step % tones.length], bold(PETAL_FRAMES[step % PETAL_FRAMES.length]));
 }
 

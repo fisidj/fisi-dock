@@ -191,3 +191,21 @@ test("S3 none: `you` on a fading top rule in its place; no sides, no bottom; the
 	assert.ok(none[0].includes(`${fgCode(palette.pink)}you`), "soft `you`");
 	assert.ok(!none.slice(1).some((line) => /[│╰╯]/u.test(plain(line))));
 });
+
+// look-more S4, S7: `you` takes the accent's tone in each color mode; omitting it is pink, byte for byte.
+test("look-more S4 `you` in the accent's tone, vivid and soft, in every frame style; omitting the accent is pink (S7)", async () => {
+	const { accentLabel } = await import("../lib/palette.ts");
+	const render = piUserMessage(["hola"]);
+	for (const frames of ["classic", "faded", "none"] as const) {
+		for (const colors of ["vivid", "soft"] as const) {
+			assert.deepEqual(frameUserLines(render, 30, colors, frames), frameUserLines(render, 30, colors, frames, "pink"), `${frames} ${colors}: pink is today's`);
+			const pink = frameUserLines(render, 30, colors, frames);
+			for (const accent of ["teal", "lilac", "amber", "green"] as const) {
+				const lines = frameUserLines(render, 30, colors, frames, accent);
+				assert.ok(lines[0].includes(`${fgCode(accentLabel(accent, colors))}you`), `${frames} ${colors} ${accent}`);
+				assert.deepEqual(lines.slice(1), pink.slice(1), "only `you` changes");
+				assert.equal(lines[0].replace(fgCode(accentLabel(accent, colors)), ""), pink[0].replace(fgCode(accentLabel("pink", colors)), ""), "the rule stays");
+			}
+		}
+	}
+});

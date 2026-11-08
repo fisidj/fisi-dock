@@ -14,7 +14,7 @@
 // the same clock (S97). The frame takes the look's `frames` (look-more S3): classic
 // flat gray, faded like the rail boxes, or none, the labels on a fading top rule alone.
 import { waveLabel, wavePetal } from "./label-wave.ts";
-import type { ColorMode, FrameStyle } from "./look.ts";
+import type { Accent, ColorMode, FrameStyle } from "./look.ts";
 import { dim, fadeAmount, fadedEdge, fg, labelAccent, palette } from "./palette.ts";
 import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
@@ -122,14 +122,15 @@ function isIdleLabel(label: string, scanning: boolean): boolean {
  * `waveAt` in Gentle Shell's label gray (S96). Too tight for `ODD ` the bare label stays.
  * Too tight for an idle label and the labels, the petal alone keeps them (S2); too tight for
  * the full labels even so, they compact step by step (S3). `colors` paints the dot, the labels
- * and the clock petal vivid (the default) or soft (look settings S4). `frames` (look-more S3):
+ * and the clock petal vivid (the default) or soft (look settings S4); `accent` the wave head and the
+ * petal's pink tones (look-more S4; the red mode dot keeps its warning red). `frames` (look-more S3):
  * classic (the default) is the flat gray box; faded the same box with the top and bottom
  * faded by column and the sides by row over the box's current height, like the rail boxes;
  * none keeps the rule alone as a fading line with the labels in their places, the rows in
  * their columns with a space for each side, and leaves out the blank last row (a selection
  * label keeps its row, without a border).
  */
-export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number, colors?: ColorMode, frames: FrameStyle = "classic"): PromptBox {
+export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number, colors?: ColorMode, frames: FrameStyle = "classic", accent?: Accent): PromptBox {
 	const unchanged: PromptBox = { rows, boxed: false, ruleShift: 0, buttonDropped: false, scanning: false, leftOut: -1 };
 	const columns = Math.floor(width);
 	const top = Math.max(0, Math.min(rows.length, Number.isInteger(topRowCount) ? topRowCount : 0));
@@ -158,11 +159,11 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	const scanning = labelWidth >= 3 && labelEscapes >= labelWidth;
 	const wave = scanning && waveAt !== undefined;
 	// Every petal frame is one column like Gentle Shell's, so the rule never shifts (S97).
-	const clockPetal = wave ? wavePetal(waveAt, colors) : undefined;
+	const clockPetal = wave ? wavePetal(waveAt, colors, accent) : undefined;
 	const petal = clockPetal !== undefined && visibleWidth(clockPetal) === glyphWidth ? clockPetal : sliceColumns(rule, 2, 2 + glyphWidth);
-	const bare: Segment = { plain: label, styled: wave ? waveLabel(label, waveAt) : gentleLabel };
+	const bare: Segment = { plain: label, styled: wave ? waveLabel(label, waveAt, accent) : gentleLabel };
 	const prefixed: Segment | undefined = ODD_PHASE_LABEL.test(label)
-		? { plain: ODD_PREFIX + label, styled: wave ? waveLabel(ODD_PREFIX + label, waveAt) : fg(palette.muted, ODD_PREFIX) + gentleLabel }
+		? { plain: ODD_PREFIX + label, styled: wave ? waveLabel(ODD_PREFIX + label, waveAt, accent) : fg(palette.muted, ODD_PREFIX) + gentleLabel }
 		: undefined;
 	const tailStart = visibleWidth(plainRule) - visibleWidth(tail);
 	const tailMatch = GENTLE_TAIL.exec(tail);
@@ -266,6 +267,8 @@ export interface PromptBoxDeps {
 	colors?(): ColorMode;
 	/** The frame style, read per frame (look-more S3); classic when absent. */
 	frames?(): FrameStyle;
+	/** The accent for the wave head and the petal, read per frame (look-more S4); pink when absent. */
+	accent?(): Accent;
 }
 
 /** True when the row after `topRowCount` is Gentle Shell's panel rule. */
@@ -315,7 +318,7 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 			}
 			const rows = render.call(editor, columns - FRAME_COLUMNS);
 			const top = topRowsOf(editor);
-			const box = boxPromptRows(rows, columns, top, deps.labels(), deps.waveAt?.(), deps.colors?.(), deps.frames?.());
+			const box = boxPromptRows(rows, columns, top, deps.labels(), deps.waveAt?.(), deps.colors?.(), deps.frames?.(), deps.accent?.());
 			if (box.boxed) {
 				direct = undefined;
 				frame = { boxed: true, ruleShift: box.ruleShift, top, buttonDropped: box.buttonDropped, leftOut: box.leftOut };

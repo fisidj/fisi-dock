@@ -99,7 +99,7 @@ test("S5 writing the look creates the folder, saves it under `look` and reads ba
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "agent", "fisi-dock", "state.json");
-	const look = { logo: "text", frames: "classic", colors: "soft", divider: "medium", motion: "on" } as const;
+	const look = { logo: "text", frames: "classic", colors: "soft", accent: "pink", divider: "medium", motion: "on" } as const;
 	assert.equal(writeDockLook(path, look), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look });
 	assert.deepEqual(readDockLook(path), look);
@@ -115,7 +115,7 @@ test("S5 /fisi-dock on|off and the theme memory keep the look", (t) => {
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "state.json");
-	const look = { logo: "none", frames: "none", colors: "soft", divider: "medium", motion: "on" } as const;
+	const look = { logo: "none", frames: "none", colors: "soft", accent: "pink", divider: "medium", motion: "on" } as const;
 	assert.equal(writeDockLook(path, look), true);
 	assert.equal(writeDockEnabled(path, false), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look, enabled: false });
@@ -165,7 +165,7 @@ test("look-more S1 S2 the divider and motion are saved with the look and read ba
 		}
 	}
 	writeFileSync(path, '{"enabled":true,"look":{"logo":"text","frames":"none","colors":"soft"}}');
-	assert.deepEqual(readDockLook(path), { logo: "text", frames: "none", colors: "soft", divider: "medium", motion: "on" }, "an old state.json without them");
+	assert.deepEqual(readDockLook(path), { logo: "text", frames: "none", colors: "soft", accent: "pink", divider: "medium", motion: "on" }, "an old state.json without them");
 	writeFileSync(path, '{"look":{"divider":"loud","motion":"slow"}}');
 	assert.deepEqual(readDockLook(path), DEFAULT_LOOK, "bad values fall back");
 	assert.equal(writeDockEnabled(path, false), true);

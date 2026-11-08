@@ -52,3 +52,74 @@ test("S4 labelAccent and panelAccent: vivid and panelVivid by default and in viv
 		assert.deepEqual([...panelAccent(color, "soft")], [...color], "soft: the pastel");
 	}
 });
+
+// --- look-more S4: accents ------------------------------------------------------------
+
+const ACCENT_NAMES = ["pink", "teal", "lilac", "amber", "green"] as const;
+const hueOf = (color: Rgb) => {
+	const [r, g, b] = color.map((channel) => channel / 255);
+	const max = Math.max(r, g, b);
+	const spread = max - Math.min(r, g, b);
+	const hue = max === r ? ((g - b) / spread) % 6 : max === g ? (b - r) / spread + 2 : (r - g) / spread + 4;
+	return (hue * 60 + 360) % 360;
+};
+const hueGap = (a: Rgb, b: Rgb) => Math.min(Math.abs(hueOf(a) - hueOf(b)), 360 - Math.abs(hueOf(a) - hueOf(b)));
+const luminance = (color: Rgb) => {
+	const [r, g, b] = color.map((channel) => channel / 255).map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+	return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+test("look-more S4 contrast is the WCAG ratio on the panel background, or on the one given", async () => {
+	const { BACKGROUND, contrast } = await import("../lib/palette.ts");
+	assert.equal(contrast(BACKGROUND), 1);
+	assert.equal(Math.round(contrast([255, 255, 255], [0, 0, 0]) * 100) / 100, 21);
+	assert.equal(Math.round(contrast(rgb("#f2a7c9")) * 100) / 100, 9.61, "the soft pink");
+	assert.equal(Math.round(contrast(rgb("#f5388e")) * 100) / 100, 5.03, "the vivid pink");
+});
+
+test("look-more S4 S7 the pink accent is today's, byte for byte: accentBase is palette.pink, accentLabel is labelAccent(pink), accentTone leaves a color as it is", async () => {
+	const { accentBase, accentLabel, accentTone, labelAccent, palette } = await import("../lib/palette.ts");
+	assert.deepEqual([...accentBase()], [...palette.pink]);
+	assert.deepEqual([...accentBase("pink")], [...palette.pink]);
+	for (const mode of ["vivid", "soft"] as const) assert.deepEqual([...accentLabel("pink", mode)], [...labelAccent(palette.pink, mode)], mode);
+	assert.deepEqual([...accentLabel()], [...vivid(palette.pink)], "vivid by default");
+	for (const color of [palette.deepPink, palette.sexyPink, palette.sexyDeepPink, rgb("#2a2228")]) {
+		assert.deepEqual([...accentTone(color)], [...color]);
+		assert.deepEqual([...accentTone(color, "pink", "soft")], [...color]);
+	}
+});
+
+test("look-more S4 each accent's own tone: its palette color (vivid in vivid), on its own hue, never under pink's contrast; one that reads less gets lighter to reach it", async () => {
+	const { accentBase, accentLabel, contrast, labelAccent, palette } = await import("../lib/palette.ts");
+	for (const mode of ["vivid", "soft"] as const) {
+		const floor = contrast(accentLabel("pink", mode));
+		for (const accent of ACCENT_NAMES) {
+			const tone = accentLabel(accent, mode);
+			assert.ok(contrast(tone) >= floor, `${accent} ${mode}: ${contrast(tone)} >= ${floor}`);
+			assert.ok(hueGap(tone, palette[accent]) < 2, `${accent} ${mode} keeps its hue`);
+			const own = labelAccent(palette[accent], mode);
+			if (contrast(own) < floor) {
+				assert.ok(luminance(tone) > luminance(own), `${accent} ${mode} lifted`);
+				assert.ok(contrast(tone) < floor + 0.15, `${accent} ${mode}: just enough`);
+			} else assert.deepEqual([...tone], [...own], `${accent} ${mode}: already reads as well as pink`);
+		}
+	}
+	// Which ones lift: lilac in both modes; amber and green read under the soft pink's 9.61.
+	const lifted = (mode: "vivid" | "soft") => ACCENT_NAMES.filter((accent) => contrast(labelAccent(palette[accent], mode)) < contrast(accentLabel("pink", mode)));
+	assert.deepEqual(lifted("vivid"), ["lilac"]);
+	assert.deepEqual(lifted("soft"), ["lilac", "amber", "green"]);
+	for (const accent of ACCENT_NAMES) assert.deepEqual([...accentBase(accent)], [...accentLabel(accent, "soft")], `${accent}: the base is the soft tone`);
+});
+
+test("look-more S4 accentTone moves a pink-family color to the accent's hue, keeping how bright it reads", async () => {
+	const { accentLabel, accentTone, palette } = await import("../lib/palette.ts");
+	for (const mode of ["vivid", "soft"] as const) {
+		for (const accent of ACCENT_NAMES.slice(1)) {
+			for (const color of [palette.deepPink, vivid(palette.deepPink), palette.sexyPink, palette.sexyDeepPink, rgb("#2a2228")]) {
+				const tone = accentTone(color, accent, mode);
+				assert.ok(hueGap(tone, accentLabel(accent, mode)) < 6, `${accent} ${mode} ${color}: hue`);
+				assert.ok(Math.abs(luminance(tone) - luminance(color)) < 0.006, `${accent} ${mode} ${color}: luminance ${luminance(tone)} ~ ${luminance(color)}`);
+			}
+		}
+	}
+});

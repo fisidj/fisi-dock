@@ -785,3 +785,38 @@ test("S3 the wrapper reads the frames per frame; with none a click under the tex
 	assert.deepEqual(defaults.render(60), classic, "no frames dep: classic");
 });
 
+
+// --- look-more S4: the accent on the rule ----------------------------------------------
+
+test("look-more S4 the clock petal and the wave on the rule follow the accent; the red mode dot and the effort stay; omitting the accent is pink (S7)", async () => {
+	const { waveLabel, wavePetal } = await import("../lib/label-wave.ts");
+	const at = WAVE_STEP_MS * 6;
+	const working = gentleRows(56, { label: "checking…", scan: true });
+	const idle = gentleRows(56, { text: ["hello"] });
+	for (const frames of ["classic", "faded", "none"] as const) {
+		for (const colors of ["vivid", "soft"] as const) {
+			assert.deepEqual(boxPromptRows(working, 60, 0, LABELS, at, colors, frames, "pink"), boxPromptRows(working, 60, 0, LABELS, at, colors, frames), `${frames} ${colors}: pink working`);
+			assert.deepEqual(boxPromptRows(idle, 60, 0, LABELS, undefined, colors, frames, "pink"), boxPromptRows(idle, 60, 0, LABELS, undefined, colors, frames), `${frames} ${colors}: pink idle`);
+			for (const accent of ["teal", "green"] as const) {
+				const rule = boxPromptRows(working, 60, 0, LABELS, at, colors, frames, accent).rows[0];
+				assert.ok(rule.includes(wavePetal(at, colors, accent)), `${frames} ${colors} ${accent}: the petal`);
+				assert.ok(rule.includes(waveLabel("ODD checking…", at, accent)), `${frames} ${colors} ${accent}: the wave`);
+				const pinkRule = boxPromptRows(working, 60, 0, LABELS, at, colors, frames).rows[0];
+				assert.equal(plain(rule), plain(pinkRule));
+				assert.notEqual(rule, pinkRule, `${frames} ${colors} ${accent}: repainted`);
+				assert.ok(rule.includes(`${fgCode(colors === "soft" ? palette.red : vivid(palette.red))}●`), "the mode dot stays red");
+				assert.deepEqual(boxPromptRows(idle, 60, 0, LABELS, undefined, colors, frames, accent), boxPromptRows(idle, 60, 0, LABELS, undefined, colors, frames), `${frames} ${colors} ${accent}: an idle rule has no pink of ours`);
+			}
+		}
+	}
+	// The factory reads the accent per frame from its deps; without it the box paints pink.
+	let accent: "pink" | "teal" = "teal";
+	const factory = () => ({ render: (columns: number) => gentleRows(columns, { label: "checking…", scan: true }) });
+	const painted = wrapPromptFactory(factory, { painting: () => true, labels: () => LABELS, waveAt: () => at, accent: () => accent })(undefined, undefined, undefined);
+	assert.ok(painted.render(60)[0].includes(wavePetal(at, "vivid", "teal")), "teal from deps.accent");
+	accent = "pink";
+	const pinkRule = painted.render(60)[0];
+	assert.ok(pinkRule.includes(wavePetal(at)), "read per frame");
+	const defaults = wrapPromptFactory(factory, { painting: () => true, labels: () => LABELS, waveAt: () => at })(undefined, undefined, undefined);
+	assert.equal(defaults.render(60)[0], pinkRule, "no accent dep: pink");
+});

@@ -3,13 +3,13 @@
 // look as a live preview. The render and the key reducer are pure; the
 // extension saves and applies each change.
 import { type Look, LOOK_OPTIONS } from "./look.ts";
-import { bold, fg, palette } from "./palette.ts";
+import { accentBase, bold, fg, palette } from "./palette.ts";
 import { DOCK_WIDTH, renderRail } from "./panel.ts";
 import type { PanelModel } from "./panel-model.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
 
 /** The menu rows, top to bottom. */
-export const SETTINGS_ROWS = ["logo", "frames", "colors", "divider", "motion"] as const satisfies readonly (keyof Look)[];
+export const SETTINGS_ROWS = ["logo", "frames", "colors", "accent", "divider", "motion"] as const satisfies readonly (keyof Look)[];
 
 export const SETTINGS_HINT = "↑↓ choose · ←→ change · Esc close";
 
@@ -81,8 +81,9 @@ function settingsRow(state: SettingsState, index: number): string {
 	const key = SETTINGS_ROWS[index];
 	const selected = wrap(state.row, SETTINGS_ROWS.length) === index;
 	const label = padEnd(key, LABEL_WIDTH);
-	const arrow = (glyph: string) => fg(selected ? palette.pink : palette.faint, glyph);
-	return ` ${selected ? fg(palette.pink, "›") : " "} ${selected ? bold(fg(palette.text, label)) : fg(palette.muted, label)}${arrow("‹")} ${fg(palette.text, state.look[key])} ${arrow("›")}`;
+	const pink = accentBase(state.look.accent);
+	const arrow = (glyph: string) => fg(selected ? pink : palette.faint, glyph);
+	return ` ${selected ? fg(pink, "›") : " "} ${selected ? bold(fg(palette.text, label)) : fg(palette.muted, label)}${arrow("‹")} ${fg(palette.text, state.look[key])} ${arrow("›")}`;
 }
 
 /**
@@ -104,7 +105,7 @@ export function renderSettings(state: SettingsState, width: number, height: numb
 		const room = rows - HEAD_ROWS - 1;
 		const previewWidth = Math.min(PREVIEW_WIDTH, columns - 2);
 		const preview = model && room >= PREVIEW_MIN_ROWS && previewWidth >= PREVIEW_MIN_WIDTH ? renderRail(model, previewWidth, { maxRows: room, ...state.look }).slice(0, room).map((line) => ` ${line}`) : [];
-		lines = [` ${bold(fg(palette.pink, "Fisi Dock look"))}`, "", ...items, "", ...preview, ...Array<string>(room - preview.length).fill(""), hint];
+		lines = [` ${bold(fg(accentBase(state.look.accent), "Fisi Dock look"))}`, "", ...items, "", ...preview, ...Array<string>(room - preview.length).fill(""), hint];
 	}
 	return lines.map((line) => padEnd(truncateToWidth(line, columns), columns));
 }

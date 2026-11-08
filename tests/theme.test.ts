@@ -97,3 +97,49 @@ test("S4 the Fisi-Dock-Soft theme: same roles and keys as Fisi-Dock, the pre-0.3
 	for (const role of ROLES) assert.match(resolve(soft.colors[role]), /^#[0-9a-f]{6}$/i, role);
 	assert.equal(soft.vars[soft.colors.selectedBg], "#2a2228", "selection stays pink-tinted (S10)");
 });
+
+// --- look-more S4: the accent themes, generated from Fisi-Dock and Fisi-Dock-Soft by scripts/build-themes.mjs ---
+
+const ACCENT_THEMES = { teal: "Teal", lilac: "Lilac", amber: "Amber", green: "Green" } as const;
+/** The pink-family vars: accent, borderAccent, mdListBullet, thinkingXhigh (pink); searchMatchBg, mdQuoteBorder (deepPink); selectedBg (pinkSelection). */
+const ACCENT_VARS = ["pink", "deepPink", "pinkSelection"];
+
+test("look-more S4 the themes folder holds the ten Fisi Dock themes, named like their files", async () => {
+	const { readdirSync } = await import("node:fs");
+	const { FISI_DOCK_THEMES } = await import("../lib/look.ts");
+	const files = readdirSync(new URL("../themes/", import.meta.url)).filter((file) => file.endsWith(".json")).sort();
+	assert.deepEqual(files, [...FISI_DOCK_THEMES].map((name) => `${name}.json`).sort());
+	assert.equal(files.length, 10);
+	for (const file of files) assert.equal(read(`../themes/${file}`).name, file.slice(0, -5), file);
+});
+
+test("look-more S4 each accent theme is its source with only the pink-family vars on the accent: same keys and roles, every role a hex color, the accent reading at least as well as pink", async () => {
+	const { accentLabel, accentTone, contrast, labelAccent, palette } = await import("../lib/palette.ts");
+	const hex = (rgb: readonly number[]) => `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+	const rgbOf = (value: string) => [1, 3, 5].map((index) => parseInt(value.slice(index, index + 2), 16)) as unknown as readonly [number, number, number];
+	const sources = { vivid: theme, soft: read("../themes/Fisi-Dock-Soft.json") };
+	for (const [accent, title] of Object.entries(ACCENT_THEMES) as [keyof typeof ACCENT_THEMES, string][]) {
+		for (const mode of ["vivid", "soft"] as const) {
+			const name = `Fisi-Dock-${title}${mode === "soft" ? "-Soft" : ""}`;
+			const source = sources[mode];
+			const out = read(`../themes/${name}.json`);
+			assert.equal(out.name, name);
+			assert.equal(out.appearance, "dark");
+			assert.equal(out.$schema, source.$schema);
+			assert.deepEqual(Object.keys(out), Object.keys(source), `${name} top-level keys`);
+			for (const key of ["vars", "colors", "export"]) assert.deepEqual(Object.keys(out[key]), Object.keys(source[key]), `${name} ${key} keys`);
+			assert.deepEqual(out.colors, source.colors, `${name}: the same roles on the same vars`);
+			assert.deepEqual(out.export, source.export);
+			const changed = Object.keys(source.vars).filter((key) => out.vars[key] !== source.vars[key]);
+			assert.deepEqual(changed, ACCENT_VARS, `${name}: only the pink-family vars change`);
+			for (const key of ACCENT_VARS) assert.match(out.vars[key], /^#[0-9a-f]{6}$/, `${name} ${key}`);
+			assert.equal(out.vars.pink, hex(accentLabel(accent, mode)), `${name}: the panel's accent tone`);
+			assert.equal(out.vars.deepPink, hex(accentTone(labelAccent(palette.deepPink, mode), accent, mode)), `${name}: deepPink on the accent`);
+			assert.equal(out.vars.pinkSelection, hex(accentTone(rgbOf(source.vars.pinkSelection), accent, mode)), `${name}: the selection tint on the accent`);
+			const bg = rgbOf(out.vars.bg);
+			assert.ok(contrast(rgbOf(out.vars.pink), bg) >= contrast(rgbOf(source.vars.pink), bg), `${name}: accent contrast floor`);
+			const resolve = (value: string): string => (value.startsWith("#") ? value : resolve(out.vars[value]));
+			for (const role of ROLES) assert.match(resolve(out.colors[role]), /^#[0-9a-f]{6}$/i, `${name} ${role}`);
+		}
+	}
+});
