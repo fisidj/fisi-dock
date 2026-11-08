@@ -1,6 +1,6 @@
 import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
-import type { ColorMode, FrameStyle } from "./look.ts";
+import type { ColorMode, FrameStyle, LogoStyle } from "./look.ts";
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
@@ -780,8 +780,8 @@ function drawSections(sections: Section[], width: number, frames: FrameStyle, ga
 	return sections.flatMap((section, index) => [...(gaps && index > 0 ? [" ".repeat(width)] : []), ...drawBare(section, width, colors)]);
 }
 
-function logoLines(width: number): string[] {
-	const lines = renderLogo(width);
+function logoLines(width: number, style?: LogoStyle): string[] {
+	const lines = renderLogo(width, style);
 	const widest = Math.max(0, ...lines.map(visibleWidth));
 	// Centered over the sections, at most two columns in.
 	const indent = " ".repeat(Math.max(0, Math.min(2, Math.floor((width - widest) / 2))));
@@ -801,6 +801,8 @@ export interface PanelOptions {
 	frames?: FrameStyle;
 	/** The section titles' and counters' colors (look settings S4): vivid (the default, S6) or soft, their own pastel as before 0.3.0. */
 	colors?: ColorMode;
+	/** The rail logo (look settings S2): the braille wordmark (the default, S6), the bold GENTLESHELL text row, or none, so the panel starts at its first section. */
+	logo?: LogoStyle;
 }
 
 interface Shape {
@@ -853,7 +855,7 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors)) || emptyTodoSection(inner),
 			shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined,
 		].filter((section): section is Section => section !== undefined);
-		return [...logoLines(columns), ...drawSections(sections, columns, frames, gaps, colors)];
+		return [...logoLines(columns, options.logo), ...drawSections(sections, columns, frames, gaps, colors)];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;
 	// No-box sections give up their blank rows first, then the panel shrinks as usual.
@@ -944,7 +946,7 @@ function boxed(text: string, width: number): string {
 }
 
 /** How /dock draws its panel: the rail's look (S3). */
-export type DockOptions = Pick<PanelOptions, "frames" | "colors">;
+export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "logo">;
 
 export interface DockView {
 	lines: string[];
@@ -967,7 +969,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors }) : [];
+	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, logo: options.logo }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));

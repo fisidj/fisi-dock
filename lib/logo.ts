@@ -1,3 +1,4 @@
+import type { LogoStyle } from "./look.ts";
 import { bold, fg, palette, type Rgb } from "./palette.ts";
 
 // The "GENTLESHELL" wordmark in a 5-pixel-tall font, drawn with braille dots
@@ -9,6 +10,7 @@ import { bold, fg, palette, type Rgb } from "./palette.ts";
 // Gentle Shell fisi/custom's wider rail, and the compact one for the official
 // 47-column rail. Narrower rails get one bold text row in the same two colors,
 // its letters spaced from 21 columns (design rail-wordmark/10 "Text mark").
+// The look settings (S2) pick this braille logo, the joined text row alone, or none.
 
 type Font = Record<string, string[]>;
 
@@ -86,9 +88,15 @@ export const LOGO_WIDTH = pixelGrid(WIDE)[0].length;
 /** Visible columns of the compact wordmark (45), for the official 47-column rail. */
 export const COMPACT_LOGO_WIDTH = pixelGrid(COMPACT)[0].length;
 
-/** The wordmark for `width` columns: wide braille, compact braille, spaced text, joined text, then nothing. */
-export function renderLogo(width: number): string[] {
+/**
+ * The wordmark for `width` columns in logo style `style` (look settings S2).
+ * braille (the default, S6): wide braille, compact braille, spaced text, joined text, then nothing.
+ * text: the joined text row wherever it fits, else what braille draws there. none: nothing.
+ */
+export function renderLogo(width: number, style: LogoStyle = "braille"): string[] {
 	const columns = Math.max(0, Math.floor(width));
+	if (style === "none") return [];
+	if (style === "text" && columns >= WORDS.join("").length) return [TEXT_LINE];
 	if (columns >= LOGO_WIDTH) return WIDE_LINES;
 	if (columns >= COMPACT_LOGO_WIDTH) return COMPACT_LINES;
 	if (columns >= SPACED_WIDTH) return [SPACED_LINE];

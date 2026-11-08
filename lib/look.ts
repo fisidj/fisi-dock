@@ -2,7 +2,7 @@
 // logo, the section frames and the colors. Each list is ordered for the ←→ menu,
 // today's look first, so the defaults never change anything (S6).
 
-/** The rail logo options (S2). Provisional until the user picks from design/rail-wordmark. */
+/** The rail logo (S2): the shipped braille wordmark, the bold GENTLESHELL text row (design rail-wordmark/10), or none. */
 export const LOGO_STYLES = ["braille", "text", "none"] as const;
 /** Faded boxes (today), the classic flat gray box, or no box (S3). */
 export const FRAME_STYLES = ["faded", "classic", "none"] as const;

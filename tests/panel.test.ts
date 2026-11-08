@@ -2630,3 +2630,101 @@ test("S6 omitting the colors draws vivid, byte for byte, on the rail, /dock and 
 	assert.deepEqual(renderAgentsCard(lookModel.agents, 53, 1, 0), renderAgentsCard(lookModel.agents, 53, 1, 0, "vivid"));
 	assert.ok(renderPanel(lookModel, 55).some((line) => line.includes(`\x1b[1m${fgCode(panelVivid(palette.coral))}todo`)), "vivid is today's panelVivid");
 });
+
+// Look settings S2: the rail logo options. The logo rows sit above the session section.
+const LOGO_STYLES = ["braille", "text", "none"] as const;
+const FRAME_STYLES = ["faded", "classic", "none"] as const;
+const LOGO_PANEL_ROWS: Record<number, Record<(typeof LOGO_STYLES)[number], string[]>> = {
+	55: {
+		braille: ["  ⣤⠛⠛⠛ ⣿⠛⠛⠛ ⣿⣤ ⣿ ⠛⣿⣿⠛ ⣿   ⣿⠛⠛⠛ ⣤⠛⠛⠛ ⣿  ⣿ ⣿⠛⠛⠛ ⣿   ⣿", "  ⣿ ⠛⣿ ⣿⠛⠛  ⣿ ⠛⣿  ⣿⣿  ⣿   ⣿⠛⠛   ⠛⠛⣤ ⣿⠛⠛⣿ ⣿⠛⠛  ⣿   ⣿", "   ⠛⠛⠛ ⠛⠛⠛⠛ ⠛  ⠛  ⠛⠛  ⠛⠛⠛ ⠛⠛⠛⠛ ⠛⠛⠛  ⠛  ⠛ ⠛⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛"],
+		text: ["  GENTLESHELL"],
+		none: [],
+	},
+	47: {
+		braille: [" ⣤⠛⠛⠛ ⣿⠛⠛ ⣿⣤ ⣿ ⠛⣿⠛ ⣿   ⣿⠛⠛ ⣤⠛⠛ ⣿ ⣿ ⣿⠛⠛ ⣿   ⣿", " ⣿ ⠛⣿ ⣿⠛  ⣿ ⠛⣿  ⣿  ⣿   ⣿⠛   ⠛⣤ ⣿⠛⣿ ⣿⠛  ⣿   ⣿", "  ⠛⠛⠛ ⠛⠛⠛ ⠛  ⠛  ⠛  ⠛⠛⠛ ⠛⠛⠛ ⠛⠛  ⠛ ⠛ ⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛"],
+		text: ["  GENTLESHELL"],
+		none: [],
+	},
+	45: {
+		braille: ["⣤⠛⠛⠛ ⣿⠛⠛ ⣿⣤ ⣿ ⠛⣿⠛ ⣿   ⣿⠛⠛ ⣤⠛⠛ ⣿ ⣿ ⣿⠛⠛ ⣿   ⣿", "⣿ ⠛⣿ ⣿⠛  ⣿ ⠛⣿  ⣿  ⣿   ⣿⠛   ⠛⣤ ⣿⠛⣿ ⣿⠛  ⣿   ⣿", " ⠛⠛⠛ ⠛⠛⠛ ⠛  ⠛  ⠛  ⠛⠛⠛ ⠛⠛⠛ ⠛⠛  ⠛ ⠛ ⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛"],
+		text: ["  GENTLESHELL"],
+		none: [],
+	},
+	30: { braille: ["  G E N T L E S H E L L"], text: ["  GENTLESHELL"], none: [] },
+	11: { braille: ["GENTLESHELL"], text: ["GENTLESHELL"], none: [] },
+	5: { braille: [], text: [], none: [] },
+};
+
+test("S2 renderPanel opens with each logo style's exact rows, centered at most two columns in, then the session section", () => {
+	for (const frames of FRAME_STYLES) {
+		for (const [width, styles] of Object.entries(LOGO_PANEL_ROWS)) {
+			const columns = Number(width);
+			const bare = renderPanel(samplePanelModel, columns, { frames, logo: "none" });
+			for (const [logo, rows] of Object.entries(styles)) {
+				const lines = renderPanel(samplePanelModel, columns, { frames, logo: logo as (typeof LOGO_STYLES)[number] });
+				assert.deepEqual(lines.slice(0, rows.length).map((line) => plain(line).trimEnd()), rows, `${logo} logo, ${frames} frames, width ${width}`);
+				assert.deepEqual(lines.slice(rows.length), bare, `${logo} logo, ${frames} frames, width ${width}: the sections follow unchanged`);
+			}
+		}
+	}
+});
+
+test("S2 with no logo the panel's first line is the session section header in each frame style", () => {
+	const header = { faded: /^╭─ session ─+╮$/, classic: /^╭─ session ─+╮$/, none: /^ session ─+ $/ };
+	for (const frames of FRAME_STYLES) {
+		for (const width of [55, 47, 45, 30]) {
+			const first = plain(renderPanel(samplePanelModel, width, { frames, logo: "none" })[0]);
+			assert.match(first, header[frames], `${frames} at ${width}`);
+			assert.equal(first.length, width, `${frames} at ${width}`);
+		}
+		assert.match(plain(renderRail(samplePanelModel, 47, { frames, logo: "none" })[0]), frames === "none" ? /^.  session ─+ $/ : /^. ╭─ session ─+╮$/, `rail, ${frames}`);
+	}
+});
+
+test("S6 omitting logo is the braille logo, byte for byte, in renderPanel, renderRail and renderDock", () => {
+	for (const model of [samplePanelModel, longModel]) {
+		for (const frames of FRAME_STYLES) {
+			for (const width of [58, 55, 47, 45, 30, 11, 5]) {
+				assert.deepEqual(renderPanel(model, width, { frames }), renderPanel(model, width, { frames, logo: "braille" }), `panel ${frames} ${width}`);
+				assert.deepEqual(renderPanel(model, width, { frames, maxRows: 12 }), renderPanel(model, width, { frames, maxRows: 12, logo: "braille" }), `short panel ${frames} ${width}`);
+				assert.deepEqual(renderRail(model, width, { frames }), renderRail(model, width, { frames, logo: "braille" }), `rail ${frames} ${width}`);
+			}
+			for (const width of [100, 57, 49, 13]) assert.deepEqual(renderDock(model, width, 40, 0, { frames }), renderDock(model, width, 40, 0, { frames, logo: "braille" }), `dock ${frames} ${width}`);
+		}
+	}
+	assert.deepEqual(renderDock(samplePanelModel, 57, 40), renderDock(samplePanelModel, 57, 40, 0, { logo: "braille" }), "dock without options");
+});
+
+test("S2 renderDock and renderRail draw the logo style they are given", () => {
+	const dock = (logo: (typeof LOGO_STYLES)[number]) => renderDock(samplePanelModel, 57, 80, 0, { logo }).lines.map(plain);
+	assert.equal(dock("text")[DOCK_TOP_ROWS].trimEnd(), "   GENTLESHELL");
+	assert.match(dock("none")[DOCK_TOP_ROWS], /^ ╭─ session ─+╮ $/);
+	assert.equal(dock("braille")[DOCK_TOP_ROWS], renderDock(samplePanelModel, 57, 80).lines.map(plain)[DOCK_TOP_ROWS]);
+	assert.equal(plain(renderRail(samplePanelModel, 47, { logo: "text" })[0]).slice(1).trimEnd(), "   GENTLESHELL");
+});
+
+test("S2 a short screen keeps the braille and text logos and drops the other parts first", () => {
+	for (const frames of FRAME_STYLES) {
+		const text = renderPanel(longModel, 47, { frames, logo: "text", maxRows: 10 }).map(plain);
+		assert.equal(text[0].trimEnd(), "  GENTLESHELL", `text logo kept, ${frames}`);
+		const braille = renderPanel(longModel, 47, { frames, logo: "braille", maxRows: 10 }).map(plain);
+		assert.match(braille[0], /^ [⠛⣤⣿]/, `braille logo kept, ${frames}`);
+		const none = renderPanel(longModel, 47, { frames, logo: "none", maxRows: 10 }).map(plain);
+		assert.match(none[0], /session/, `no logo, ${frames}`);
+		assert.ok(none.length <= text.length, `no logo never takes more rows, ${frames}`);
+	}
+});
+
+test("S2 every line fits the width for each logo and frame style, sample and long models", () => {
+	for (const [name, model] of [["sample", samplePanelModel], ["long", longModel]] as const) {
+		for (const logo of LOGO_STYLES) {
+			for (const frames of FRAME_STYLES) {
+				for (const width of [58, 55, 47, 45, 30, 21, 11, 5, 1]) {
+					for (const line of renderPanel(model, width, { logo, frames })) assert.ok(visibleWidth(line) <= width, `panel ${name} ${logo} ${frames} ${width}`);
+					for (const line of renderRail(model, width, { logo, frames })) assert.ok(visibleWidth(line) <= width, `rail ${name} ${logo} ${frames} ${width}`);
+				}
+				for (const width of [100, 57, 49, 13, 3]) for (const line of renderDock(model, width, 40, 0, { logo, frames }).lines) assert.equal(visibleWidth(line), width, `dock ${name} ${logo} ${frames} ${width}`);
+			}
+		}
+	}
+});

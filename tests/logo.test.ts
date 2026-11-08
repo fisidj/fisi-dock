@@ -165,3 +165,46 @@ test("no flower and every logo line fits at 55, 51, 47, 45, 44, 40, 30, 20, 11, 
 		}
 	}
 });
+
+// Look settings S2: the rail logo options braille (the shipped wordmark), text (design rail-wordmark/10 "Text mark") and none.
+const LOGO_ROWS: Record<number, Record<"braille" | "text" | "none", string[]>> = {
+	55: { braille: APPROVED_WIDE, text: ["GENTLESHELL"], none: [] },
+	47: {
+		braille: ["⣤⠛⠛⠛ ⣿⠛⠛ ⣿⣤ ⣿ ⠛⣿⠛ ⣿   ⣿⠛⠛ ⣤⠛⠛ ⣿ ⣿ ⣿⠛⠛ ⣿   ⣿", "⣿ ⠛⣿ ⣿⠛  ⣿ ⠛⣿  ⣿  ⣿   ⣿⠛   ⠛⣤ ⣿⠛⣿ ⣿⠛  ⣿   ⣿", " ⠛⠛⠛ ⠛⠛⠛ ⠛  ⠛  ⠛  ⠛⠛⠛ ⠛⠛⠛ ⠛⠛  ⠛ ⠛ ⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛"],
+		text: ["GENTLESHELL"],
+		none: [],
+	},
+	45: {
+		braille: ["⣤⠛⠛⠛ ⣿⠛⠛ ⣿⣤ ⣿ ⠛⣿⠛ ⣿   ⣿⠛⠛ ⣤⠛⠛ ⣿ ⣿ ⣿⠛⠛ ⣿   ⣿", "⣿ ⠛⣿ ⣿⠛  ⣿ ⠛⣿  ⣿  ⣿   ⣿⠛   ⠛⣤ ⣿⠛⣿ ⣿⠛  ⣿   ⣿", " ⠛⠛⠛ ⠛⠛⠛ ⠛  ⠛  ⠛  ⠛⠛⠛ ⠛⠛⠛ ⠛⠛  ⠛ ⠛ ⠛⠛⠛ ⠛⠛⠛ ⠛⠛⠛"],
+		text: ["GENTLESHELL"],
+		none: [],
+	},
+	30: { braille: ["G E N T L E S H E L L"], text: ["GENTLESHELL"], none: [] },
+	11: { braille: ["GENTLESHELL"], text: ["GENTLESHELL"], none: [] },
+	5: { braille: [], text: [], none: [] },
+};
+
+test("S2 each logo style's exact rows at 55, 47, 45, 30, 11 and 5 columns", () => {
+	for (const [width, styles] of Object.entries(LOGO_ROWS)) {
+		for (const [style, rows] of Object.entries(styles)) {
+			const lines = renderLogo(Number(width), style as "braille" | "text" | "none");
+			assert.deepEqual(lines.map((line) => plain(line).trimEnd()), rows, `${style} at ${width}`);
+			for (const line of lines) assert.ok(visibleWidth(line) <= Number(width), `${style} fits ${width}`);
+		}
+	}
+});
+
+test("S2 the text logo is one bold row: GENTLE in rgb(180,180,180), SHELL in the Sexy pink rgb(244,56,136)", () => {
+	for (const width of [55, 47, 45, 30, 11]) {
+		const [line] = renderLogo(width, "text");
+		assert.ok(line.startsWith("\x1b[1m"), `bold at ${width}`);
+		const colors = cellColors(line);
+		for (let column = 0; column < 6; column += 1) assert.deepEqual(colors.get(column), [180, 180, 180], `gray at ${column}`);
+		for (let column = 6; column < 11; column += 1) assert.deepEqual(colors.get(column), PINK, `pink at ${column}`);
+	}
+	assert.deepEqual(renderLogo(11, "text"), renderLogo(11), "the same row the braille logo falls back to at 11 to 20 columns");
+});
+
+test("S6 renderLogo without a style is the braille logo, byte for byte", () => {
+	for (const width of [55, 51, 47, 45, 44, 30, 20, 11, 5, 0]) assert.deepEqual(renderLogo(width), renderLogo(width, "braille"), `width ${width}`);
+});
