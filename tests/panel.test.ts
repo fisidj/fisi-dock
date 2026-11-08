@@ -2890,3 +2890,80 @@ test("look-more S4 /dock and the narrow todo card follow the accent too", async 
 	assert.ok(card.some((line) => line.includes(BAR(accentBase("lilac")))), "todo card bar");
 	assert.deepEqual(card.map(plain), renderTodoCard(lookModel.todo, 64, 1).map(plain));
 });
+
+// --- look-more S6: the sections shown and their order ---------------------------
+
+/** A sections list from `spec`, e.g. "todo odd !rdd": each id in that order, `!` hidden, the rest after them shown. */
+const sectionsOf = async (spec: string) => (await import("../lib/look.ts")).normalizeLook({ sections: spec.split(" ").map((word) => ({ id: word.replace(/^!/, ""), shown: !word.startsWith("!") })) }).sections;
+const railTitles = (lines: string[]) => lines.map(plain).map((line) => line.replace(/^[│ ]+?(?=╭)/, "")).filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
+const everySection = (): PanelModel => ({ ...clone(lookModel), ci: passedCi() });
+
+test("look-more S6 S7 today's sections, given or omitted, draw byte for byte today's panel, rail and /dock, short screens too", async () => {
+	const { DEFAULT_SECTIONS } = await import("../lib/look.ts");
+	const model = everySection();
+	assert.deepEqual(railTitles(renderPanel(model, 55)), ["session", "heads-up", "ODD", "RDD", "CI", "agents", "todo", "changes"], "today's order");
+	for (const frames of ["faded", "classic", "none"] as const) {
+		for (const maxRows of [undefined, 60, 40, 25, 3]) {
+			assert.deepEqual(renderPanel(model, 55, { frames, maxRows, sections: DEFAULT_SECTIONS }), renderPanel(model, 55, { frames, maxRows }), `panel ${frames} ${maxRows}`);
+			assert.deepEqual(renderRail(model, 57, { frames, maxRows, sections: DEFAULT_SECTIONS }), renderRail(model, 57, { frames, maxRows }), `rail ${frames} ${maxRows}`);
+		}
+		assert.deepEqual(renderDock(model, 60, 30, 4, { frames, sections: DEFAULT_SECTIONS }), renderDock(model, 60, 30, 4, { frames }), `dock ${frames}`);
+	}
+	assert.deepEqual(renderPanel(samplePanelModel, 47, { sections: DEFAULT_SECTIONS }), renderPanel(samplePanelModel, 47));
+});
+
+test("look-more S6 a hidden section never draws, even with data: heads-up, RDD and CI with rows; todo, even the empty one; session stays first", async () => {
+	const model = everySection();
+	assert.deepEqual(railTitles(renderPanel(model, 55, { sections: await sectionsOf("!heads-up !rdd !ci") })), ["session", "ODD", "agents", "todo", "changes"]);
+	const lines = renderPanel(model, 55, { sections: await sectionsOf("!heads-up !rdd !ci") }).map(plain);
+	assert.ok(!lines.some((line) => line.includes("1 commit not pushed") || line.includes("e6f1ffd")), "none of their rows");
+	assert.deepEqual(railTitles(renderPanel(model, 55, { sections: await sectionsOf("!todo") })), ["session", "heads-up", "ODD", "RDD", "CI", "agents", "changes"]);
+	const empty = { session: { project: "p" } };
+	assert.deepEqual(railTitles(renderPanel(empty, 55)), ["session", "ODD", "todo"], "today: the empty todo and the ready ODD always draw");
+	assert.deepEqual(railTitles(renderPanel(empty, 55, { sections: await sectionsOf("!todo !odd") })), ["session"], "hidden, not even empty");
+	assert.ok(!renderPanel(empty, 55, { sections: await sectionsOf("!todo") }).map(plain).some((line) => line.includes(NO_TASKS)));
+	assert.deepEqual(railTitles(renderPanel(model, 55, { sections: await sectionsOf("!heads-up !odd !rdd !ci !agents !todo !changes") })), ["session"], "all hidden: session alone");
+	// A shown section keeps today's only-with-data rule.
+	assert.deepEqual(railTitles(renderPanel({ session: { project: "p" }, todo: lookModel.todo }, 55, { sections: await sectionsOf("changes heads-up ci") })), ["session", "ODD", "todo"], "no data, no box, even moved first");
+});
+
+test("look-more S6 the saved order applies: todo above ODD, changes first; each box is the same box, only moved", async () => {
+	const model = everySection();
+	const today = renderPanel(model, 55);
+	const swapped = renderPanel(model, 55, { sections: await sectionsOf("heads-up todo odd") });
+	assert.deepEqual(railTitles(swapped), ["session", "heads-up", "todo", "ODD", "RDD", "CI", "agents", "changes"]);
+	assert.deepEqual(sectionBody(swapped, "todo"), sectionBody(today, "todo"));
+	assert.deepEqual(sectionBody(swapped, "ODD"), sectionBody(today, "ODD"));
+	assert.equal(swapped.length, today.length, "nothing added or lost");
+	const reversed = await sectionsOf("changes todo agents ci rdd odd heads-up");
+	assert.deepEqual(railTitles(renderPanel(model, 55, { sections: reversed })), ["session", "changes", "todo", "agents", "CI", "RDD", "ODD", "heads-up"]);
+	for (const frames of ["classic", "none"] as const) {
+		const lines = renderPanel(model, 55, { frames, sections: reversed }).map(plain);
+		const at = (text: string) => lines.findIndex((line) => line.includes(text));
+		assert.ok(at("session") < at("changes") && at("changes") < at("todo ") && at("todo ") < at("ODD") && at("ODD") < at("heads-up"), `${frames}: the order`);
+	}
+	const dock = renderDock(model, 60, 200, 0, { sections: reversed }).lines;
+	assert.deepEqual(railTitles(dock), ["session", "changes", "todo", "agents", "CI", "RDD", "ODD", "heads-up"], "/dock takes the order");
+	assert.deepEqual(railTitles(renderDock(model, 60, 200, 0, { sections: await sectionsOf("!rdd !changes") }).lines), ["session", "heads-up", "ODD", "CI", "agents", "todo"], "/dock hides them");
+	assert.deepEqual(railTitles(renderRail(model, 57, { maxRows: 80, sections: await sectionsOf("!ci todo") })), ["session", "todo", "heads-up", "ODD", "RDD", "agents", "changes"], "the rail too");
+});
+
+test("look-more S6 short screens drop by section, not by place: changes moved first still drops first, then the passed CI, then RDD", async () => {
+	const model = everySection();
+	const sections = await sectionsOf("changes rdd ci heads-up odd agents todo");
+	const full = renderPanel(model, 58, { sections });
+	assert.deepEqual(railTitles(full), ["session", "changes", "RDD", "CI", "heads-up", "ODD", "agents", "todo"]);
+	const noSpacers = renderPanel(model, 58, { sections, maxRows: full.length - 1 });
+	assert.ok(noSpacers.length < full.length && !noSpacers.map(plain).some(isSpacer), "the spacers go first");
+	const noChanges = renderPanel(model, 58, { sections, maxRows: noSpacers.length - 1 });
+	assert.deepEqual(railTitles(noChanges), ["session", "RDD", "CI", "heads-up", "ODD", "agents", "todo"], "then changes, wherever it is");
+	const noCi = renderPanel(model, 58, { sections, maxRows: noChanges.length - 1 });
+	assert.deepEqual(railTitles(noCi), ["session", "RDD", "heads-up", "ODD", "agents", "todo"], "then the passed CI");
+	const noRdd = renderPanel(model, 58, { sections, maxRows: noCi.length - 1 });
+	assert.deepEqual(railTitles(noRdd), ["session", "heads-up", "ODD", "agents", "todo"], "then RDD");
+	assert.deepEqual(renderPanel(model, 58, { sections, maxRows: 3 }), noRdd, "nothing else drops");
+	// A hidden section takes no rows, so the panel fits sooner.
+	const hidden = renderPanel(model, 58, { sections: await sectionsOf("!changes") });
+	assert.equal(hidden.length, full.length - 3, "the changes box (title, one file, bottom) is gone");
+	assert.deepEqual(renderPanel(model, 58, { sections: await sectionsOf("!changes"), maxRows: hidden.length }), hidden, "it fits as it is, spacers and all");
+});

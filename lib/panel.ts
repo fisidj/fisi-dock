@@ -1,6 +1,6 @@
 import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
-import type { Accent, ColorMode, DividerLevel, FrameStyle, LogoStyle, MotionMode } from "./look.ts";
+import { type Accent, type ColorMode, DEFAULT_SECTIONS, type DividerLevel, type FrameStyle, type LogoStyle, type MotionMode, type SectionId, type SectionSetting } from "./look.ts";
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
@@ -798,6 +798,8 @@ export interface PanelOptions {
 	divider?: DividerLevel;
 	/** Off draws every animated glyph on one fixed frame (look-more S2, stillModel); on (the default) animates as today. */
 	motion?: MotionMode;
+	/** The sections after session, in this order, a hidden one never drawn (look-more S6); today's order, all shown, when absent. */
+	sections?: readonly SectionSetting[];
 }
 
 /**
@@ -835,7 +837,7 @@ interface Shape {
 	rdd: boolean;
 }
 
-/** Full panel first, then one more part left out per step; the logo, session, heads-up, ODD, todo (even empty, S94) and agents never drop (S38, S52). */
+/** Full panel first, then one more part left out per step; the logo, session, heads-up, ODD, todo (even empty, S94) and agents never drop (S38, S52). Each step names its sections, so it holds in any order (look-more S6). */
 const SHAPES: Shape[] = [
 	{ spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
 	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
@@ -865,17 +867,19 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 	const frames = options.frames ?? "faded";
 	const colors = drawnColors(options.colors);
 	const accent = options.accent;
+	// Session first, then the shown sections in the saved order (look-more S6).
+	const order = (options.sections ?? DEFAULT_SECTIONS).filter((section) => section.shown).map((section) => section.id);
 	const draw = (shape: Shape, gaps: boolean) => {
-		const sections = [
-			sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS),
-			model.headsUp && headsUpSection(model.headsUp, inner),
-			oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
-			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails, colors) : undefined,
-			(ciUrgent ? shape.ci : shape.settledCi) ? ciSection(model.ci, inner, shape.ciDetails, model.spinner) : undefined,
-			model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP),
-			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors, accent)) || emptyTodoSection(inner),
-			shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined,
-		].filter((section): section is Section => section !== undefined);
+		const parts: Record<SectionId, () => Section | undefined> = {
+			"heads-up": () => model.headsUp && headsUpSection(model.headsUp, inner),
+			odd: () => oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
+			rdd: () => (shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails, colors) : undefined),
+			ci: () => ((ciUrgent ? shape.ci : shape.settledCi) ? ciSection(model.ci, inner, shape.ciDetails, model.spinner) : undefined),
+			agents: () => model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP),
+			todo: () => (model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors, accent)) || emptyTodoSection(inner),
+			changes: () => (shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined),
+		};
+		const sections = [sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS), ...order.map((id) => (Object.hasOwn(parts, id) ? parts[id]() : undefined))].filter((section): section is Section => section !== undefined);
 		return [...logoLines(columns, options.logo, accent), ...drawSections(sections, columns, frames, gaps, colors, accent)];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;
@@ -979,7 +983,7 @@ function boxed(text: string, width: number): string {
 }
 
 /** How /dock draws its panel: the rail's look (S3). */
-export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "accent" | "logo" | "motion">;
+export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "accent" | "logo" | "motion" | "sections">;
 
 export interface DockView {
 	lines: string[];
@@ -1002,7 +1006,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? panelLines(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion }) : [];
+	const panel = inner > 0 ? panelLines(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion, sections: options.sections }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));

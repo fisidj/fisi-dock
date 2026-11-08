@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createLiveStore } from "../lib/live-store.ts";
-import { DEFAULT_LOOK, type Look } from "../lib/look.ts";
+import { DEFAULT_LOOK, DEFAULT_SECTIONS, type Look } from "../lib/look.ts";
 import { renderRail } from "../lib/panel.ts";
-import { reduceSettings, renderSettings, SETTINGS_HINT, SETTINGS_ROWS, settingsAction, type SettingsState } from "../lib/settings-menu.ts";
+import { reduceSettings, renderSettings, SECTIONS_HINT, SETTINGS_HINT, SETTINGS_ROWS, settingsAction, type SettingsState } from "../lib/settings-menu.ts";
 import { visibleWidth } from "../lib/text.ts";
 
 const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
 const start = (look: Look = { ...DEFAULT_LOOK }): SettingsState => ({ row: 0, look });
 const model = () => createLiveStore("my-app", () => 0).model();
 
-test("S1 the rows are logo, frames, colors, accent, divider and motion, in that order (look-more S1, S2, S4)", () => {
-	assert.deepEqual(SETTINGS_ROWS, ["logo", "frames", "colors", "accent", "divider", "motion"]);
+test("S1 the rows are logo, frames, colors, accent, divider, motion and sections, in that order (look-more S1, S2, S4, S6)", () => {
+	assert.deepEqual(SETTINGS_ROWS, ["logo", "frames", "colors", "accent", "divider", "motion", "sections"]);
 	assert.equal(SETTINGS_HINT, "↑↓ choose · ←→ change · Esc close");
 });
 
@@ -23,7 +23,7 @@ test("S1 settingsAction maps the arrows, vim keys, Enter, Esc and q; anything el
 		["\x1b[C", "next"], ["\x1bOC", "next"], ["l", "next"],
 		["\r", "enter"], ["\n", "enter"],
 		["\x1b", "close"], ["q", "close"],
-		["x", undefined], ["", undefined], ["K", undefined],
+		["x", undefined], ["", undefined], ["L", undefined], ["[1;5A", undefined],
 	];
 	for (const [data, action] of cases) assert.equal(settingsAction(data), action, JSON.stringify(data));
 });
@@ -42,9 +42,11 @@ test("S1 up and down move between the rows and wrap; the look stays", () => {
 	step = reduceSettings(step.state, "down");
 	assert.equal(step.state.row, 5, "motion");
 	step = reduceSettings(step.state, "down");
-	assert.equal(step.state.row, 0, "past motion wraps to logo");
+	assert.equal(step.state.row, 6, "sections, the last row (look-more S6)");
+	step = reduceSettings(step.state, "down");
+	assert.equal(step.state.row, 0, "past sections wraps to logo");
 	step = reduceSettings(step.state, "up");
-	assert.equal(step.state.row, 5, "above logo wraps to motion");
+	assert.equal(step.state.row, 6, "above logo wraps to sections");
 	assert.deepEqual(step.state.look, DEFAULT_LOOK);
 });
 
@@ -84,8 +86,8 @@ test("S1 close closes without changing anything", () => {
 });
 
 test("S1 render: a title, the three rows with ‹ value ›, the marker on the selected row and the hint on the last row", () => {
-	const lines = renderSettings({ row: 1, look: { logo: "text", frames: "classic", colors: "soft", accent: "teal", divider: "subtle", motion: "off" } }, 60, 10).map(plain);
-	assert.equal(lines.length, 10);
+	const lines = renderSettings({ row: 1, look: { logo: "text", frames: "classic", colors: "soft", accent: "teal", divider: "subtle", motion: "off" } }, 60, 11).map(plain);
+	assert.equal(lines.length, 11);
 	assert.match(lines[0], /^ Fisi Dock look/);
 	const rows = lines.filter((line) => /‹ .* ›/.test(line));
 	assert.equal(rows.length, 6);
@@ -111,8 +113,8 @@ test("S1 render: every line exactly the overlay width, from wide to tiny", () =>
 test("S1 render: the live preview is the rail in the chosen look under the rows when the height allows", () => {
 	const look: Look = { ...DEFAULT_LOOK, logo: "none", frames: "classic" };
 	const tall = renderSettings({ row: 0, look }, 60, 24, model());
-	const preview = renderRail(model(), 57, { maxRows: 24 - 10, ...look });
-	for (const line of preview.slice(0, 24 - 10)) assert.ok(tall.some((row) => row.includes(line)), `preview row ${JSON.stringify(plain(line))}`);
+	const preview = renderRail(model(), 57, { maxRows: 24 - 11, ...look });
+	for (const line of preview.slice(0, 24 - 11)) assert.ok(tall.some((row) => row.includes(line)), `preview row ${JSON.stringify(plain(line))}`);
 	assert.ok(tall.map(plain).some((line) => line.includes("╭─ session") || line.includes("┌─ session") || line.includes("session")), "the session section shows");
 
 	// A change shows in the preview at once.
@@ -188,4 +190,134 @@ test("look-more S1 the preview draws the chosen divider", () => {
 	assert.notDeepEqual(tall("strong"), tall("medium"));
 	assert.ok(!tall("off").slice(9, -1).some((line) => plain(line)[1] === "│"), "off: no divider in the preview");
 	assert.ok(tall("medium").slice(9, -1).some((line) => plain(line)[1] === "│"), "medium: the divider shows");
+});
+
+// --- look-more S6: the sections screen ---------------------------------------------
+
+const SECTIONS_ROW = 6;
+const onSections = (look: Look = { ...DEFAULT_LOOK, sections: DEFAULT_SECTIONS.map((section) => ({ ...section })) }, item = 0): SettingsState => ({ row: SECTIONS_ROW, look, screen: "sections", item });
+const order = (state: SettingsState) => state.look.sections.map((section) => `${section.shown ? "" : "!"}${section.id}`).join(" ");
+
+test("look-more S6 settingsAction: space shows or hides, Shift+↑↓ (xterm and rxvt) and K/J move the section", () => {
+	const cases: [string, string][] = [[" ", "toggle"], ["\x1b[1;2A", "moveUp"], ["\x1b[a", "moveUp"], ["K", "moveUp"], ["\x1b[1;2B", "moveDown"], ["\x1b[b", "moveDown"], ["J", "moveDown"]];
+	for (const [data, action] of cases) assert.equal(settingsAction(data), action, JSON.stringify(data));
+	assert.equal(SECTIONS_HINT, "space show · shift+↑↓ move · Esc back");
+});
+
+test("look-more S6 Enter or → on the sections row opens the sections screen at the first section; ← and the section keys do nothing there", () => {
+	for (const action of ["enter", "next"] as const) {
+		const step = reduceSettings({ row: SECTIONS_ROW, look: { ...DEFAULT_LOOK } }, action);
+		assert.equal(step.state.screen, "sections", action);
+		assert.equal(step.state.item, 0, action);
+		assert.equal(step.state.row, SECTIONS_ROW);
+		assert.equal(step.changed, false);
+		assert.equal(step.close, false);
+		assert.deepEqual(step.state.look, DEFAULT_LOOK);
+	}
+	for (const action of ["prev", "toggle", "moveUp", "moveDown"] as const) {
+		const step = reduceSettings({ row: SECTIONS_ROW, look: { ...DEFAULT_LOOK } }, action);
+		assert.equal(step.changed, false, action);
+		assert.notEqual(step.state.screen, "sections", action);
+		assert.deepEqual(step.state.look, DEFAULT_LOOK, action);
+	}
+	for (const action of ["toggle", "moveUp", "moveDown"] as const) assert.deepEqual(reduceSettings({ row: 0, look: { ...DEFAULT_LOOK } }, action).state, { row: 0, look: DEFAULT_LOOK }, `${action} on a ←→ row`);
+	assert.equal(reduceSettings({ row: SECTIONS_ROW, look: { ...DEFAULT_LOOK } }, "close").close, true, "Esc on the main rows still closes");
+});
+
+test("look-more S6 on the sections screen ↑↓ move the cursor and wrap; space toggles the selected one and says the look changed", () => {
+	let step = reduceSettings(onSections(), "up");
+	assert.equal(step.state.item, 6, "above heads-up wraps to changes");
+	assert.equal(step.changed, false);
+	step = reduceSettings(step.state, "down");
+	assert.equal(step.state.item, 0, "past changes wraps to heads-up");
+	step = reduceSettings(reduceSettings(step.state, "down").state, "toggle");
+	assert.equal(step.changed, true);
+	assert.equal(order(step.state), "heads-up !odd rdd ci agents todo changes");
+	assert.equal(step.state.item, 1);
+	assert.equal(step.state.screen, "sections");
+	step = reduceSettings(step.state, "toggle");
+	assert.equal(order(step.state), "heads-up odd rdd ci agents todo changes", "space again shows it");
+	const before = onSections();
+	reduceSettings(before, "toggle");
+	assert.equal(order(before), "heads-up odd rdd ci agents todo changes", "the old state is left as it was");
+});
+
+test("look-more S6 Shift+↑↓ move the selected section one place, the cursor with it; at the ends they stop (no wrap) and change nothing", () => {
+	let step = reduceSettings(onSections(undefined, 5), "moveUp");
+	assert.equal(order(step.state), "heads-up odd rdd ci todo agents changes");
+	assert.equal(step.state.item, 4, "the cursor follows todo");
+	assert.equal(step.changed, true);
+	for (let index = 0; index < 3; index++) step = reduceSettings(step.state, "moveUp");
+	assert.equal(order(step.state), "heads-up todo odd rdd ci agents changes", "todo above ODD");
+	assert.equal(step.state.item, 1);
+	step = reduceSettings(step.state, "moveUp");
+	assert.equal(order(step.state), "todo heads-up odd rdd ci agents changes");
+	assert.equal(step.state.item, 0);
+	const top = reduceSettings(step.state, "moveUp");
+	assert.equal(top.changed, false, "the first stays first");
+	assert.equal(order(top.state), "todo heads-up odd rdd ci agents changes");
+	assert.equal(top.state.item, 0);
+	step = reduceSettings(onSections(undefined, 5), "moveDown");
+	assert.equal(order(step.state), "heads-up odd rdd ci agents changes todo");
+	assert.equal(step.state.item, 6);
+	const bottom = reduceSettings(step.state, "moveDown");
+	assert.equal(bottom.changed, false, "the last stays last");
+	assert.equal(bottom.state.item, 6);
+	const hidden = reduceSettings(reduceSettings(onSections(undefined, 2), "toggle").state, "moveDown");
+	assert.equal(order(hidden.state), "heads-up odd ci !rdd agents todo changes", "a hidden section moves too");
+});
+
+test("look-more S6 Esc, q and ← go back to the main rows on the sections row, the look kept; Enter and → do nothing there", () => {
+	const moved = reduceSettings(onSections(undefined, 6), "moveUp").state;
+	for (const action of ["close", "prev"] as const) {
+		const step = reduceSettings(moved, action);
+		assert.equal(step.close, false, action);
+		assert.equal(step.changed, false, action);
+		assert.equal(step.state.screen, "main", action);
+		assert.equal(step.state.row, SECTIONS_ROW, action);
+		assert.equal(order(step.state), order(moved), action);
+		assert.equal(reduceSettings(step.state, "close").close, true, `${action} then Esc closes`);
+	}
+	assert.equal(settingsAction("q"), "close");
+	for (const action of ["enter", "next"] as const) {
+		const step = reduceSettings(moved, action);
+		assert.equal(step.changed, false, action);
+		assert.deepEqual(step.state, moved, action);
+	}
+});
+
+test("look-more S6 render: the sections row shows how many are shown, `7 of 7`, `5 of 7`, with a › to open it", () => {
+	const lines = renderSettings({ row: SECTIONS_ROW, look: { ...DEFAULT_LOOK } }, 60, 24, model()).map(plain);
+	assert.equal(lines[8], " › sections  7 of 7 ›".padEnd(60));
+	const five = { ...DEFAULT_LOOK, sections: DEFAULT_SECTIONS.map((section) => ({ ...section, shown: section.id !== "ci" && section.id !== "rdd" })) };
+	assert.equal(renderSettings({ row: 0, look: five }, 60, 24, model()).map(plain)[8], "   sections  5 of 7 ›".padEnd(60));
+	assert.match(lines.at(-1)!, /^ ↑↓ choose · ←→ change · Esc close *$/);
+	assert.equal(renderSettings({ row: 0, look: { logo: "text", frames: "none", colors: "soft", accent: "teal", divider: "off", motion: "off" } as Look }, 60, 24).map(plain)[8], "   sections  7 of 7 ›".padEnd(60), "a look without sections counts today's");
+});
+
+test("look-more S6 render: the sections screen lists every section in order with [x] or [ ], the cursor marked, its hint last, the preview in that order", () => {
+	const moved = reduceSettings(onSections(undefined, 5), "moveUp").state;
+	const hidden = reduceSettings({ ...moved, item: 6 }, "toggle").state;
+	const raw = renderSettings(hidden, 60, 24, model());
+	const lines = raw.map(plain);
+	assert.equal(lines.length, 24);
+	assert.equal(lines[0], " Fisi Dock look › sections".padEnd(60));
+	assert.equal(lines[1], "".padEnd(60));
+	assert.deepEqual(lines.slice(2, 9), ["   [x] heads-up", "   [x] odd", "   [x] rdd", "   [x] ci", "   [x] todo", "   [x] agents", " › [ ] changes"].map((line) => line.padEnd(60)));
+	assert.equal(lines[9], "".padEnd(60));
+	assert.equal(lines.at(-1), " space show · shift+↑↓ move · Esc back".padEnd(60));
+	const preview = renderRail(model(), 57, { maxRows: 24 - 11, ...hidden.look });
+	assert.deepEqual(raw.slice(10, -1).map(plain), preview.slice(0, 13).map((line) => ` ${plain(line)}`.padEnd(60)), "the preview is the rail in that look");
+	const noTodo = { ...hidden, look: { ...hidden.look, sections: hidden.look.sections.map((section) => ({ ...section, shown: section.id !== "todo" })) } };
+	const tall = (state: SettingsState) => renderSettings(state, 60, 40, model()).map(plain);
+	assert.equal(tall(noTodo)[6], "   [ ] todo".padEnd(60));
+	assert.ok(tall(hidden).slice(10, -1).some((line) => line.includes("todo")), "the shown todo in the preview");
+	assert.ok(!tall(noTodo).slice(10, -1).some((line) => line.includes("todo")), "a hidden todo leaves the preview");
+	for (const [width, height] of [[120, 40], [60, 24], [40, 12], [24, 8], [12, 4], [5, 2], [1, 1]]) {
+		const shown = renderSettings(hidden, width, height, model());
+		assert.equal(shown.length, height, `${width}x${height} rows`);
+		for (const line of shown) assert.equal(visibleWidth(line), width, `${width}x${height}: ${JSON.stringify(plain(line))}`);
+	}
+	assert.match(plain(renderSettings(hidden, 60, 4, model()).at(-1)!), /^ space show · shift\+↑↓ move · Esc back *$/, "a short screen keeps the hint");
+	console.log(`--- the sections screen, 60x24\n${lines.join("\n")}`);
 });

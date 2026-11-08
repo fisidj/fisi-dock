@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { dockStatePath, readDockEnabled, readDockLook, readDockTheme, readDockThemeApplied, writeDockEnabled, writeDockLook } from "../lib/dock-state.ts";
-import { DEFAULT_LOOK } from "../lib/look.ts";
+import { DEFAULT_LOOK, DEFAULT_SECTIONS } from "../lib/look.ts";
 
 test("S95 the state file lives under Pi's agent dir: PI_CODING_AGENT_DIR, else ~/.pi/agent", () => {
 	assert.equal(dockStatePath({ PI_CODING_AGENT_DIR: join("x", "agent") }, "home"), join("x", "agent", "fisi-dock", "state.json"));
@@ -99,7 +99,7 @@ test("S5 writing the look creates the folder, saves it under `look` and reads ba
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "agent", "fisi-dock", "state.json");
-	const look = { logo: "text", frames: "classic", colors: "soft", accent: "pink", divider: "medium", motion: "on" } as const;
+	const look = { logo: "text", frames: "classic", colors: "soft", accent: "pink", divider: "medium", motion: "on", sections: DEFAULT_SECTIONS } as const;
 	assert.equal(writeDockLook(path, look), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look });
 	assert.deepEqual(readDockLook(path), look);
@@ -115,7 +115,7 @@ test("S5 /fisi-dock on|off and the theme memory keep the look", (t) => {
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "state.json");
-	const look = { logo: "none", frames: "none", colors: "soft", accent: "pink", divider: "medium", motion: "on" } as const;
+	const look = { logo: "none", frames: "none", colors: "soft", accent: "pink", divider: "medium", motion: "on", sections: DEFAULT_SECTIONS } as const;
 	assert.equal(writeDockLook(path, look), true);
 	assert.equal(writeDockEnabled(path, false), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look, enabled: false });
@@ -165,11 +165,30 @@ test("look-more S1 S2 the divider and motion are saved with the look and read ba
 		}
 	}
 	writeFileSync(path, '{"enabled":true,"look":{"logo":"text","frames":"none","colors":"soft"}}');
-	assert.deepEqual(readDockLook(path), { logo: "text", frames: "none", colors: "soft", accent: "pink", divider: "medium", motion: "on" }, "an old state.json without them");
+	assert.deepEqual(readDockLook(path), { logo: "text", frames: "none", colors: "soft", accent: "pink", divider: "medium", motion: "on", sections: DEFAULT_SECTIONS }, "an old state.json without them");
 	writeFileSync(path, '{"look":{"divider":"loud","motion":"slow"}}');
 	assert.deepEqual(readDockLook(path), DEFAULT_LOOK, "bad values fall back");
 	assert.equal(writeDockEnabled(path, false), true);
 	assert.equal(writeDockLook(path, { ...DEFAULT_LOOK, divider: "strong", motion: "off" }), true);
 	assert.equal(writeDockEnabled(path, true, "dark", true), true);
 	assert.deepEqual(readDockLook(path), { ...DEFAULT_LOOK, divider: "strong", motion: "off" }, "on|off keep them");
+});
+
+test("look-more S6 the sections' order and the hidden ones are saved with the look and read back; on|off keep them; an old state.json reads today's", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	const sections = [{ id: "todo", shown: true }, { id: "odd", shown: true }, { id: "heads-up", shown: false }, { id: "rdd", shown: false }, { id: "ci", shown: true }, { id: "agents", shown: true }, { id: "changes", shown: false }] as const;
+	const look = { ...DEFAULT_LOOK, sections: sections.map((section) => ({ ...section })) };
+	assert.equal(writeDockEnabled(path, true, "dark", true), true);
+	assert.equal(writeDockLook(path, look), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: true, theme: "dark", themeApplied: true, look }, "saved under look, the rest kept");
+	assert.deepEqual(readDockLook(path), look);
+	assert.equal(writeDockEnabled(path, false), true);
+	assert.deepEqual(readDockLook(path).sections, look.sections, "off keeps them");
+	writeFileSync(path, '{"look":{"sections":[{"id":"ci","shown":false},{"id":"nope","shown":true},{"id":"ci","shown":true}]}}');
+	assert.deepEqual(readDockLook(path).sections.map((section) => `${section.shown ? "" : "!"}${section.id}`), ["!ci", "heads-up", "odd", "rdd", "agents", "todo", "changes"], "normalized on read");
+	writeFileSync(path, '{"enabled":true,"look":{"logo":"text"}}');
+	assert.deepEqual(readDockLook(path), { ...DEFAULT_LOOK, logo: "text" }, "an old state.json without sections");
+	assert.deepEqual(readDockLook(path).sections, DEFAULT_SECTIONS);
 });

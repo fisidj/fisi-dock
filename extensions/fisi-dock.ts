@@ -158,6 +158,8 @@ function dockOverlay(session: LiveSession, tui: Host, keys: Keys, look: () => Lo
  * `/fisi-dock settings` (look settings S1): the look rows over the screen, with the
  * rail in the chosen look under them. Pi's selection keys or the arrows and h/j/k/l
  * move and change; each change goes to `change` at once and repaints. Esc or q closes.
+ * On the sections screen (look-more S6) space, Shift+↑↓ and K/J are read raw first, so
+ * no Pi binding takes them; Esc goes back to the rows.
  */
 function settingsOverlay(tui: Host, keys: Keys, look: Look, model: () => PanelModel, change: (look: Look) => void, done: () => void) {
 	let state: SettingsState = { row: 0, look };
@@ -173,7 +175,8 @@ function settingsOverlay(tui: Host, keys: Keys, look: Look, model: () => PanelMo
 	return {
 		render: (width: number) => renderSettings(state, width, terminalRows(tui) ?? DOCK_FALLBACK_ROWS, attempt(model)),
 		handleInput: (data: string) => {
-			const action = bindings.find(([keybinding]) => is(data, keybinding))?.[1] ?? settingsAction(data);
+			const raw = settingsAction(data);
+			const action = raw === "toggle" || raw === "moveUp" || raw === "moveDown" ? raw : (bindings.find(([keybinding]) => is(data, keybinding))?.[1] ?? raw);
 			if (!action) return;
 			const step = reduceSettings(state, action);
 			if (step.close) return done();
@@ -993,7 +996,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	};
 	const openSettings = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) {
-			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · accent ${look.accent} · divider ${look.divider} · motion ${look.motion} · /fisi-dock settings changes it in the interactive UI`, "info"));
+			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · accent ${look.accent} · divider ${look.divider} · motion ${look.motion} · sections ${look.sections.filter((section) => section.shown).length} of ${look.sections.length} · /fisi-dock settings changes it in the interactive UI`, "info"));
 			return;
 		}
 		// Off there is no live store: the preview draws the project alone.
