@@ -956,17 +956,21 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// An on that set Fisi Dock's theme also counts as the first start's theme step (T9).
 	// `settings` opens the look menu (look settings S1), also while off.
 
-	// A look picked in the menu: in use at once, saved (S5), and with Fisi Dock on and
-	// its own theme in use, Pi's theme follows the colors (S4). Off, only saved.
-	const changeLook = (ctx: ExtensionContext, next: Look): boolean => {
-		const colorsChanged = next.colors !== look.colors;
+	// A look picked in the menu: in use at once and saved (S5). Pi's theme follows the
+	// colors (S4) with followTheme, once the menu closed.
+	const changeLook = (next: Look): boolean => {
 		look = next;
-		const saved = writeDockLook(statePath(), next);
-		if (colorsChanged && enabled && isDockTheme(attempt(() => ctx.ui.theme.name))) {
-			const name = themeNameFor(next.colors);
-			if (attempt(() => ctx.ui.getTheme(name)) !== undefined) attempt(() => ctx.ui.setTheme(name));
-		}
-		return saved;
+		return writeDockLook(statePath(), next);
+	};
+	// With Fisi Dock on and its own theme in use, Pi's theme becomes the one of the
+	// colors (S4), when it is not already. Off, or with the user's theme, nothing.
+	// Only after the menu changed the colors, so a menu closed with them as they were
+	// leaves a Fisi Dock theme picked in /settings alone.
+	const followTheme = (ctx: ExtensionContext) => {
+		const inUse = attempt(() => ctx.ui.theme.name);
+		const name = themeNameFor(look.colors);
+		if (!enabled || !isDockTheme(inUse) || inUse === name) return;
+		if (attempt(() => ctx.ui.getTheme(name)) !== undefined) attempt(() => ctx.ui.setTheme(name));
 	};
 	const openSettings = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) {
@@ -977,16 +981,24 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		let still: PanelModel | undefined;
 		const model = () => live?.store.model() ?? (still ??= createLiveStore(projectName(attempt(() => ctx.sessionManager.getCwd()) ?? attempt(() => ctx.cwd) ?? "")).model());
 		let warned = false;
+		const colors = look.colors;
 		await ctx.ui.custom<void>(
 			(tui, _theme, keybindings, done) =>
 				// SAFETY: Pi's KeybindingsManager has matches(data, keybinding): boolean, the only member Keys uses.
 				settingsOverlay(tui as Host, keybindings as unknown as Keys, look, model, (next) => {
-					if (changeLook(ctx, next) || warned) return;
+					if (changeLook(next) || warned) return;
 					warned = true;
 					attempt(() => ctx.ui.notify(`Fisi Dock look not saved to ${statePath()}, so a restart keeps the previous look`, "warning"));
 				}, () => done()),
 			{ overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } },
 		);
+		// Pi's theme setter invalidates and repaints the whole UI and saves its settings
+		// synchronously; called from the menu's key handler at every ←→, the menu froze
+		// in Gentle Shell (L8). So the theme follows once, for the last colors picked,
+		// after the menu is gone and its key handler returned.
+		if (look.colors === colors) return;
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		followTheme(ctx);
 	};
 	pi.registerCommand("fisi-dock", {
 		description: "Turn Fisi Dock on or off (remembered across restarts; off gives Gentle Shell its panel and you your theme back), or pick its look with settings; alone, pick one",

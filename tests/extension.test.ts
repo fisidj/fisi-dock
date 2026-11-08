@@ -2772,6 +2772,8 @@ const DOWN = "\x1b[B";
 const LEFT = "\x1b[D";
 const RIGHT = "\x1b[C";
 type Rail = { render(width: number): string[]; digest(): string };
+/** The rail shows its MCP row: the session's MCP config read settled, so a later frame differs only by what the test changed. */
+const mcpRead = (sim: Sim) => (sim.parts.get("footer") as Rail).render(57).some((line) => plain(line).includes("mcp "));
 const hasBraille = (lines: string[]) => lines.slice(0, 4).some((line) => /[\u2800-\u28ff]/.test(plain(line)));
 
 test("S1 /fisi-dock settings opens the look overlay: rows, values, hint and a live preview, every row the overlay width; Esc closes", async (t) => {
@@ -2811,6 +2813,8 @@ test("S1 S5 each change applies at once and is saved: the rail repaints (memo an
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const rail = sim.parts.get("footer") as Rail;
+	await waitFor(() => mcpRead(sim));
+	assert.ok(mcpRead(sim), "the MCP row shows");
 	const before = rail.render(57);
 	const digest = rail.digest();
 	assert.ok(hasBraille(before), "today's braille logo (S6)");
@@ -2911,18 +2915,22 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	const settings = await openSettings(sim);
-	settings.view.handleInput?.(UP);
-	settings.view.handleInput?.(RIGHT);
+	/** Opens the menu, changes the colors with `key` and closes it. */
+	const changeColors = async (key: string) => {
+		const settings = await openSettings(sim);
+		settings.view.handleInput?.(UP);
+		settings.view.handleInput?.(key);
+		settings.view.handleInput?.("\x1b");
+		await settings.pending;
+	};
+	await changeColors(RIGHT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"]);
 	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
 	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft" } });
-	settings.view.handleInput?.(RIGHT);
+	await changeColors(RIGHT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock"]);
-	settings.view.handleInput?.(LEFT);
+	await changeColors(LEFT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock", "Fisi-Dock-Soft"]);
-	settings.view.handleInput?.("\x1b");
-	await settings.pending;
 
 	// Off from Fisi-Dock-Soft puts the user's theme back; on remembers nothing of Fisi Dock's and takes the soft theme.
 	await fisiDockCommand(sim, "off");
@@ -2946,6 +2954,76 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	other.view.handleInput?.("\x1b");
 	await other.pending;
 	mine.emit("session_shutdown");
+});
+
+test("S1 S4 L8 colors never switch Pi's theme inside the menu's key handler: the menu stays responsive, and the theme follows once, when it closes", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "dark", themeApplied: true });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = sim.parts.get("footer") as Rail;
+	const vivid = rail.render(57);
+	const settings = await openSettings(sim);
+	// Pi's setter (interactive-mode.js setTheme -> theme-controller.js applyThemeName -> notifyChanged, and
+	// theme.js setTheme -> onThemeChange) invalidates the whole UI and saves settings.json, synchronously:
+	// here it repaints the menu and the rail at once, and records each call made while a key is handled.
+	const setTheme = sim.ctx.ui.setTheme;
+	let keyDepth = 0;
+	const duringKey: string[] = [];
+	sim.ctx.ui.setTheme = (name: string) => {
+		if (keyDepth > 0) duringKey.push(name);
+		if (sim.themes.length > 50) throw new Error("theme switch loop");
+		settings.view.render(60);
+		rail.render(57);
+		return setTheme(name);
+	};
+	const press = (data: string) => {
+		keyDepth++;
+		try {
+			settings.view.handleInput?.(data);
+		} finally {
+			keyDepth--;
+		}
+	};
+	press(UP);
+	// Held → (key repeat): vivid, soft, vivid, soft, vivid, soft.
+	for (let index = 0; index < 5; index++) press(RIGHT);
+	assert.deepEqual(duringKey, [], "no theme switch inside the key handler");
+	assert.deepEqual(sim.themes, [], "nor while the menu is open");
+	assert.equal(readState(path).look.colors, "soft", "each change is saved at once");
+	assert.match(plain(settings.view.render(60)[4]), /^ › colors +‹ soft › *$/);
+	assert.notDeepEqual(rail.render(57), vivid, "the rail repaints in soft at once");
+	assert.equal(settings.closed(), false);
+	press("\x1b");
+	await settings.pending;
+	assert.ok(settings.closed(), "Esc still closes the menu");
+	assert.deepEqual(duringKey, [], "not in the closing key's handler either");
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"], "one switch, after the menu closed, to the last colors' theme");
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft" } });
+
+	// Back and forth to the colors already in use: no switch at all.
+	const again = await openSettings(sim);
+	again.view.handleInput?.(UP);
+	again.view.handleInput?.(RIGHT);
+	again.view.handleInput?.(LEFT);
+	again.view.handleInput?.("\x1b");
+	await again.pending;
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"]);
+	sim.emit("session_shutdown");
+
+	// As before: with the colors left as they were, Fisi-Dock picked in /settings beside soft colors stays.
+	writeFileSync(path, JSON.stringify({ enabled: true, theme: "dark", themeApplied: true, look: { colors: "soft" } }));
+	const picked = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock" });
+	picked.emit("session_start");
+	const logoOnly = await openSettings(picked);
+	logoOnly.view.handleInput?.(RIGHT);
+	logoOnly.view.handleInput?.("\x1b");
+	await logoOnly.pending;
+	assert.equal(readState(path).look.logo, "text");
+	assert.deepEqual(picked.themes, [], "a logo change switches no theme");
+	picked.emit("session_shutdown");
 });
 
 test("S1 Fisi-Dock-Soft in use counts as Fisi Dock's own theme: on and the first start never remember it, and the first start applies the saved colors' theme", async (t) => {
@@ -2991,6 +3069,9 @@ test("S5 a saved look is used from the next session start; S6 without one the lo
 	settings.view.handleInput?.(LEFT);
 	settings.view.handleInput?.("\x1b");
 	await settings.pending;
+	// Both rails once the MCP config read settled, so only the look can differ.
+	await waitFor(() => mcpRead(plainSim));
+	assert.ok(mcpRead(plainSim), "the MCP row shows");
 	const picked = (plainSim.parts.get("footer") as Rail).render(57);
 	plainSim.emit("session_shutdown");
 	assert.deepEqual(readState(path).look, { logo: "none", frames: "none", colors: "vivid" });
@@ -2998,6 +3079,8 @@ test("S5 a saved look is used from the next session start; S6 without one the lo
 	const next = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	next.emit("session_start");
 	next.widgets.get("fisi-dock")!(next.tui);
+	await waitFor(() => mcpRead(next));
+	assert.ok(mcpRead(next), "the MCP row shows");
 	const rail = (next.parts.get("footer") as Rail).render(57);
 	assert.ok(!hasBraille(rail), "no logo from the start");
 	assert.deepEqual(rail, picked);

@@ -152,7 +152,7 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 
 Each change applies at once: the preview under the menu repaints while you choose, and the rail, `/dock`, the cards, the prompt box and your messages follow. The look is remembered across sessions and across `/fisi-dock off` and `on`.
 
-With `soft` colors Fisi Dock uses its `Fisi-Dock-Soft` theme instead of `Fisi-Dock`: the menu switches Pi's theme only while one of Fisi Dock's two themes is in use. With a theme of your own picked in `/settings`, the menu changes Fisi Dock's colors and leaves your theme alone. Details: [docs/reference.md](docs/reference.md#look-settings).
+With `soft` colors Fisi Dock uses its `Fisi-Dock-Soft` theme instead of `Fisi-Dock`: the menu switches Pi's theme when it closes, and only while one of Fisi Dock's two themes is in use. With a theme of your own picked in `/settings`, the menu changes Fisi Dock's colors and leaves your theme alone. Details: [docs/reference.md](docs/reference.md#look-settings).
 
 ## Theme
 
@@ -166,7 +166,7 @@ With `soft` colors Fisi Dock uses its `Fisi-Dock-Soft` theme instead of `Fisi-Do
 |---|---|
 | The first start | Once, as above. Your theme is remembered for `/fisi-dock off`. |
 | `/fisi-dock off`, then `/fisi-dock on` | On remembers the theme in use and sets `Fisi-Dock` (`/fisi-dock on` while already on changes nothing). |
-| `/fisi-dock settings` → `colors` | Switches between `Fisi-Dock` (`vivid`) and `Fisi-Dock-Soft` (`soft`) while one of them is in use; on, the first start and `/fisi-dock on` set the one of your saved colors. Neither is ever remembered as your theme. |
+| `/fisi-dock settings` → `colors` | Switches between `Fisi-Dock` (`vivid`) and `Fisi-Dock-Soft` (`soft`) when the menu closes, while one of them is in use; on, the first start and `/fisi-dock on` set the one of your saved colors. Neither is ever remembered as your theme. |
 | `/settings` → **Theme** → `Fisi-Dock` | Pi switches now and saves it as your theme setting. Nothing new is remembered, so a later `/fisi-dock off` gives back the theme remembered before, else Gentle Shell's `Gentleman-Cute`. |
 
 To keep your own theme after the first start, or to switch back:
