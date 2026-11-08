@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { dockStatePath, readDockEnabled, readDockTheme, readDockThemeApplied, writeDockEnabled } from "../lib/dock-state.ts";
+import { dockStatePath, readDockEnabled, readDockLook, readDockTheme, readDockThemeApplied, writeDockEnabled, writeDockLook } from "../lib/dock-state.ts";
+import { DEFAULT_LOOK } from "../lib/look.ts";
 
 test("S95 the state file lives under Pi's agent dir: PI_CODING_AGENT_DIR, else ~/.pi/agent", () => {
 	assert.equal(dockStatePath({ PI_CODING_AGENT_DIR: join("x", "agent") }, "home"), join("x", "agent", "fisi-dock", "state.json"));
@@ -77,4 +78,76 @@ test("T9 the state file says whether the first-start theme step is done: only `t
 	}
 	writeFileSync(path, '{"themeApplied":true}');
 	assert.equal(readDockThemeApplied(path), true);
+});
+
+test("S6 a missing, unreadable or malformed state file, or a bad look in it, reads as the default look", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	assert.deepEqual(readDockLook(path), DEFAULT_LOOK, "missing");
+	for (const content of ["not json", "null", "[]", '{"enabled":false}', '{"look":"soft"}', '{"look":null}', '{"look":["text"]}']) {
+		writeFileSync(path, content);
+		assert.deepEqual(readDockLook(path), DEFAULT_LOOK, content);
+	}
+	writeFileSync(path, '{"look":{"frames":"none","colors":"loud"}}');
+	assert.deepEqual(readDockLook(path), { logo: "braille", frames: "none", colors: "vivid" }, "per-field fallback");
+	mkdirSync(join(dir, "folder.json"));
+	assert.deepEqual(readDockLook(join(dir, "folder.json")), DEFAULT_LOOK, "unreadable (a folder)");
+});
+
+test("S5 writing the look creates the folder, saves it under `look` and reads back; a failed write says false", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "agent", "fisi-dock", "state.json");
+	const look = { logo: "text", frames: "classic", colors: "soft" } as const;
+	assert.equal(writeDockLook(path, look), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look });
+	assert.deepEqual(readDockLook(path), look);
+	assert.equal(readDockEnabled(path), true, "the look does not change what enabled means");
+	writeFileSync(path, "not json");
+	assert.equal(writeDockLook(path, look), true, "a corrupt file is replaced");
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look });
+	writeFileSync(join(dir, "file"), "");
+	assert.equal(writeDockLook(join(dir, "file", "state.json"), look), false, "a file where the folder should be");
+});
+
+test("S5 /fisi-dock on|off and the theme memory keep the look", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	const look = { logo: "none", frames: "none", colors: "soft" } as const;
+	assert.equal(writeDockLook(path, look), true);
+	assert.equal(writeDockEnabled(path, false), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look, enabled: false });
+	assert.equal(writeDockEnabled(path, true, "dark", true), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look, enabled: true, theme: "dark", themeApplied: true });
+	assert.deepEqual(readDockLook(path), look);
+	assert.equal(writeDockEnabled(path, true), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look, enabled: true }, "dropping the theme keeps the look");
+});
+
+test("S5 writing the look keeps enabled, the theme and themeApplied", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	assert.equal(writeDockEnabled(path, false, "dark", true), true);
+	assert.equal(writeDockLook(path, { logo: "text", frames: "faded", colors: "soft" }), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "text", frames: "faded", colors: "soft" } });
+	assert.equal(readDockEnabled(path), false);
+	assert.equal(readDockTheme(path), "dark");
+	assert.equal(readDockThemeApplied(path), true);
+	assert.equal(writeDockLook(path, DEFAULT_LOOK), true);
+	assert.deepEqual(readDockLook(path), DEFAULT_LOOK);
+	assert.equal(readDockTheme(path), "dark");
+});
+
+test("S5 writeDockEnabled over a corrupt or non-object file still saves only its own fields", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	for (const content of ["not json", "null", "[1]", '"look"']) {
+		writeFileSync(path, content);
+		assert.equal(writeDockEnabled(path, false, "dark"), true, content);
+		assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark" }, content);
+	}
 });
