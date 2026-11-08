@@ -309,3 +309,36 @@ test("spinner clock: a 75 ms timer while an entrance plays, the 80 ms spinner ti
 	still.clock.sync(false, true);
 	assert.equal(still.timers.size, 0, "potato: no timer");
 });
+
+test("look-more S2 spinner clock: refresh re-reads the motion, so motion off mid-run stops the timer on the still frame and on starts it again", () => {
+	let motion: "quality" | "potato" = "quality";
+	let next = 1;
+	const timers = new Map<number, { tick: () => void; ms: number }>();
+	const frames: number[] = [];
+	const clock = createSpinnerClock({
+		now: () => 1_000,
+		motion: () => motion,
+		onFrame: (frame) => frames.push(frame),
+		setInterval: (tick, ms) => (timers.set(next, { tick, ms }), next++),
+		clearInterval: (handle) => void timers.delete(handle as number),
+	});
+	clock.sync(true);
+	assert.equal(timers.size, 1);
+	motion = "potato";
+	clock.refresh();
+	assert.equal(timers.size, 0, "motion off: no timer");
+	assert.equal(frames.at(-1), 2, "the still ⠹");
+	clock.refresh();
+	assert.equal(timers.size, 0);
+	motion = "quality";
+	clock.refresh();
+	assert.equal(timers.size, 1, "motion on: the timer again");
+	clock.sync(false);
+	const count = frames.length;
+	clock.refresh();
+	assert.equal(timers.size, 0, "nothing running: refresh starts nothing");
+	assert.equal(frames.length, count);
+	clock.dispose();
+	clock.refresh();
+	assert.equal(timers.size, 0, "a disposed clock stays stopped");
+});

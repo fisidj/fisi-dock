@@ -1,3 +1,4 @@
+import type { MotionMode } from "./look.ts";
 import { spinnerAt } from "./orbs.ts";
 import { fg, palette } from "./palette.ts";
 import type { PanelModel } from "./panel-model.ts";
@@ -24,13 +25,13 @@ function oddSegment(model: PanelModel): string | undefined {
 	return `${fg(palette.green, "✓")} ${fg(palette.amber, `ODD ${formatTime(total)}`)}`;
 }
 
-function statusSegments(model: PanelModel, withTodo: boolean, withAgents: boolean): string[] {
+function statusSegments(model: PanelModel, withTodo: boolean, withAgents: boolean, still: boolean): string[] {
 	const segments: (string | undefined)[] = [oddSegment(model)];
 	const todo = model.todo;
 	if (withTodo && todo && todo.total > 0) segments.push(fg(palette.coral, `todo ${todo.done}/${todo.total}`));
 	// Running jobs and running or waiting subagent tasks (S87), the rows the agents card lists.
 	const running = (model.agents ?? []).filter(agentLive).length;
-	if (withAgents && running > 0) segments.push(`${fg(palette.blue, spinnerAt(model.spinner))} ${fg(palette.lilac, plural(running, "agent"))}`);
+	if (withAgents && running > 0) segments.push(`${fg(palette.blue, spinnerAt(still ? undefined : model.spinner))} ${fg(palette.lilac, plural(running, "agent"))}`);
 	const changed = model.changes?.length ?? 0;
 	if (changed > 0) segments.push(fg(palette.green, `±${plural(changed, "file")}`));
 	return segments.filter((segment): segment is string => segment !== undefined);
@@ -52,6 +53,8 @@ export interface StripOptions {
 	todo?: boolean;
 	/** False leaves out `N agents`: the agents card shown with the strip lists them (S35, S8). */
 	agents?: boolean;
+	/** Off holds the agents spinner on its still frame (look-more S2). */
+	motion?: MotionMode;
 }
 
 /** Zero, one or two strip lines for `model`, none wider than `width`. */
@@ -59,5 +62,5 @@ export function renderStrip(model: PanelModel, width: number, options: StripOpti
 	const columns = Math.max(0, Math.floor(width));
 	if (columns === 0) return [];
 	const warnings = (model.headsUp ?? []).map((warning) => `${warningGlyph(warning.kind)} ${fg(palette.text, warning.text)}`);
-	return [fit(statusSegments(model, options.todo !== false, options.agents !== false), columns), fit(warnings, columns)].filter((line): line is string => line !== undefined);
+	return [fit(statusSegments(model, options.todo !== false, options.agents !== false, options.motion === "off"), columns), fit(warnings, columns)].filter((line): line is string => line !== undefined);
 }

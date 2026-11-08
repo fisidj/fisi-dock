@@ -2792,6 +2792,8 @@ test("S1 /fisi-dock settings opens the look overlay: rows, values, hint and a li
 	assert.match(shown[2], /^ › logo +‹ braille › *$/);
 	assert.match(shown[3], /^ {3}frames +‹ faded › *$/);
 	assert.match(shown[4], /^ {3}colors +‹ vivid › *$/);
+	assert.match(shown[5], /^ {3}divider +‹ medium › *$/);
+	assert.match(shown[6], /^ {3}motion +‹ on › *$/);
 	assert.ok(shown.some((line) => line.includes("session")), "the live preview of the rail");
 	assert.match(shown.at(-1)!, /^ ↑↓ choose · ←→ change · Esc close *$/);
 	console.log(`--- simulated /fisi-dock settings, 60x24, default look\n${shown.join("\n")}`);
@@ -2823,7 +2825,7 @@ test("S1 S5 each change applies at once and is saved: the rail repaints (memo an
 	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(RIGHT);
 	assert.ok(settings.renders() > 0, "a change repaints");
-	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "classic", colors: "vivid" } });
+	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "classic", colors: "vivid", divider: "medium", motion: "on" } });
 	const classic = rail.render(57);
 	assert.notDeepEqual(classic, before, "the frames changed with no other model change");
 	assert.notEqual(rail.digest(), digest, "Gentle Shell's rail memo sees the change");
@@ -2848,7 +2850,7 @@ test("S1 S5 each change applies at once and is saved: the rail repaints (memo an
 	settings.view.handleInput?.(RIGHT);
 	settings.view.handleInput?.("j");
 	settings.view.handleInput?.(LEFT);
-	assert.deepEqual(readState(path).look, { logo: "braille", frames: "faded", colors: "vivid" });
+	assert.deepEqual(readState(path).look, { logo: "braille", frames: "faded", colors: "vivid", divider: "medium", motion: "on" });
 	assert.deepEqual(rail.render(57), before);
 	assert.equal(rail.digest(), digest);
 	settings.view.handleInput?.("q");
@@ -2879,7 +2881,8 @@ test("S1 the prompt line, the user frame, the narrow cards, the prompt box and /
 	assert.deepEqual(vividLine, renderPromptLine(labels, 100), "the box did not fit: the line under the prompt");
 
 	const settings = await openSettings(sim);
-	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(RIGHT);
 	editor.render(12);
 	assert.deepEqual(promptLine.render(100), renderPromptLine(labels, 100, "soft"), "the line under the prompt");
@@ -2918,7 +2921,8 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	/** Opens the menu, changes the colors with `key` and closes it. */
 	const changeColors = async (key: string) => {
 		const settings = await openSettings(sim);
-		settings.view.handleInput?.(UP);
+		settings.view.handleInput?.(DOWN);
+		settings.view.handleInput?.(DOWN);
 		settings.view.handleInput?.(key);
 		settings.view.handleInput?.("\x1b");
 		await settings.pending;
@@ -2926,7 +2930,7 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	await changeColors(RIGHT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"]);
 	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
-	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft" } });
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", divider: "medium", motion: "on" } });
 	await changeColors(RIGHT);
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock"]);
 	await changeColors(LEFT);
@@ -2947,7 +2951,8 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	const mine = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "light" });
 	mine.emit("session_start");
 	const other = await openSettings(mine);
-	other.view.handleInput?.(UP);
+	other.view.handleInput?.(DOWN);
+	other.view.handleInput?.(DOWN);
 	other.view.handleInput?.(RIGHT);
 	assert.deepEqual(mine.themes, []);
 	assert.equal(readState(own).look.colors, "soft");
@@ -2986,7 +2991,8 @@ test("S1 S4 L8 colors never switch Pi's theme inside the menu's key handler: the
 			keyDepth--;
 		}
 	};
-	press(UP);
+	press(DOWN);
+	press(DOWN);
 	// Held → (key repeat): vivid, soft, vivid, soft, vivid, soft.
 	for (let index = 0; index < 5; index++) press(RIGHT);
 	assert.deepEqual(duringKey, [], "no theme switch inside the key handler");
@@ -3001,11 +3007,12 @@ test("S1 S4 L8 colors never switch Pi's theme inside the menu's key handler: the
 	assert.deepEqual(duringKey, [], "not in the closing key's handler either");
 	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft"], "one switch, after the menu closed, to the last colors' theme");
 	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
-	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft" } });
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", divider: "medium", motion: "on" } });
 
 	// Back and forth to the colors already in use: no switch at all.
 	const again = await openSettings(sim);
-	again.view.handleInput?.(UP);
+	again.view.handleInput?.(DOWN);
+	again.view.handleInput?.(DOWN);
 	again.view.handleInput?.(RIGHT);
 	again.view.handleInput?.(LEFT);
 	again.view.handleInput?.("\x1b");
@@ -3074,7 +3081,7 @@ test("S5 a saved look is used from the next session start; S6 without one the lo
 	assert.ok(mcpRead(plainSim), "the MCP row shows");
 	const picked = (plainSim.parts.get("footer") as Rail).render(57);
 	plainSim.emit("session_shutdown");
-	assert.deepEqual(readState(path).look, { logo: "none", frames: "none", colors: "vivid" });
+	assert.deepEqual(readState(path).look, { logo: "none", frames: "none", colors: "vivid", divider: "medium", motion: "on" });
 
 	const next = simulate("E:\\DEV\\app", { ownsHost: () => true });
 	next.emit("session_start");
@@ -3097,13 +3104,13 @@ test("S5 while off, /fisi-dock settings still saves the look and sets no theme; 
 	const shown = settings.view.render(60).map(plain);
 	assert.match(shown[2], /‹ braille ›/);
 	assert.ok(shown.some((line) => line.includes("session")), "a preview even while off");
-	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(RIGHT);
-	settings.view.handleInput?.(UP);
+	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(RIGHT);
 	settings.view.handleInput?.("\x1b");
 	await settings.pending;
-	assert.deepEqual(readState(path), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "classic", colors: "soft" } });
+	assert.deepEqual(readState(path), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "classic", colors: "soft", divider: "medium", motion: "on" } });
 	assert.deepEqual(sim.themes, [], "off: the theme is the user's");
 	assertGentleShellOwns(sim, "still off");
 	await fisiDockCommand(sim, "on");
@@ -3125,7 +3132,7 @@ test("S1 without a UI, /fisi-dock settings only says the look; the picker offers
 	sim.ctx.hasUI = false;
 	await fisiDockCommand(sim, "settings");
 	assert.equal(sim.customs.length, 0);
-	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · /fisi-dock settings changes it in the interactive UI");
+	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · divider medium · motion on · /fisi-dock settings changes it in the interactive UI");
 	assert.deepEqual(readState(path), { enabled: true, themeApplied: true });
 	sim.ctx.hasUI = true;
 
@@ -3138,5 +3145,101 @@ test("S1 without a UI, /fisi-dock settings only says the look; the picker offers
 	const command = sim.commands.get("fisi-dock") as Command & { getArgumentCompletions?(prefix: string): { value: string }[] | null };
 	assert.deepEqual(command.getArgumentCompletions?.("s")?.map((item) => item.value), ["settings"]);
 	assert.match(command.description ?? "", /settings/);
+	sim.emit("session_shutdown");
+});
+
+// --- look-more S1 divider, S2 motion ----------------------------------------------
+
+test("look-more S2 a saved motion off: a running job schedules no animation repaints and the strip and rail hold the still frame", (t) => {
+	animated(t);
+	const path = stateDir(t, true);
+	writeFileSync(path, JSON.stringify({ enabled: true, themeApplied: true, look: { motion: "off" } }));
+	let renders = 0;
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false });
+	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(tui);
+	const strip = sim.widgets.get("fisi-dock-strip")!(tui);
+	const rail = sim.parts.get("footer") as Rail;
+	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
+	assertJobCard(strip.render(64), "⠹", "the still frame at once");
+	const digest = rail.digest();
+	const before = renders;
+	t.mock.timers.tick(800);
+	assert.equal(renders, before, "no spinner timer: no repaints");
+	assert.equal(rail.digest(), digest);
+	assertJobCard(strip.render(64), "⠹");
+	assert.ok(rail.render(47).some((line) => /^│ ⠹ job-1 npm test +│$/.test(plain(railPanelLine(line)))), "rail agent row, still");
+	sim.emit("session_shutdown");
+});
+
+test("look-more S2 motion off in the menu stops the running spinner's timer at once; on starts it again", async (t) => {
+	animated(t);
+	const path = stateDir(t, true);
+	let renders = 0;
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false });
+	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(tui);
+	const strip = sim.widgets.get("fisi-dock-strip")!(tui);
+	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
+	let before = renders;
+	t.mock.timers.tick(80);
+	assert.ok(renders > before, "motion on: the spinner repaints");
+	assertJobCard(strip.render(64), "⠙");
+
+	const settings = await openSettings(sim);
+	settings.view.handleInput?.(UP);
+	assert.match(plain(settings.view.render(60)[6]), /^ › motion +‹ on › *$/);
+	settings.view.handleInput?.(RIGHT);
+	assert.match(plain(settings.view.render(60)[6]), /^ › motion +‹ off › *$/);
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	assert.equal(readState(path).look.motion, "off", "saved");
+	assertJobCard(strip.render(64), "⠹", "the still frame at once");
+	before = renders;
+	t.mock.timers.tick(800);
+	assert.equal(renders, before, "no animation repaints with motion off");
+	assertJobCard(strip.render(64), "⠹");
+
+	const again = await openSettings(sim);
+	again.view.handleInput?.(UP);
+	again.view.handleInput?.(RIGHT);
+	again.view.handleInput?.("\x1b");
+	await again.pending;
+	assert.equal(readState(path).look.motion, "on");
+	before = renders;
+	t.mock.timers.tick(80);
+	assert.ok(renders > before, "motion on again: the spinner turns");
+	sim.emit("session_shutdown");
+});
+
+test("look-more S1 the divider row repaints the rail live and is saved: off leaves the first column blank, the panel in place", async (t) => {
+	const path = stateDir(t, true);
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = sim.parts.get("footer") as Rail;
+	await waitFor(() => mcpRead(sim));
+	const medium = rail.render(57);
+	const digest = rail.digest();
+	assert.ok(medium.some((line) => plain(line)[0] === "│"), "today's divider");
+	const settings = await openSettings(sim);
+	for (let index = 0; index < 3; index++) settings.view.handleInput?.(DOWN);
+	assert.match(plain(settings.view.render(60)[5]), /^ › divider +‹ medium › *$/);
+	settings.view.handleInput?.(RIGHT);
+	assert.equal(readState(path).look.divider, "off");
+	const off = rail.render(57);
+	assert.notEqual(rail.digest(), digest, "Gentle Shell's rail memo sees the change");
+	assert.ok(off.every((line) => plain(line)[0] === " "), "no divider glyph");
+	assert.deepEqual(off.map((line) => plain(line).slice(1)), medium.map((line) => plain(line).slice(1)), "same panel, same width");
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.(RIGHT);
+	assert.equal(readState(path).look.divider, "strong");
+	assert.notDeepEqual(rail.render(57), medium, "strong repaints");
+	settings.view.handleInput?.(RIGHT);
+	assert.deepEqual(rail.render(57), medium, "back to medium: today's rail");
+	settings.view.handleInput?.("q");
+	await settings.pending;
 	sim.emit("session_shutdown");
 });

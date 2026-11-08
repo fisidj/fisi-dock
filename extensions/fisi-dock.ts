@@ -208,6 +208,8 @@ interface LiveSession {
 	/** ODD phase timeline of the current request. */
 	odd: OddTracker;
 	wave: WaveClock;
+	/** Fisi Dock's motion changed in the menu (look-more S2): the spinner clock reads it again at once. */
+	motionChanged(): void;
 	setHost(host: Host | undefined): void;
 	/** Patch Pi's user message class once one is on screen (S45); repaints once when it does. */
 	frameUsers(): void;
@@ -245,7 +247,11 @@ interface LiveSession {
 function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): LiveSession {
 	const sessionId = attempt(() => ctx.sessionManager.getSessionId()) ?? "";
 	const cwd = attempt(() => ctx.sessionManager.getCwd()) ?? attempt(() => ctx.cwd) ?? "";
-	const store = createLiveStore(projectName(cwd), Date.now, { motion: () => readOrbMotion(process.env, homedir()) });
+	// Motion off in the look (look-more S2) counts as Gentle Shell's potato: no spinner
+	// timer, no entrances, a still ODD orb; the data reads go on as before.
+	const still = () => look().motion === "off";
+	const orbMotion = () => (still() ? "potato" : readOrbMotion(process.env, homedir()));
+	const store = createLiveStore(projectName(cwd), Date.now, { motion: orbMotion });
 	const startedAt = Date.now();
 	let host: Host | undefined;
 	let disposed = false;
@@ -276,12 +282,14 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 	// and a row's entrance runs it at the entrance step until it ends (S54).
 	const spinner = createSpinnerClock({
 		now: Date.now,
-		motion: () => readOrbMotion(process.env, homedir()),
+		motion: orbMotion,
 		onFrame: (frame) => apply({ spinner: frame }),
 	});
-	// The prompt label's color wave (S90): by the clock, only while Gentle Shell scans its label.
+	// The prompt label's color wave (S90): by the clock, only while Gentle Shell scans its
+	// label; with motion off one still moment and no timer (look-more S2).
 	const wave = createWaveClock({
 		now: Date.now,
+		still,
 		motion: () => readOrbMotion(process.env, homedir()),
 		requestRender: () => attempt(() => host?.requestRender()),
 	});
@@ -329,14 +337,16 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 	];
 	// Each orb-frame tick only rebuilds this small view; the store digest
 	// changes when the shown orb frame or m:ss changes, and only then is a
-	// repaint requested. Gentle Shell's animation level is read per request.
+	// repaint requested. Gentle Shell's animation level is read per request; a
+	// request that started before motion went off keeps its orb clock, but its
+	// frames are dropped here, so only the m:ss repaints (look-more S2).
 	const odd = createOddTracker({
 		sessionId,
 		cwd: cwd || undefined,
 		now: Date.now,
-		motion: () => readOrbMotion(process.env, homedir()),
+		motion: orbMotion,
 		busy: subagentsBusy,
-		onChange: (view) => apply({ odd: view }),
+		onChange: (view) => apply({ odd: view && still() ? { ...view, steps: view.steps.map(({ frame: _frame, scan: _scan, ...step }) => step) } : view }),
 	});
 	agentsChanged = () => odd.busyChanged();
 	// CI (S64): gh for the branch of the last git read, serialized like git. A
@@ -496,6 +506,11 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 		cwd,
 		odd,
 		wave,
+		motionChanged: () => {
+			if (disposed) return;
+			spinner.refresh();
+			attempt(() => host?.requestRender());
+		},
 		setHost: (next) => {
 			host = next;
 			frameUsers();
@@ -816,9 +831,9 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						const running = model.agents?.some((agent) => agent.state === "running") ?? false;
 						const key = `${width}:${lookKey(look)}:${session.store.digest()}:${running ? Math.floor(now / 1000) : ""}`;
 						if (drawn?.key !== key) {
-							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors);
-							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors);
-							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0 }), ...agents, ...todo] };
+							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors, look.motion);
+							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors, look.motion);
+							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0, motion: look.motion }), ...agents, ...todo] };
 						}
 						return drawn.lines;
 					},
@@ -959,7 +974,9 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// A look picked in the menu: in use at once and saved (S5). Pi's theme follows the
 	// colors (S4) with followTheme, once the menu closed.
 	const changeLook = (next: Look): boolean => {
+		const moved = next.motion !== look.motion;
 		look = next;
+		if (moved) live?.motionChanged();
 		return writeDockLook(statePath(), next);
 	};
 	// With Fisi Dock on and its own theme in use, Pi's theme becomes the one of the
@@ -974,7 +991,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	};
 	const openSettings = async (ctx: ExtensionContext) => {
 		if (!ctx.hasUI) {
-			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · /fisi-dock settings changes it in the interactive UI`, "info"));
+			attempt(() => ctx.ui.notify(`Fisi Dock look: logo ${look.logo} · frames ${look.frames} · colors ${look.colors} · divider ${look.divider} · motion ${look.motion} · /fisi-dock settings changes it in the interactive UI`, "info"));
 			return;
 		}
 		// Off there is no live store: the preview draws the project alone.

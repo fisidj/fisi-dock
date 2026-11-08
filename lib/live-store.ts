@@ -118,6 +118,8 @@ export interface SpinnerClockOptions {
 export interface SpinnerClock {
 	/** Whether a spinner is drawn now and whether a row plays its entrance (S54); starts, retimes or stops the timer on a change. */
 	sync(running: boolean, entering?: boolean): void;
+	/** Reads the motion again (Fisi Dock's motion changed, look-more S2): a running clock restarts at once, without a timer when it is now still. */
+	refresh(): void;
 	dispose(): void;
 }
 
@@ -145,6 +147,13 @@ export function createSpinnerClock(options: SpinnerClockOptions): SpinnerClock {
 		if (timer !== undefined) stopTimer(timer);
 		timer = undefined;
 	};
+	const readMotion = () => {
+		try {
+			motion = options.motion?.() ?? "quality";
+		} catch {
+			motion = "quality";
+		}
+	};
 	return {
 		sync(spinning, entering = false) {
 			const next = spinning || entering;
@@ -154,17 +163,18 @@ export function createSpinnerClock(options: SpinnerClockOptions): SpinnerClock {
 			running = next;
 			timerMs = ms;
 			if (!running) return stop();
-			if (starting) {
-				try {
-					motion = options.motion?.() ?? "quality";
-				} catch {
-					motion = "quality";
-				}
-			}
+			if (starting) readMotion();
 			stop();
 			// The timer first: onFrame may call sync again with the same state, which is then a no-op.
 			if (motion !== "potato") timer = startTimer(frame, ms);
 			if (starting) frame();
+		},
+		refresh() {
+			if (disposed || !running) return;
+			readMotion();
+			stop();
+			if (motion !== "potato") timer = startTimer(frame, timerMs);
+			frame();
 		},
 		dispose() {
 			disposed = true;

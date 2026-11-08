@@ -1,6 +1,6 @@
 import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
-import type { ColorMode, FrameStyle, LogoStyle } from "./look.ts";
+import type { ColorMode, DividerLevel, FrameStyle, LogoStyle, MotionMode } from "./look.ts";
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
@@ -691,10 +691,10 @@ function drawSection(section: Section, width: number, colors?: ColorMode): strin
 /** The divider's and the box frames' brightest cell, at their middle: this share of the text color over the background. */
 const FADE_PEAK = 0.35;
 
-/** Cell `index` of a `count`-cell line's share of FADE_PEAK: 1 at the middle, easing to 0 at both ends (smoothstep). */
-function fadeAmount(index: number, count: number): number {
+/** Cell `index` of a `count`-cell line's share of `peak`: all of it at the middle, easing to 0 at both ends (smoothstep). */
+function fadeAmount(index: number, count: number, peak = FADE_PEAK): number {
 	const middle = 1 - Math.abs(((index + 0.5) / count) * 2 - 1);
-	return FADE_PEAK * middle * middle * (3 - 2 * middle);
+	return peak * middle * middle * (3 - 2 * middle);
 }
 
 /** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. */
@@ -803,6 +803,26 @@ export interface PanelOptions {
 	colors?: ColorMode;
 	/** The rail logo (look settings S2): the braille wordmark (the default, S6), the bold GENTLESHELL text row, or none, so the panel starts at its first section. */
 	logo?: LogoStyle;
+	/** The rail divider's brightness (look-more S1), renderRail only: medium (the default, today's), off, subtle or strong. */
+	divider?: DividerLevel;
+	/** Off draws every animated glyph on one fixed frame (look-more S2, stillModel); on (the default) animates as today. */
+	motion?: MotionMode;
+}
+
+/**
+ * `model` as motion off draws it (look-more S2): no spinner frame (the still ⠹), the
+ * active ODD step's still orb and muted label, and no entrance, so new rows appear at
+ * once in their own colors. Every state keeps its glyph.
+ */
+export function stillModel(model: PanelModel): PanelModel {
+	return {
+		...model,
+		spinner: undefined,
+		todo: model.todo && { ...model.todo, entrance: undefined },
+		odd: model.odd && { ...model.odd, steps: model.odd.steps.map((step) => ({ ...step, frame: undefined, scan: undefined, entrance: undefined })) },
+		rdd: model.rdd && { ...model.rdd, reviews: model.rdd.reviews.map((review) => ({ ...review, entrance: undefined })) },
+		agents: model.agents?.map((agent) => ({ ...agent, entrance: undefined })),
+	};
 }
 
 interface Shape {
@@ -835,9 +855,10 @@ const SHAPES: Shape[] = [
 ];
 
 /** Every rail line for `model`, none wider than `width` visible columns. */
-export function renderPanel(model: PanelModel, width: number, options: PanelOptions = {}): string[] {
+export function renderPanel(moving: PanelModel, width: number, options: PanelOptions = {}): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns === 0) return [];
+	const model = options.motion === "off" ? stillModel(moving) : moving;
 	const inner = columns - 4;
 	const unpushed = model.headsUp?.some((warning) => warning.kind === "unpushed") ?? false;
 	// A check that runs, waits or failed keeps CI on screen longer (S77).
@@ -871,9 +892,12 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 /** A divider cell dimmer than this share is drawn blank. */
 const DIVIDER_FLOOR = 0.02;
 
-/** Row `index` of `rows`' divider cell (sidebar-chrome): a `│` brightest at the middle that fades into the background at the top and bottom. */
-function dividerCell(index: number, rows: number): string {
-	const amount = fadeAmount(index, rows);
+/** The divider's brightest share per level (look-more S1): medium is the box frames' FADE_PEAK, as before; off draws none. */
+export const DIVIDER_PEAKS: Readonly<Record<DividerLevel, number>> = { off: 0, subtle: 0.2, medium: FADE_PEAK, strong: 0.55 };
+
+/** Row `index` of `rows`' divider cell (sidebar-chrome): a `│` at most `peak` bright, at the middle, that fades into the background at the top and bottom. */
+function dividerCell(index: number, rows: number, peak: number): string {
+	const amount = fadeAmount(index, rows, peak);
 	return amount < DIVIDER_FLOOR ? " " : fg(dim(palette.text, amount), "│");
 }
 
@@ -889,17 +913,22 @@ export function renderRail(model: PanelModel, width: number, options: PanelOptio
 	const panel = renderPanel(model, columns - 2, options);
 	const screen = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.floor(options.maxRows) : 0;
 	const rows = Math.max(panel.length, screen);
-	return Array.from({ length: rows }, (_, index) => `${dividerCell(index, rows)} ${padEnd(panel[index] ?? "", columns - 2)}`);
+	// Off keeps the blank column, so the panel never moves (look-more S1).
+	const peak = DIVIDER_PEAKS[options.divider ?? "medium"] ?? FADE_PEAK;
+	return Array.from({ length: rows }, (_, index) => `${dividerCell(index, rows, peak)} ${padEnd(panel[index] ?? "", columns - 2)}`);
 }
 
 /**
  * The panel's todo section alone, framed to `width` (S28): narrow screens show it
  * above the prompt. Compact, fixed height even with a task list (S7); [] without a todo.
- * `spinner` is the active row's frame (PanelModel.spinner).
+ * `spinner` is the active row's frame (PanelModel.spinner); motion off holds the still
+ * frame and plays no entrance (look-more S2).
  */
-export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinner?: number, colors?: ColorMode): string[] {
+export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinner?: number, colors?: ColorMode, motion?: MotionMode): string[] {
 	const columns = Math.max(0, Math.floor(width));
-	const section = columns > 0 && todo ? todoSection(todo, columns - 4, false, spinner, true, colors) : undefined;
+	const still = motion === "off";
+	const shown = still && todo ? { ...todo, entrance: undefined } : todo;
+	const section = columns > 0 && shown ? todoSection(shown, columns - 4, false, still ? undefined : spinner, true, colors) : undefined;
 	if (!section) return [];
 	return drawSection(section, columns, colors).map((line) => truncateToWidth(line, columns));
 }
@@ -913,11 +942,14 @@ const AGENT_NAME_CAP = 12;
  * strip counts): spinner at frame `spinner` (the `!` of a waiting task, S87),
  * name, task and the time since `startedAt` at `now`, left out when the start
  * is unknown. Up to 4 rows, then `+N more`. Queued and finished agents are
- * not listed; [] when nothing runs.
+ * not listed; [] when nothing runs. Motion off holds the still frame and plays no
+ * entrance (look-more S2).
  */
-export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number, spinner: number | undefined, now: number, colors?: ColorMode): string[] {
+export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number, moving: number | undefined, now: number, colors?: ColorMode, motion?: MotionMode): string[] {
 	const columns = Math.max(0, Math.floor(width));
-	const running = (agents ?? []).filter(agentLive);
+	const still = motion === "off";
+	const spinner = still ? undefined : moving;
+	const running = (agents ?? []).filter(agentLive).map((agent) => (still ? { ...agent, entrance: undefined } : agent));
 	if (columns === 0 || running.length === 0) return [];
 	const inner = columns - 4;
 	const shown = running.slice(0, LIST_CAP);
@@ -946,7 +978,7 @@ function boxed(text: string, width: number): string {
 }
 
 /** How /dock draws its panel: the rail's look (S3). */
-export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "logo">;
+export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "logo" | "motion">;
 
 export interface DockView {
 	lines: string[];
@@ -969,7 +1001,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, logo: options.logo }) : [];
+	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, logo: options.logo, motion: options.motion }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));

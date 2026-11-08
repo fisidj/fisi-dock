@@ -174,3 +174,12 @@ test("S87 the strip counts waiting subagent tasks with the running agents, finis
 	assert.deepEqual(renderStrip(model, 64).map(plain), ["  ⠹ 2 agents · ±1 file"]);
 });
 
+
+test("look-more S2 motion off: the strip's agents spinner holds the still frame whatever the frame", () => {
+	const model = (spinner: number): PanelModel => ({ session: { project: "p" }, spinner, agents: [{ name: "a", task: "t", state: "running" }] });
+	const still = renderStrip(model(0), 60, { motion: "off" });
+	for (const spinner of [1, 4, 9]) assert.deepEqual(renderStrip(model(spinner), 60, { motion: "off" }), still);
+	assert.match(still[0], /⠹/);
+	assert.deepEqual(renderStrip(model(4), 60, { motion: "on" }), renderStrip(model(4), 60), "on is today");
+	assert.notDeepEqual(renderStrip(model(4), 60), renderStrip(model(5), 60));
+});

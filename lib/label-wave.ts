@@ -6,7 +6,8 @@
 // the passing color stays calm inside the box (vivid labels S3, L9).
 // Only while Gentle Shell itself scans, in quality and performance (S93: there
 // Gentle Shell steps its wave once a second).
-// The petal before the label turns on the same clock (S97).
+// The petal before the label turns on the same clock (S97). With motion off (look-more
+// S2) both stand still on the moment WAVE_STILL_AT.
 import type { OrbMotion } from "./orbs.ts";
 import type { ColorMode } from "./look.ts";
 import { bold, fg, labelAccent, palette } from "./palette.ts";
@@ -19,6 +20,9 @@ const ENTRY_STEPS = 3;
 const MIN_STEPS = 15;
 /** Gentle Shell repaints a silent working phase once a second, so a frame always arrives within this while the editor is drawn. */
 const FRAME_WINDOW_MS = 2000;
+
+/** The fixed moment motion off paints (look-more S2): the wave not yet on the label, all muted, and the first petal. */
+export const WAVE_STILL_AT = 0;
 
 /** `label` with the wave at the moment `now`. */
 export function waveLabel(label: string, now: number): string {
@@ -50,13 +54,15 @@ export function wavePetal(now: number, colors: ColorMode = "vivid"): string {
 export interface WaveClockOptions {
 	now(): number;
 	motion(): OrbMotion;
+	/** True while Fisi Dock's motion is off (look-more S2), read per frame: one fixed moment and no timer. */
+	still?(): boolean;
 	requestRender(): void;
 	setInterval?(tick: () => void, ms: number): unknown;
 	clearInterval?(handle: unknown): void;
 }
 
 export interface WaveClock {
-	/** The moment to paint the wave at; undefined leaves Gentle Shell's own label (potato). */
+	/** The moment to paint the wave at; WAVE_STILL_AT with motion off; undefined leaves Gentle Shell's own label (potato). */
 	at(): number | undefined;
 	/** After each frame: whether its label scans. Starts and stops the timer. */
 	report(scanning: boolean): void;
@@ -64,7 +70,8 @@ export interface WaveClock {
 }
 
 /**
- * A timer only while a scanning label is drawn, never in potato motion. The
+ * A timer only while a scanning label is drawn, never in potato motion or with
+ * Fisi Dock's motion off, which stops a running one at its next tick. The
  * motion setting is a file, so it is read when a scan starts, never per frame.
  * When no frame reports for FRAME_WINDOW_MS (the editor is not being drawn) it stops
  * asking for frames; the next reported scan starts it again.
@@ -92,8 +99,15 @@ export function createWaveClock(options: WaveClockOptions): WaveClock {
 		if (timer !== undefined) stopTimer(timer);
 		timer = undefined;
 	};
+	const still = () => {
+		try {
+			return options.still?.() === true;
+		} catch {
+			return false;
+		}
+	};
 	return {
-		at: () => (motion === "potato" ? undefined : options.now()),
+		at: () => (still() ? WAVE_STILL_AT : motion === "potato" ? undefined : options.now()),
 		report(next) {
 			if (disposed) return;
 			if (!next) {
@@ -104,9 +118,9 @@ export function createWaveClock(options: WaveClockOptions): WaveClock {
 			lastFrame = options.now();
 			if (!scanning) motion = readMotion();
 			scanning = true;
-			if (timer !== undefined || motion === "potato") return;
+			if (timer !== undefined || motion === "potato" || still()) return;
 			timer = startTimer(() => {
-				if (options.now() - lastFrame > FRAME_WINDOW_MS) return stop();
+				if (still() || options.now() - lastFrame > FRAME_WINDOW_MS) return stop();
 				options.requestRender();
 			}, WAVE_STEP_MS);
 		},

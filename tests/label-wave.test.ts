@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createWaveClock, WAVE_STEP_MS, waveLabel, wavePetal } from "../lib/label-wave.ts";
+import { createWaveClock, WAVE_STEP_MS, WAVE_STILL_AT, waveLabel, wavePetal } from "../lib/label-wave.ts";
 import { fgCode, palette, vivid } from "../lib/palette.ts";
 import { boxPromptRows, PROMPT_OWNER, wrapPromptFactory } from "../lib/prompt-box.ts";
 import { visibleWidth } from "../lib/text.ts";
@@ -290,3 +290,39 @@ test("S4 soft colors: the petal in the pastel tones, the wave unchanged; omittin
 	// The wave already passes in pastel in vivid (0.3.1): soft paints it the same.
 	assert.equal(waveLabel("ODD checking…", WAVE_STEP_MS * 5), waveLabel("ODD checking…", WAVE_STEP_MS * 5));
 });
+
+test("look-more S2 motion off: the clock paints one fixed moment, starts no timer and stops a running one; the label and petal stand still", () => {
+	const { state, clock } = fakeClockStill();
+	state.still = true;
+	assert.equal(clock.at(), WAVE_STILL_AT);
+	state.now += 777;
+	assert.equal(clock.at(), WAVE_STILL_AT, "the clock does not move it");
+	clock.report(true);
+	assert.equal(state.tick, undefined, "no timer while motion is off");
+	state.still = false;
+	assert.equal(clock.at(), state.now, "motion on again: the clock");
+	clock.report(true);
+	assert.ok(state.tick, "and the timer starts with the next scan");
+	state.still = true;
+	state.tick!();
+	assert.equal(state.tick, undefined, "motion off stops a running timer at its next tick");
+	assert.equal(state.renders, 0, "without asking for a frame");
+	// The fixed moment: the label all muted and the first petal, the same at every clock.
+	const words = "exploring…";
+	assert.equal(waveLabel(words, WAVE_STILL_AT), Array.from(words).map((char) => `${fgCode(palette.muted)}${char}\x1b[39m`).join(""));
+	assert.equal(wavePetal(WAVE_STILL_AT), wavePetal(0));
+	clock.dispose();
+});
+
+function fakeClockStill() {
+	const state = { now: 1000, renders: 0, tick: undefined as (() => void) | undefined, still: false };
+	const clock = createWaveClock({
+		now: () => state.now,
+		motion: () => "quality",
+		still: () => state.still,
+		requestRender: () => void state.renders++,
+		setInterval: (tick) => ((state.tick = tick), 1),
+		clearInterval: () => void (state.tick = undefined),
+	});
+	return { state, clock };
+}

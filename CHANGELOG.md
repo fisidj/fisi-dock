@@ -4,10 +4,12 @@
 
 ### Added
 
-- `/fisi-dock settings`: a look menu over the whole screen with the rail drawn under it as a live preview. ↑↓ (or k j) move between `logo`, `frames` and `colors`, ←→ (or h l, and Enter) change the value, Esc (or q) closes. Each change repaints the rail, `/dock`, the cards, the prompt box and your messages at once. The plain `/fisi-dock` picker offers `settings` after `on` and `off`, and `/fisi-dock ` suggests it.
+- `/fisi-dock settings`: a look menu over the whole screen with the rail drawn under it as a live preview. ↑↓ (or k j) move between `logo`, `frames`, `colors`, `divider` and `motion`, ←→ (or h l, and Enter) change the value, Esc (or q) closes. Each change repaints the rail, `/dock`, the cards, the prompt box and your messages at once. The plain `/fisi-dock` picker offers `settings` after `on` and `off`, and `/fisi-dock ` suggests it.
 - `logo`: `braille` (the wordmark as before), `text` (one bold `GENTLESHELL` row) or `none` (the panel starts at its first section).
 - `frames`: `faded` (as before), `classic` (the flat gray boxes of 0.3.1) or `none` (each title on a fading rule, a blank row between sections; on short screens those blank rows go first).
 - `colors`: `vivid` (as before) or `soft`, the pastel tones from before 0.3.0 on the panel titles and counters, the prompt labels and petal and `you`, with the new `Fisi-Dock-Soft` theme (the `Fisi-Dock` theme of 0.2.1). The menu switches between the two themes when it closes, only while one of them is in use; neither is ever remembered as your theme.
+- `divider`: `medium` (as before), `off` (no divider line; its blank column stays so the panel does not move), `subtle` (dimmer) or `strong` (brighter). Only the rail's divider changes; the box frames keep their fade.
+- `motion`: `on` (as before) or `off`: spinners, the ODD orb and its shine, the prompt label wave and petal stand still on one frame, and new rows appear at once without their entrance; every state keeps its glyph. The timers that only animate stop; data reads go on.
 - The look is saved under `"look"` in `state.json` and survives restarts and `/fisi-dock on|off`: every write to the file now keeps the keys it does not set. The defaults are the look before, so nothing changes until you pick something.
 
 ### Changed

@@ -2728,3 +2728,97 @@ test("S2 every line fits the width for each logo and frame style, sample and lon
 		}
 	}
 });
+
+// --- look-more S1: the divider's intensity ------------------------------------------
+
+/** A rail line without its divider cell: the blank and the panel, colors included. */
+const afterDivider = (line: string) => line.replace(/^(?:\x1b\[[0-9;]*m)*[│ ](?:\x1b\[[0-9;]*m)*/, "");
+
+test("look-more S1 medium is today's divider byte for byte, the default; every level keeps the panel and the width", async () => {
+	const { DIVIDER_PEAKS } = await import("../lib/panel.ts");
+	assert.deepEqual(DIVIDER_PEAKS, { off: 0, subtle: 0.2, medium: 0.35, strong: 0.55 });
+	for (const model of [samplePanelModel, longModel, { session: { project: "p" } } as PanelModel]) {
+		for (const rows of [undefined, 30, 60]) {
+			const today = renderRail(model, 47, { maxRows: rows });
+			assert.deepEqual(renderRail(model, 47, { maxRows: rows, divider: "medium" }), today, `medium ${rows}`);
+			for (const divider of ["off", "subtle", "strong"] as const) {
+				const rail = renderRail(model, 47, { maxRows: rows, divider });
+				assert.equal(rail.length, today.length, `${divider}: same rows`);
+				rail.forEach((line, index) => {
+					assert.equal(visibleWidth(line), visibleWidth(today[index]), `${divider}: same width`);
+					assert.equal(afterDivider(line), afterDivider(today[index]), `${divider}: the panel and its box fades are untouched`);
+				});
+			}
+		}
+	}
+});
+
+test("look-more S1 off draws no divider glyph but keeps the blank first column; strong is brighter than medium, medium than subtle", () => {
+	const model = { session: { project: "p" } } as PanelModel;
+	const off = renderRail(model, 47, { maxRows: 30, divider: "off" });
+	for (const line of off) {
+		assert.equal(plain(line).slice(0, 2), "  ", "the divider column and the gap stay blank");
+		assert.equal(visibleWidth(line), 47);
+	}
+	assert.deepEqual(off.map((line) => plain(line).slice(2)), renderRail(model, 47, { maxRows: 30 }).map((line) => plain(line).slice(2)), "the panel does not move");
+	const light = (divider: "subtle" | "medium" | "strong") => renderRail(model, 47, { maxRows: 30, divider }).map(dividerBrightness);
+	const [subtle, medium, strong] = [light("subtle"), light("medium"), light("strong")];
+	for (const levels of [subtle, medium, strong]) {
+		assert.ok(levels.every((value) => !Number.isNaN(value)));
+		assert.equal(levels[0], 0, "fades out at the top");
+		assert.equal(levels[29], 0, "and at the bottom");
+		assert.deepEqual(levels, [...levels].reverse(), "symmetric");
+		assert.equal(Math.max(...levels), levels[14], "brightest at the middle");
+	}
+	assert.ok(strong[14] > medium[14] && medium[14] > subtle[14], `peaks ${subtle[14]} < ${medium[14]} < ${strong[14]}`);
+	for (let index = 0; index < 30; index++) assert.ok(strong[index] >= medium[index] && medium[index] >= subtle[index], `row ${index}`);
+});
+
+// --- look-more S2: motion off -------------------------------------------------------
+
+/** entranceModel at `entrance` with every animated input set from `seed`: the spinner, the ODD orb frame and its shine step. */
+const movingModel = (seed: number, entrance?: number): PanelModel => {
+	const model = entranceModel(entrance);
+	model.spinner = seed;
+	model.odd!.steps[1] = { ...model.odd!.steps[1], frame: seed, scan: seed * 3 };
+	model.ci = { checks: [{ name: "tests", state: "running", seconds: 12 }] } as PanelModel["ci"];
+	return model;
+};
+
+test("look-more S2 motion off: the rail, the panel and /dock show one fixed frame whatever the spinner, orb, shine and entrance", () => {
+	const still = (render: (model: PanelModel) => string[]) => {
+		const first = render(movingModel(0));
+		for (const [seed, entrance] of [[1, undefined], [5, 0], [7, 2], [9, 6], [13, 40]] as const) assert.deepEqual(render(movingModel(seed, entrance)), first, `seed ${seed} entrance ${entrance}`);
+		return first;
+	};
+	const panel = still((model) => renderPanel(model, 47, { motion: "off" }));
+	still((model) => renderRail(model, 49, { motion: "off", maxRows: 60 }));
+	still((model) => renderDock(model, 64, 60, 0, { motion: "off" }).lines);
+	// The fixed frame is the still one: no spinner frame, the middle orb frame, the label muted, no entrance colors.
+	const reference = movingModel(0);
+	delete reference.spinner;
+	delete reference.odd!.steps[1].frame;
+	delete reference.odd!.steps[1].scan;
+	assert.deepEqual(panel, renderPanel(reference, 47), "the frames motion on shows without animated inputs");
+	assert.ok(!panel.some((line) => line.includes(ENTRANCE_WHITE)), "no entrance shine, no label shine");
+	const text = panel.map(plain).join("\n");
+	assert.match(text, /⠹ verify/, "the running agent keeps its (still) spinner glyph");
+	assert.match(text, /✓ explore/, "done keeps ✓");
+});
+
+test("look-more S2 motion on (the default) still animates exactly as today", () => {
+	assert.deepEqual(renderPanel(movingModel(3, 1), 47, { motion: "on" }), renderPanel(movingModel(3, 1), 47));
+	assert.notDeepEqual(renderPanel(movingModel(3), 47), renderPanel(movingModel(4), 47), "the frames move");
+});
+
+test("look-more S2 motion off: the narrow todo and agents cards hold the still frame and play no entrance", () => {
+	const todo = (seed: number, entrance?: number) => renderTodoCard(movingModel(seed, entrance).todo, 47, seed, undefined, "off");
+	const agents = (seed: number, entrance?: number) => renderAgentsCard(movingModel(seed, entrance).agents, 47, seed, 10_000, undefined, "off");
+	for (const [seed, entrance] of [[1, 0], [6, 4], [8, undefined]] as const) {
+		assert.deepEqual(todo(seed, entrance), todo(0), `todo ${seed}`);
+		assert.deepEqual(agents(seed, entrance), agents(0), `agents ${seed}`);
+	}
+	assert.deepEqual(todo(4, 0), renderTodoCard(entranceModel().todo, 47, undefined), "the still todo card");
+	assert.deepEqual(agents(4, 0), renderAgentsCard(entranceModel().agents, 47, undefined, 10_000), "the still agents card");
+	assert.deepEqual(renderTodoCard(movingModel(4, 0).todo, 47, 4, undefined, "on"), renderTodoCard(movingModel(4, 0).todo, 47, 4), "on is today");
+});

@@ -9,7 +9,7 @@ import type { PanelModel } from "./panel-model.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
 
 /** The menu rows, top to bottom. */
-export const SETTINGS_ROWS = ["logo", "frames", "colors"] as const satisfies readonly (keyof Look)[];
+export const SETTINGS_ROWS = ["logo", "frames", "colors", "divider", "motion"] as const satisfies readonly (keyof Look)[];
 
 export const SETTINGS_HINT = "↑↓ choose · ←→ change · Esc close";
 
@@ -68,7 +68,7 @@ export function reduceSettings(state: SettingsState, action: SettingsAction): Se
 
 /** Columns of the label before each `‹ value ›`. */
 const LABEL_WIDTH = 8;
-/** Rows above the preview: the title, a blank, the three rows and a blank. */
+/** Rows above the preview: the title, a blank, the rows and a blank. */
 const HEAD_ROWS = 2 + SETTINGS_ROWS.length + 1;
 /** Fewer preview rows than this leaves the preview out. */
 const PREVIEW_MIN_ROWS = 4;
@@ -99,7 +99,7 @@ export function renderSettings(state: SettingsState, width: number, height: numb
 	const hint = ` ${fg(palette.muted, SETTINGS_HINT)}`;
 	let lines: string[];
 	if (rows < HEAD_ROWS + 1) {
-		lines = [...items.slice(0, rows - 1), hint].slice(-rows);
+		lines = [...items.slice(0, rows - 1), ...Array<string>(Math.max(0, rows - 1 - items.length)).fill(""), hint].slice(-rows);
 	} else {
 		const room = rows - HEAD_ROWS - 1;
 		const previewWidth = Math.min(PREVIEW_WIDTH, columns - 2);

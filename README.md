@@ -41,7 +41,7 @@ It is a Pi package (an extension and a theme) that paints its own panel in Gentl
 ╰─────────────────────────────────────────────╯
 ```
 
-(Sample data, from `node scripts/preview.ts 47`; in the terminal every section title has its own color, and each frame fades from a soft gray at the middle of its edges into the background at the corners. In the rail, a thin divider line runs between the chat and the panel, brightest halfway down and fading out at the top and bottom. The desktop screenshot above predates this look: it still shows flat frames and the session's group labels. This is the default look; `/fisi-dock settings` changes the logo, the frames and the colors, see [Look](#look).)
+(Sample data, from `node scripts/preview.ts 47`; in the terminal every section title has its own color, and each frame fades from a soft gray at the middle of its edges into the background at the corners. In the rail, a thin divider line runs between the chat and the panel, brightest halfway down and fading out at the top and bottom. The desktop screenshot above predates this look: it still shows flat frames and the session's group labels. This is the default look; `/fisi-dock settings` changes the logo, the frames, the colors, the divider and the motion, see [Look](#look).)
 
 ## What you get
 
@@ -50,7 +50,7 @@ It is a Pi package (an extension and a theme) that paints its own panel in Gentl
 - **Prompt box**: Gentle Shell's prompt framed, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.
 - **`/dock`** and **`/fisi-dock`**: the whole panel over the screen, and an on/off switch that needs no uninstall ([Commands](#commands)).
-- **Your own look**: `/fisi-dock settings` picks the rail logo, the section frames and the colors, with a live preview ([Look](#look)).
+- **Your own look**: `/fisi-dock settings` picks the rail logo, the section frames, the colors, the divider and the motion, with a live preview ([Look](#look)).
 - **`Fisi-Dock` theme**: the panel's hues, vivid, for the whole of Pi, applied once on the first start with your own theme remembered for `/fisi-dock off` ([Theme](#theme)).
 
 Every section, row and data source is described in [docs/reference.md](docs/reference.md).
@@ -111,7 +111,7 @@ Fisi Dock adds two commands:
 | `/dock` | Shows the full panel over the whole screen, live. Made for narrow screens without the side rail; works on wide ones too. While Fisi Dock is off it only says so. |
 | `/fisi-dock on` | Turns Fisi Dock back on, as at the start of a session, and switches Pi to the `Fisi-Dock` theme (`Fisi-Dock-Soft` with `soft` [colors](#look)), remembering the theme you had. Already on: it says so and changes nothing. |
 | `/fisi-dock off` | Puts Fisi Dock to sleep without uninstalling it: Gentle Shell gets its own panel back, and your theme comes back (see [Theme](#theme)). New sessions start asleep until `/fisi-dock on`. |
-| `/fisi-dock settings` | Opens the look menu: the rail logo, the section frames and the colors, with the rail drawn under them as a live preview (see [Look](#look)). Works while Fisi Dock is off too. |
+| `/fisi-dock settings` | Opens the look menu: the rail logo, the section frames, the colors, the divider and the motion, with the rail drawn under them as a live preview (see [Look](#look)). Works while Fisi Dock is off too. |
 | `/fisi-dock` | Opens a picker titled with the current state (`Fisi Dock is on`), the change listed first, then `settings`: Enter picks, Esc changes nothing. Typing `/fisi-dock ` with the space suggests `on`, `off` and `settings`; any other argument shows the usage and changes nothing. |
 
 Inside `/dock`:
@@ -127,7 +127,7 @@ Inside `/fisi-dock settings`:
 
 | Key | Action |
 |---|---|
-| ↑ / ↓ (or k / j) | Move between `logo`, `frames` and `colors` |
+| ↑ / ↓ (or k / j) | Move between `logo`, `frames`, `colors`, `divider` and `motion` |
 | ← / → (or h / l) | Change the value; Enter moves to the next one too |
 | Esc (or q) | Close and return to the prompt |
 
@@ -149,6 +149,8 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 | `logo` | `braille`: the GENTLESHELL wordmark in braille dots. `text`: one bold `GENTLESHELL` row. `none`: no logo, the panel starts at its first section. |
 | `frames` | `faded`: boxes whose edges fade toward the corners. `classic`: the flat gray boxes of 0.3.1. `none`: no box, each title on a fading rule with a blank row between sections. |
 | `colors` | `vivid`: the vivid titles and labels of 0.3.x. `soft`: the softer pastel tones from before 0.3.0, on the panel, the prompt box and your messages. |
+| `divider` | `medium`: the fading line between the chat and the rail, as before. `off`: no line; its column stays blank, so the panel does not move. `subtle`: dimmer. `strong`: brighter. |
+| `motion` | `on`: spinners, the ODD orb and its shine, the prompt label wave and petal, and the entrance of new rows move as before. `off`: all of them stand still on one frame and new rows appear at once in their own colors; every state keeps its glyph (`✓`, `●`, `◌`, `✗`, `!`). |
 
 Each change applies at once: the preview under the menu repaints while you choose, and the rail, `/dock`, the cards, the prompt box and your messages follow. The look is remembered across sessions and across `/fisi-dock off` and `on`.
 
@@ -192,7 +194,7 @@ If you installed with `--link`, put it before the subcommand: `gentle-shell --li
 
 **Your theme** comes back only with `/fisi-dock off`. `gentle-shell config` and `remove` leave Pi's theme setting as it is. If that setting is `Fisi-Dock` when the theme is no longer loaded, Pi falls back to its `system` theme without a warning. So run `/fisi-dock off` first, or pick a theme in `/settings` afterwards.
 
-**What stays**: the state file `fisi-dock/state.json` in Pi's agent dir (`PI_CODING_AGENT_DIR`, which Gentle Shell sets to its home: `~/.gentle-shell/agent/fisi-dock/state.json` by default, `~/.pi/agent/fisi-dock/state.json` with `--link`). It holds only the on/off choice, the remembered theme, whether the first start already applied the theme and your [look](#look), for example `{ "enabled": false, "theme": "dark", "themeApplied": true, "look": { "logo": "braille", "frames": "faded", "colors": "vivid" } }`. Removing Fisi Dock does not delete it, and it is safe to delete: without it Fisi Dock starts on with the default look, remembers no theme and applies its theme again on the next start.
+**What stays**: the state file `fisi-dock/state.json` in Pi's agent dir (`PI_CODING_AGENT_DIR`, which Gentle Shell sets to its home: `~/.gentle-shell/agent/fisi-dock/state.json` by default, `~/.pi/agent/fisi-dock/state.json` with `--link`). It holds only the on/off choice, the remembered theme, whether the first start already applied the theme and your [look](#look), for example `{ "enabled": false, "theme": "dark", "themeApplied": true, "look": { "logo": "braille", "frames": "faded", "colors": "vivid", "divider": "medium", "motion": "on" } }`. Removing Fisi Dock does not delete it, and it is safe to delete: without it Fisi Dock starts on with the default look, remembers no theme and applies its theme again on the next start.
 
 ## Update
 

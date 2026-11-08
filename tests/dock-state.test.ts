@@ -90,7 +90,7 @@ test("S6 a missing, unreadable or malformed state file, or a bad look in it, rea
 		assert.deepEqual(readDockLook(path), DEFAULT_LOOK, content);
 	}
 	writeFileSync(path, '{"look":{"frames":"none","colors":"loud"}}');
-	assert.deepEqual(readDockLook(path), { logo: "braille", frames: "none", colors: "vivid" }, "per-field fallback");
+	assert.deepEqual(readDockLook(path), { ...DEFAULT_LOOK, frames: "none" }, "per-field fallback");
 	mkdirSync(join(dir, "folder.json"));
 	assert.deepEqual(readDockLook(join(dir, "folder.json")), DEFAULT_LOOK, "unreadable (a folder)");
 });
@@ -99,7 +99,7 @@ test("S5 writing the look creates the folder, saves it under `look` and reads ba
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "agent", "fisi-dock", "state.json");
-	const look = { logo: "text", frames: "classic", colors: "soft" } as const;
+	const look = { logo: "text", frames: "classic", colors: "soft", divider: "medium", motion: "on" } as const;
 	assert.equal(writeDockLook(path, look), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look });
 	assert.deepEqual(readDockLook(path), look);
@@ -115,7 +115,7 @@ test("S5 /fisi-dock on|off and the theme memory keep the look", (t) => {
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "state.json");
-	const look = { logo: "none", frames: "none", colors: "soft" } as const;
+	const look = { logo: "none", frames: "none", colors: "soft", divider: "medium", motion: "on" } as const;
 	assert.equal(writeDockLook(path, look), true);
 	assert.equal(writeDockEnabled(path, false), true);
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { look, enabled: false });
@@ -131,8 +131,8 @@ test("S5 writing the look keeps enabled, the theme and themeApplied", (t) => {
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "state.json");
 	assert.equal(writeDockEnabled(path, false, "dark", true), true);
-	assert.equal(writeDockLook(path, { logo: "text", frames: "faded", colors: "soft" }), true);
-	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark", themeApplied: true, look: { logo: "text", frames: "faded", colors: "soft" } });
+	assert.equal(writeDockLook(path, { ...DEFAULT_LOOK, logo: "text", colors: "soft" }), true);
+	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark", themeApplied: true, look: { ...DEFAULT_LOOK, logo: "text", colors: "soft" } });
 	assert.equal(readDockEnabled(path), false);
 	assert.equal(readDockTheme(path), "dark");
 	assert.equal(readDockThemeApplied(path), true);
@@ -150,4 +150,26 @@ test("S5 writeDockEnabled over a corrupt or non-object file still saves only its
 		assert.equal(writeDockEnabled(path, false, "dark"), true, content);
 		assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { enabled: false, theme: "dark" }, content);
 	}
+});
+
+test("look-more S1 S2 the divider and motion are saved with the look and read back; a look saved before them reads them as the default", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	for (const divider of ["off", "subtle", "medium", "strong"] as const) {
+		for (const motion of ["on", "off"] as const) {
+			const look = { ...DEFAULT_LOOK, divider, motion };
+			assert.equal(writeDockLook(path, look), true);
+			assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).look, look, `${divider} ${motion} saved`);
+			assert.deepEqual(readDockLook(path), look, `${divider} ${motion} read back`);
+		}
+	}
+	writeFileSync(path, '{"enabled":true,"look":{"logo":"text","frames":"none","colors":"soft"}}');
+	assert.deepEqual(readDockLook(path), { logo: "text", frames: "none", colors: "soft", divider: "medium", motion: "on" }, "an old state.json without them");
+	writeFileSync(path, '{"look":{"divider":"loud","motion":"slow"}}');
+	assert.deepEqual(readDockLook(path), DEFAULT_LOOK, "bad values fall back");
+	assert.equal(writeDockEnabled(path, false), true);
+	assert.equal(writeDockLook(path, { ...DEFAULT_LOOK, divider: "strong", motion: "off" }), true);
+	assert.equal(writeDockEnabled(path, true, "dark", true), true);
+	assert.deepEqual(readDockLook(path), { ...DEFAULT_LOOK, divider: "strong", motion: "off" }, "on|off keep them");
 });
