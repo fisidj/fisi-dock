@@ -1,5 +1,6 @@
 import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
+import type { FrameStyle } from "./look.ts";
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
@@ -739,6 +740,46 @@ function drawFaded(section: Section, width: number): string[] {
 	return [fadedTopBorder(section, width), ...body, fadedEdge(`╰${"─".repeat(Math.max(0, width - 2))}╯`, 0, width)];
 }
 
+/** A `─` run `cells` long, brightest at its middle and fading into the background at both ends, like the divider. */
+function fadedRule(cells: number): string {
+	return fadedEdge("─".repeat(Math.max(0, cells)), 0, cells);
+}
+
+/** topBorder's fallbacks without the box: ` title ─── right `, the right value dropping, then the title ellipsized. */
+function ruleHeader(section: Section, width: number): string {
+	const title = (text: string) => bold(fg(panelVivid(section.color), text));
+	const titleWidth = visibleWidth(section.title);
+	// " " title " " rule [" " right] " ", with at least one rule cell.
+	const bare = 1 + titleWidth + 1 + 1 + 1;
+	if (section.right) {
+		const fill = width - (1 + titleWidth + 1) - visibleWidth(section.right) - 2;
+		if (fill >= 1) return ` ${title(section.title)} ${fadedRule(fill)} ${section.right} `;
+	}
+	if (width >= bare) return ` ${title(section.title)} ${fadedRule(width - bare + 1)} `;
+	if (width >= 5) return ` ${title(ellipsize(section.title, width - 4))} ${fadedRule(1)} `;
+	return fadedRule(width);
+}
+
+/** A section with no box (S3): its title on a fading rule, then its rows two cells in, highlighted rows in the boxed rows' columns. */
+function drawBare(section: Section, width: number): string[] {
+	const inner = width - 4;
+	const body = section.rows.map((row) => {
+		const text = padEnd(ellipsize(row.text, inner), inner);
+		if (!row.highlight) return `  ${text}  `;
+		// Cut points end in a full reset; put the row background back after each.
+		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
+		return ` ${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m `;
+	});
+	return [ruleHeader(section, width), ...body];
+}
+
+/** Every section of the panel in frame style `frames`; `gaps` puts a blank row between consecutive no-box sections (S3). */
+function drawSections(sections: Section[], width: number, frames: FrameStyle, gaps: boolean): string[] {
+	if (frames === "classic") return sections.flatMap((section) => drawSection(section, width));
+	if (frames !== "none") return sections.flatMap((section) => drawFaded(section, width));
+	return sections.flatMap((section, index) => [...(gaps && index > 0 ? [" ".repeat(width)] : []), ...drawBare(section, width)]);
+}
+
 function logoLines(width: number): string[] {
 	const lines = renderLogo(width);
 	const widest = Math.max(0, ...lines.map(visibleWidth));
@@ -756,6 +797,8 @@ export interface PanelOptions {
 	oddExpanded?: boolean;
 	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
 	maxRows?: number;
+	/** The section frames (S3): faded boxes (the default, S6), the classic flat gray box, or no box. With no box, a short screen drops the blank rows between sections before anything else. */
+	frames?: FrameStyle;
 }
 
 interface Shape {
@@ -795,7 +838,8 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 	const unpushed = model.headsUp?.some((warning) => warning.kind === "unpushed") ?? false;
 	// A check that runs, waits or failed keeps CI on screen longer (S77).
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
-	const draw = (shape: Shape) => {
+	const frames = options.frames ?? "faded";
+	const draw = (shape: Shape, gaps: boolean) => {
 		const sections = [
 			sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS),
 			model.headsUp && headsUpSection(model.headsUp, inner),
@@ -806,12 +850,14 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner)) || emptyTodoSection(inner),
 			shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined,
 		].filter((section): section is Section => section !== undefined);
-		return [...logoLines(columns), ...sections.flatMap((section) => drawFaded(section, columns))];
+		return [...logoLines(columns), ...drawSections(sections, columns, frames, gaps)];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;
+	// No-box sections give up their blank rows first, then the panel shrinks as usual.
+	const steps: [Shape, boolean][] = [...(frames === "none" ? [[SHAPES[0], true] as [Shape, boolean]] : []), ...SHAPES.map((shape): [Shape, boolean] => [shape, frames !== "none"])];
 	let lines: string[] = [];
-	for (const shape of SHAPES) {
-		lines = draw(shape);
+	for (const [shape, gaps] of steps) {
+		lines = draw(shape, gaps);
 		if (lines.length <= limit) break;
 	}
 	return lines.map((line) => truncateToWidth(line, columns));
@@ -894,6 +940,9 @@ function boxed(text: string, width: number): string {
 	return padEnd(text, width);
 }
 
+/** How /dock draws its panel: the rail's look (S3). */
+export type DockOptions = Pick<PanelOptions, "frames">;
+
 export interface DockView {
 	lines: string[];
 	/** The first panel row shown, clamped to what can scroll. */
@@ -908,14 +957,14 @@ export interface DockView {
  * while the panel is taller than the screen, how to scroll. Every row is
  * exactly `width` columns and there are always `height` rows.
  */
-export function renderDock(model: PanelModel, width: number, height: number, offset = 0): DockView {
+export function renderDock(model: PanelModel, width: number, height: number, offset = 0, options: DockOptions = {}): DockView {
 	const columns = Math.max(0, Math.floor(width));
 	const rows = Math.max(0, Math.floor(height));
 	if (columns === 0 || rows === 0) return { lines: [], offset: 0 };
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true }) : [];
+	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));

@@ -2436,3 +2436,150 @@ test("box borders fade like the divider: brightest at the middle of each edge, c
 	assert.equal(Math.max(...left), left[Math.floor(left.length / 2)], "the sides are brightest at the middle row");
 	assert.deepEqual(right, left, "both sides match on each row");
 });
+
+// --- Look settings S3/S6: frame styles (faded, classic, none) ---------------------
+
+const tiny: PanelModel = { session: { project: "p" }, footer: { cost: 0.012, rdd: "on" } } as PanelModel;
+/** The rail's lines from the session section on, logo left out. */
+const fromSession = (lines: string[]) => lines.slice(lines.findIndex((line) => /^\s*(╭─ )?session /.test(plain(line))));
+
+test("without a frames option the panel, the rail and /dock draw today's faded boxes byte for byte (S6)", () => {
+	for (const model of [samplePanelModel, longModel, tiny]) {
+		assert.deepEqual(renderPanel(model, 47), renderPanel(model, 47, { frames: "faded" }));
+		assert.deepEqual(renderRail(model, 47, { maxRows: 60 }), renderRail(model, 47, { maxRows: 60, frames: "faded" }));
+		assert.deepEqual(renderDock(model, 57, 40), renderDock(model, 57, 40, 0, { frames: "faded" }));
+	}
+});
+
+test("classic frames draw today's box geometry in the flat frame gray (S3)", () => {
+	const row = (text: string) => `│ ${text.padEnd(43)} │`;
+	const bottom = `╰${"─".repeat(45)}╯`;
+	const raw = fromSession(renderPanel(tiny, 47, { frames: "classic" }));
+	assert.deepEqual(raw.map(plain), [
+		`╭─ session ${"─".repeat(35)}╮`,
+		row("project  p"),
+		row("cost     $0.012"),
+		bottom,
+		`╭─ ODD ${"─".repeat(39)}╮`,
+		row("○ ready · phases show while I work"),
+		bottom,
+		`╭─ RDD ${"─".repeat(34)} on ─╮`,
+		row("● watching · reviews high-risk changes"),
+		bottom,
+		`╭─ todo ${"─".repeat(38)}╮`,
+		row("○ no tasks · the list shows while I plan"),
+		bottom,
+	]);
+	const flat = fgCode(palette.frame);
+	for (const line of raw) {
+		assert.ok(line.startsWith(flat), JSON.stringify(line));
+		assert.equal(frameLight(line, "╭╮╰╯─│").filter((red) => red !== palette.frame[0]).length, 0, `only flat frame glyphs: ${JSON.stringify(plain(line))}`);
+	}
+	const title = raw.find((line) => plain(line).startsWith("╭─ RDD"))!;
+	assert.ok(title.includes(`\x1b[1m${fgCode(panelVivid(palette.rose))}RDD`), "the title bold in its vivid color");
+	assert.ok(title.includes(`\x1b[1m${fgCode(panelVivid(palette.green))}on`), "the right value styled as today");
+});
+
+test("no-box frames draw each title on a rule, rows two cells in and one blank row between sections (S3)", () => {
+	const row = (text: string) => `  ${text}`.padEnd(47);
+	assert.deepEqual(fromSession(renderPanel(tiny, 47, { frames: "none" })).map(plain), [
+		` session ${"─".repeat(37)} `,
+		row("project  p"),
+		row("cost     $0.012"),
+		" ".repeat(47),
+		` ODD ${"─".repeat(41)} `,
+		row("○ ready · phases show while I work"),
+		" ".repeat(47),
+		` RDD ${"─".repeat(38)} on `,
+		row("● watching · reviews high-risk changes"),
+		" ".repeat(47),
+		` todo ${"─".repeat(40)} `,
+		row("○ no tasks · the list shows while I plan"),
+	]);
+});
+
+test("no-box frames draw no box glyph; the title stays vivid and the rule fades symmetrically (S3)", () => {
+	for (const model of [samplePanelModel, longModel, tiny]) {
+		for (const line of fromSession(renderPanel(model, 47, { frames: "none" })).map(plain)) {
+			assert.ok(!/[╭╮╰╯]/.test(line), line);
+			assert.ok(!/^│|│$/.test(line), `no side frame: ${line}`);
+		}
+	}
+	const raw = fromSession(renderPanel(tiny, 47, { frames: "none" }));
+	const header = raw.find((line) => plain(line).startsWith(" RDD "))!;
+	assert.ok(header.includes(`\x1b[1m${fgCode(panelVivid(palette.rose))}RDD`), "the title bold in its vivid color");
+	assert.ok(header.includes(`\x1b[1m${fgCode(panelVivid(palette.green))}on`), "the right value styled as today");
+	const rule = frameLight(header, "─");
+	assert.equal(rule.length, 38);
+	assert.deepEqual(rule, [...rule].reverse(), "the rule is symmetric");
+	assert.ok(rule[0] <= 0x18 && rule.at(-1)! <= 0x18, "both ends sink into the background");
+	assert.ok(Math.max(...rule) > 0x50, "the rule lights up in the middle");
+	for (let index = 1; index < rule.length / 2; index++) assert.ok(rule[index] >= rule[index - 1], `rule cell ${index} dims toward the ends`);
+});
+
+test("a no-box highlighted row keeps the boxed column layout: bar, text, then a plain margin (S3)", () => {
+	const lines = renderPanel(samplePanelModel, 47, { frames: "none" });
+	const active = lines.find((line) => line.includes(HIGHLIGHT_BG) && plain(line).includes("Confirm CI is green"))!;
+	assert.ok(active.startsWith(` ${HIGHLIGHT_BG}${fgCode(palette.pink)}▎`), JSON.stringify(active));
+	assert.ok(active.endsWith(" \x1b[49m "), JSON.stringify(active));
+	assert.equal(visibleWidth(active), 47);
+	const boxedActive = renderPanel(samplePanelModel, 47).find((line) => plain(line).includes("Confirm CI is green"))!;
+	assert.equal(plain(active), ` ${plain(boxedActive).slice(1, -1)} `, "same columns as the boxed row");
+});
+
+test("no-box frames on a short screen drop the blank rows between sections first; the other styles keep today's steps (S3)", () => {
+	const full = renderPanel(samplePanelModel, 47, { frames: "none" });
+	const blank = " ".repeat(47);
+	assert.ok(full.map(plain).includes(blank));
+	assert.deepEqual(renderPanel(samplePanelModel, 47, { frames: "none", maxRows: full.length }), full, "it fits: blank rows drawn");
+	const short = renderPanel(samplePanelModel, 47, { frames: "none", maxRows: full.length - 1 });
+	assert.deepEqual(short, full.filter((line) => plain(line) !== blank), "only the blank rows left, the spacers stay");
+	const shorter = renderPanel(samplePanelModel, 47, { frames: "none", maxRows: short.length - 1 }).map(plain);
+	assert.ok(!shorter.includes(blank) && shorter.length < short.length - 1, "then today's steps");
+	for (const frames of ["faded", "classic"] as const) {
+		const boxedFull = renderPanel(samplePanelModel, 47, { frames });
+		const boxedShort = renderPanel(samplePanelModel, 47, { frames, maxRows: boxedFull.length - 1 }).map(plain);
+		assert.deepEqual(boxedShort, renderPanel(samplePanelModel, 47, { maxRows: boxedFull.length - 1 }).map(plain), `${frames}: today's first step`);
+	}
+});
+
+test("the rail keeps its fading divider for every frame style, and /dock honors frames (S3)", () => {
+	for (const frames of ["faded", "classic", "none"] as const) {
+		const rail = renderRail(tiny, 47, { maxRows: 30, frames });
+		const panel = renderPanel(tiny, 45, { maxRows: 30, frames });
+		assert.equal(rail.length, 30);
+		assert.deepEqual(rail.map(dividerBrightness), renderRail(tiny, 47, { maxRows: 30 }).map(dividerBrightness), `${frames}: same divider`);
+		assert.deepEqual(rail.slice(0, panel.length).map((line) => plain(line).slice(2)), panel.map((line) => plain(line).padEnd(45)));
+		const dock = renderDock(samplePanelModel, 57, 200, 0, { frames }).lines.map((line) => plain(line).slice(1, -1).trimEnd());
+		const expected = renderPanel(samplePanelModel, 55, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames }).map((line) => plain(line).trimEnd());
+		assert.deepEqual(dock.slice(DOCK_TOP_ROWS, DOCK_TOP_ROWS + expected.length), expected, `${frames}: /dock draws the panel in that style`);
+	}
+});
+
+test("the narrow todo and agents cards stay flat boxes whatever the frame style (S3)", () => {
+	// The cards take no frame option: they are the same as before for every look.
+	assert.ok(renderTodoCard(samplePanelModel.todo, 40)[0].startsWith(`${fgCode(palette.frame)}╭─ `));
+	assert.ok(renderAgentsCard(samplePanelModel.agents, 40, 1, 0)[0].startsWith(`${fgCode(palette.frame)}╭─ `));
+});
+
+for (const frames of ["faded", "classic", "none"] as const) {
+	test(`every ${frames} line fits the width, every section line fills it, sample and long models (S3)`, () => {
+		for (const width of [55, 47, 40, 30, 20]) {
+			for (const model of [samplePanelModel, longModel, tiny]) {
+				const lines = renderPanel(model, width, { frames });
+				for (const line of lines) assert.ok(visibleWidth(line) <= width, `${frames} ${width}: ${JSON.stringify(plain(line))}`);
+				for (const line of fromSession(lines)) assert.equal(visibleWidth(line), width, `${frames} ${width}: ${JSON.stringify(plain(line))}`);
+				for (const line of renderRail(model, width, { frames, maxRows: 80 })) assert.equal(visibleWidth(line), width, `rail ${frames} ${width}`);
+			}
+		}
+	});
+}
+
+test("no-box headers fall back like the boxed top border on narrow widths: the right value drops, then the title ellipsizes (S3)", () => {
+	const header = (width: number, title: string) => plain(renderPanel(tiny, width, { frames: "none" }).find((line) => plain(line).startsWith(` ${title}`))!);
+	assert.equal(header(12, "R"), ` RDD ${"─".repeat(3)} on `);
+	assert.equal(header(10, "R"), ` RDD ─ on `, "one rule cell is enough");
+	assert.equal(header(9, "R"), ` RDD ${"─".repeat(3)} `, "no room for the value: it drops");
+	assert.equal(header(7, "R"), " RDD ─ ");
+	assert.equal(header(8, "s"), " ses… ─ ", "the title ellipsizes to keep one rule cell");
+});
