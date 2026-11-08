@@ -110,8 +110,8 @@ export function contextColor(percent: number): Rgb {
 	return palette.teal;
 }
 
-// The session section is design session-section/02 (Grouped): three groups
-// named by a muted label and a faint stub (where, usage, connections), one
+// The session section is design session-section/02 (Grouped) without its group
+// labels (sidebar-chrome/02): where, usage and connections in that order, one
 // muted key column so every value starts at the same place, and only the meter
 // readout and the cost flush right.
 
@@ -129,9 +129,6 @@ const CONNECTION_NAME_CAP = 12;
 const MCP_ROWS = 4;
 
 const sessionKey = (label: string) => muted(label.padEnd(KEY_CELLS));
-
-/** A group's name: muted, with a short faint stub instead of a full-width rule. */
-const groupLabel = (label: string): Row => ({ text: muted(label) + fg(palette.faint, " ──") });
 
 /**
  * The context meter: one cell per column; filled cells a heavy `━` in `color`,
@@ -253,22 +250,14 @@ function connectionRows(session: SessionInfo, width: number, mcpCap = MCP_ROWS):
 
 /**
  * `unpushed`: the heads-up already says how many commits are ahead, so ↑N is
- * left out (S8). `labels` false leaves out the group labels (short screens);
- * one group alone never has one: a label tells groups apart. `mcpCap`: the
- * mcp rows at most (S5).
+ * left out (S8). `mcpCap`: the mcp rows at most (S5).
  */
-function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, labels = true, mcpCap = MCP_ROWS): Section {
+function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, mcpCap = MCP_ROWS): Section {
 	const ahead = session.ahead && !unpushed ? ` ↑${session.ahead}` : "";
 	const branch = session.branch ? `  ${fg(palette.green, session.branch + ahead)}` : "";
 	const where: Row = { text: ellipsize(sessionKey("project") + bold(plainText(session.project)) + branch, width) };
-	const groups: [string, Row[]][] = [
-		["where", [where]],
-		["usage", [...(session.contextPercent !== undefined ? contextRows(session, width) : []), ...profileRows(session, width, footer)]],
-		["connections", connectionRows(session, width, mcpCap)],
-	];
-	const shown = groups.filter(([, rows]) => rows.length > 0);
-	const named = labels && shown.length > 1;
-	return { title: "session", color: palette.teal, rows: shown.flatMap(([label, rows]) => (named ? [groupLabel(label), ...rows] : rows)) };
+	const usage = [...(session.contextPercent !== undefined ? contextRows(session, width) : []), ...profileRows(session, width, footer)];
+	return { title: "session", color: palette.teal, rows: [where, ...usage, ...connectionRows(session, width, mcpCap)] };
 }
 
 // `!` is one column in every terminal; `⚠` is ambiguous-width and could push a line past the rail.
@@ -698,10 +687,62 @@ function drawSection(section: Section, width: number): string[] {
 	return [topBorder(section, width), ...body, fg(frame, `╰${"─".repeat(Math.max(0, width - 2))}╯`)];
 }
 
+/** The divider's and the box frames' brightest cell, at their middle: this share of the text color over the background. */
+const FADE_PEAK = 0.35;
+
+/** Cell `index` of a `count`-cell line's share of FADE_PEAK: 1 at the middle, easing to 0 at both ends (smoothstep). */
+function fadeAmount(index: number, count: number): number {
+	const middle = 1 - Math.abs(((index + 0.5) / count) * 2 - 1);
+	return FADE_PEAK * middle * middle * (3 - 2 * middle);
+}
+
+/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. */
+function fadedEdge(text: string, start: number, width: number): string {
+	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(dim(palette.text, fadeAmount(start + index, width)), glyph))).join("");
+}
+
+/** topBorder's geometry with every frame glyph faded by its column (sidebar-chrome/02). */
+function fadedTopBorder(section: Section, width: number): string {
+	const title = (text: string) => bold(fg(panelVivid(section.color), text));
+	const titleWidth = visibleWidth(section.title);
+	const edge = (text: string, start: number) => fadedEdge(text, start, width);
+	const bare = 3 + titleWidth + 1 + 1 + 1;
+	if (section.right) {
+		const right = ` ${section.right} `;
+		const fill = width - (3 + titleWidth + 1) - visibleWidth(right) - 2;
+		if (fill >= 1) return edge("╭─ ", 0) + title(section.title) + edge(` ${"─".repeat(fill)}`, 3 + titleWidth) + right + edge("─╮", width - 2);
+	}
+	if (width >= bare) return edge("╭─ ", 0) + title(section.title) + edge(` ${"─".repeat(width - bare + 1)}╮`, 3 + titleWidth);
+	if (width >= 7) {
+		const cut = ellipsize(section.title, width - 6);
+		return edge("╭─ ", 0) + title(cut) + edge(" ─╮", 3 + visibleWidth(cut));
+	}
+	return edge(truncateToWidth(`╭${"─".repeat(Math.max(0, width - 2))}╮`, width), 0);
+}
+
+/**
+ * A rail section (sidebar-chrome/02): drawSection's box with a faded frame. The
+ * top and bottom fade by column, the sides by row over the box's full height, so
+ * each edge is brightest at its middle and the corners sink into the background.
+ */
+function drawFaded(section: Section, width: number): string[] {
+	const inner = width - 4;
+	const height = section.rows.length + 2;
+	const body = section.rows.map((row, index) => {
+		const side = fg(dim(palette.text, fadeAmount(index + 1, height)), "│");
+		const text = padEnd(ellipsize(row.text, inner), inner);
+		if (!row.highlight) return `${side} ${text} ${side}`;
+		// Cut points end in a full reset; put the row background back after each.
+		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
+		return `${side}${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m${side}`;
+	});
+	return [fadedTopBorder(section, width), ...body, fadedEdge(`╰${"─".repeat(Math.max(0, width - 2))}╯`, 0, width)];
+}
+
 function logoLines(width: number): string[] {
 	const lines = renderLogo(width);
 	const widest = Math.max(0, ...lines.map(visibleWidth));
-	// Centered over the section frames, at most two columns in.
+	// Centered over the sections, at most two columns in.
 	const indent = " ".repeat(Math.max(0, Math.min(2, Math.floor((width - widest) / 2))));
 	return lines.map((line) => indent + line);
 }
@@ -713,13 +754,11 @@ export interface PanelOptions {
 	listsExpanded?: boolean;
 	/** /dock only (S52): every kept ODD step after the request settled, instead of the summary row. */
 	oddExpanded?: boolean;
-	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the session's group labels, then the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
+	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
 	maxRows?: number;
 }
 
 interface Shape {
-	/** The session's group labels (`where ──`, `usage ──`, `connections ──`), the first rows to go (design session-section/02). */
-	sessionLabels: boolean;
 	/** The `│` rows between ODD steps and between RDD reviews. */
 	spacers: boolean;
 	/** The muted line under each finished ODD step (S60); the active step keeps its own until `rdd` drops. */
@@ -740,13 +779,12 @@ interface Shape {
 
 /** Full panel first, then one more part left out per step; the logo, session, heads-up, ODD, todo (even empty, S94) and agents never drop (S38, S52). */
 const SHAPES: Shape[] = [
-	{ sessionLabels: true, spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
-	{ sessionLabels: false, spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
-	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
-	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: true, ci: true, rdd: true },
-	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: true, rdd: true },
-	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: true },
-	{ sessionLabels: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
+	{ spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
+	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
+	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: true, ci: true, rdd: true },
+	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: true, rdd: true },
+	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: true },
+	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
 ];
 
 /** Every rail line for `model`, none wider than `width` visible columns. */
@@ -759,7 +797,7 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const draw = (shape: Shape) => {
 		const sections = [
-			sessionSection(model.session, inner, unpushed, model.footer, shape.sessionLabels, options.listsExpanded ? Infinity : MCP_ROWS),
+			sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS),
 			model.headsUp && headsUpSection(model.headsUp, inner),
 			oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
 			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails) : undefined,
@@ -768,7 +806,7 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner)) || emptyTodoSection(inner),
 			shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined,
 		].filter((section): section is Section => section !== undefined);
-		return [...logoLines(columns), ...sections.flatMap((section) => drawSection(section, columns))];
+		return [...logoLines(columns), ...sections.flatMap((section) => drawFaded(section, columns))];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;
 	let lines: string[] = [];
@@ -777,6 +815,30 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 		if (lines.length <= limit) break;
 	}
 	return lines.map((line) => truncateToWidth(line, columns));
+}
+
+/** A divider cell dimmer than this share is drawn blank. */
+const DIVIDER_FLOOR = 0.02;
+
+/** Row `index` of `rows`' divider cell (sidebar-chrome): a `│` brightest at the middle that fades into the background at the top and bottom. */
+function dividerCell(index: number, rows: number): string {
+	const amount = fadeAmount(index, rows);
+	return amount < DIVIDER_FLOOR ? " " : fg(dim(palette.text, amount), "│");
+}
+
+/**
+ * The wide rail (sidebar-chrome): the divider between the chat and the panel in
+ * the first column, a blank so it never touches a box side, then the panel two
+ * columns narrower. With `maxRows` the rail fills those rows, so the divider
+ * spans the screen even under a short panel.
+ */
+export function renderRail(model: PanelModel, width: number, options: PanelOptions = {}): string[] {
+	const columns = Math.max(0, Math.floor(width));
+	if (columns < 3) return renderPanel(model, columns, options);
+	const panel = renderPanel(model, columns - 2, options);
+	const screen = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.floor(options.maxRows) : 0;
+	const rows = Math.max(panel.length, screen);
+	return Array.from({ length: rows }, (_, index) => `${dividerCell(index, rows)} ${padEnd(panel[index] ?? "", columns - 2)}`);
 }
 
 /**

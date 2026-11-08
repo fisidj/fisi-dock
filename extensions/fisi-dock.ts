@@ -25,7 +25,7 @@ import { memoryCallEnd, memoryInfo, NO_MEMORY_CALLS } from "../lib/memory.ts";
 import { readSessionProfile } from "../lib/profile.ts";
 import { createOddTracker, type OddTracker } from "../lib/odd-timeline.ts";
 import { readOrbMotion } from "../lib/orbs.ts";
-import { renderAgentsCard, renderDock, renderPanel, renderTodoCard } from "../lib/panel.ts";
+import { renderAgentsCard, renderDock, renderRail, renderTodoCard } from "../lib/panel.ts";
 import { estimateSessionCost, registryPrices, type ModelFinder } from "../lib/pricing.ts";
 import { createWaveClock, type WaveClock } from "../lib/label-wave.ts";
 import { createPromptBox, type EditorHost, type PromptBoxInstall } from "../lib/prompt-box.ts";
@@ -800,7 +800,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 				render: (width: number) => {
 					const rows = maxRows();
 					const key = `${width}:${rows ?? ""}:${session.store.digest()}`;
-					if (drawn?.key !== key) drawn = { key, lines: renderPanel(session.store.model(), width, { maxRows: rows }) };
+					if (drawn?.key !== key) drawn = { key, lines: renderRail(session.store.model(), width, { maxRows: rows }) };
 					return drawn.lines;
 				},
 				// Gentle Shell main wraps rail parts in its own card on a transparent surface:

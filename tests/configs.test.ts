@@ -284,8 +284,15 @@ function sweep(surfaces: Record<string, (width: number) => string[]>, why: strin
 	}
 }
 
+/** The wide rail's panel, plain: each line less the divider column and the blank after it (sidebar-chrome). */
+const railPanel = (lines: string[]) =>
+	lines.map(plain).map((line) => {
+		assert.match(line, /^[│ ] /, `the divider column and a blank: ${JSON.stringify(line)}`);
+		return line.slice(2);
+	});
+/** The session section's rows in the rail at a width. */
 const sessionRows = (lines: string[]) => {
-	const shown = lines.map(plain);
+	const shown = railPanel(lines);
 	const start = shown.findIndex((line) => line.startsWith("╭─ session"));
 	return shown.slice(start + 1, shown.findIndex((line, index) => index > start && line.startsWith("╰"))).map((line) => line.replace(/ +│$/, ""));
 };
@@ -353,7 +360,7 @@ test("S6 ten MCP servers in Pi's mcp.json: the rail caps them with a summary row
 	const { surfaces, stop } = await start(sim);
 	const connections = (lines: string[]) => {
 		const rows = sessionRows(lines);
-		return rows.slice(rows.findIndex((line) => line.startsWith("│ connections")) + 1);
+		return rows.slice(rows.findIndex((line) => line.startsWith("│ memory")));
 	};
 	await waitFor(() => connections(surfaces["rail panel"](58)).some((line) => line.startsWith("│ mcp")));
 	assert.deepEqual(connections(surfaces["rail panel"](58)), [

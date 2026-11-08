@@ -18,12 +18,9 @@ It is a Pi package (an extension and a theme) that paints its own panel in Gentl
 
 ```text
 ╭─ session ───────────────────────────────────╮
-│ where ──                                    │
 │ project  my-sample-app  main ↑1             │
-│ usage ──                                    │
 │ context  ━─────────┼────┼── 6% · 12.1k/200k │
 │ profile  claude                      $0.012 │
-│ connections ──                              │
 │ memory   ● engram    connected · 3 saved    │
 │ mcp      ● context7  connected              │
 │          ● github    connected              │
@@ -44,11 +41,11 @@ It is a Pi package (an extension and a theme) that paints its own panel in Gentl
 ╰─────────────────────────────────────────────╯
 ```
 
-(Sample data, from `node scripts/preview.ts 47`; in the terminal every section has its own color.)
+(Sample data, from `node scripts/preview.ts 47`; in the terminal every section title has its own color, and each frame fades from a soft gray at the middle of its edges into the background at the corners. In the rail, a thin divider line runs between the chat and the panel, brightest halfway down and fading out at the top and bottom. The desktop screenshot above predates this look: it still shows flat frames and the session's group labels.)
 
 ## What you get
 
-- **Side panel** in the fullscreen rail, one framed section each: `session` in three groups (`where`: project and branch; `usage`: context meter, model profile and cost; `connections`: Engram memory and MCP servers), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent rows and sections step aside first.
+- **Side panel** in the fullscreen rail, one framed section each, its frame fading toward the corners and a fading divider line between the chat and the panel: `session` (project and branch, context meter, model profile and cost, Engram memory and MCP servers, in that order), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent rows and sections step aside first.
 - **Start screen**: a welcome card in place of Gentle Shell's rose banner (Gentle Shell's version, the project and branch, the commands to begin with), and Pi's list of loaded skills, prompts and extensions folded into one `loaded` box under it. Your expand key (`ctrl+o` by default) shows Pi's full listing; Pi's warnings always show.
 - **Prompt box**: Gentle Shell's prompt framed, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.

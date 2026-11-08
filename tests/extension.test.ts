@@ -12,6 +12,13 @@ import { visibleWidth } from "../lib/text.ts";
 import { USER_FRAME_HOOK } from "../lib/user-frame.ts";
 
 const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
+/** The wide rail's first two columns (sidebar-chrome): the divider, a neutral gray `│` or a blank where it fades out, then a blank. */
+const RAIL_PREFIX = /^(?:\x1b\[38;2;(\d+);\1;\1m│\x1b\[39m| ) /;
+/** The panel inside a wide rail line, styles kept: the line less the divider column and the blank after it. */
+function railPanelLine(line: string): string {
+	assert.match(line, RAIL_PREFIX, `the divider column and a blank: ${JSON.stringify(plain(line))}`);
+	return line.replace(RAIL_PREFIX, "");
+}
 
 // Spinners move with the wall clock unless motion is potato (S31); the still ⠹
 // keeps these tests independent of the time they run at. The animated tests
@@ -415,7 +422,9 @@ test("heads-up from fake git output, a fake todo and fixture ODD plans (S14, S8)
 	const sim = simulate(FIXTURE, { exec, branch });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	const rail = () => sim.parts.get("footer") as { render(width: number): string[] };
+	const footer = sim.parts.get("footer") as { render(width: number): string[] };
+	// The panel inside the wide rail (sidebar-chrome); the width checks below read the rail as drawn.
+	const rail = () => ({ render: (width: number) => footer.render(width).map(railPanelLine) });
 
 	await waitFor(() => headsUpRows(rail().render(47)).some((line) => line.includes("ODD plan")) && headsUpRows(rail().render(47)).some((line) => line.includes("branches")));
 	const first = headsUpRows(rail().render(47));
@@ -438,7 +447,7 @@ test("heads-up from fake git output, a fake todo and fixture ODD plans (S14, S8)
 	assert.ok(settled.some((line) => line.includes("! 3 todo tasks left")));
 	for (const width of [47, 30, 20]) {
 		const lines = rail().render(width);
-		for (const line of lines) assert.ok(visibleWidth(line) <= width);
+		for (const line of footer.render(width)) assert.ok(visibleWidth(line) <= width);
 		console.log(`--- simulated heads-up after the run settled, ${width} columns\n${headsUpRows(lines).join("\n")}`);
 	}
 	sim.emit("agent_start");
@@ -446,7 +455,8 @@ test("heads-up from fake git output, a fake todo and fixture ODD plans (S14, S8)
 	sim.emit("session_shutdown");
 });
 
-const railOf = (sim: ReturnType<typeof simulate>) => (width: number) => (sim.parts.get("footer") as { render(width: number): string[] }).render(width).map(plain);
+/** The panel the wide rail draws at `width`, plain: two columns narrower, after the divider and a blank (sidebar-chrome). */
+const railOf = (sim: ReturnType<typeof simulate>) => (width: number) => (sim.parts.get("footer") as { render(width: number): string[] }).render(width).map((line) => plain(railPanelLine(line)));
 
 const rddRows = (lines: string[]) => {
 	const start = lines.findIndex((line) => line.startsWith("╭─ RDD"));
@@ -704,18 +714,19 @@ test("narrow: a todo alone draws only the card; no todo keeps the strip and draw
 });
 
 test("no tasks: the rail draws the muted todo row; the narrow strip draws no todo card and no todo segment (S94, S28, S8)", () => {
-	const row = "│ ○ no tasks · the list shows while I plan    │";
+	// The rail at 47 draws the panel at 45, after the divider and a blank (sidebar-chrome).
+	const row = "│ ○ no tasks · the list shows while I plan  │";
 	let wide = true;
 	const sim = simulate("E:\\DEV\\app", { ownsHost: () => wide });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const strip = sim.widgets.get("fisi-dock-strip")!(sim.tui);
-	const rail = () => (sim.parts.get("footer") as { render(width: number): string[] }).render(47).map(plain);
+	const rail = () => railOf(sim)(47);
 	const todoRows = (lines: string[]) => lines.slice(lines.findIndex((line) => line.startsWith("╭─ todo")) + 1).slice(0, 2);
-	assert.deepEqual(todoRows(rail()), [row, `╰${"─".repeat(45)}╯`], "no todo list at all");
+	assert.deepEqual(todoRows(rail()), [row, `╰${"─".repeat(43)}╯`], "no todo list at all");
 	// Gentle Shell's progress event for a cleared list (lib/shell-todo.ts todoProgress: total 0).
 	sim.emitEvent("gentle-pi:todo:progress", { sessionId: "s1", done: 0, total: 0, current: null });
-	assert.deepEqual(todoRows(rail()), [row, `╰${"─".repeat(45)}╯`], "0 tasks");
+	assert.deepEqual(todoRows(rail()), [row, `╰${"─".repeat(43)}╯`], "0 tasks");
 	wide = false;
 	for (const width of [64, 53]) {
 		const lines = strip.render(width).map(plain);
@@ -1017,7 +1028,7 @@ test("running spinners move with the wall clock in the strip and the rail, and s
 	assert.ok(renders > before, "the next frame repaints");
 	assert.notEqual(rail.digest(), digest, "the rail memo key follows the frame");
 	assertJobCard(strip.render(64), "⠙");
-	assert.ok(rail.render(47).some((line) => /^│ ⠙ job-1 npm test +│$/.test(plain(line))), "rail agent row");
+	assert.ok(rail.render(47).some((line) => /^│ ⠙ job-1 npm test +│$/.test(plain(railPanelLine(line)))), "rail agent row");
 	t.mock.timers.tick(80);
 	assertJobCard(strip.render(64));
 
@@ -1027,7 +1038,7 @@ test("running spinners move with the wall clock in the strip and the rail, and s
 	t.mock.timers.tick(800);
 	assert.equal(renders, before, "nothing runs: no repaints");
 	assert.equal(rail.digest(), idle);
-	assert.ok(rail.render(47).some((line) => /^│ ✓ job-1 npm test +│$/.test(plain(line))));
+	assert.ok(rail.render(47).some((line) => /^│ ✓ job-1 npm test +│$/.test(plain(railPanelLine(line)))));
 	sim.emit("session_shutdown");
 });
 
@@ -1104,22 +1115,27 @@ test("short terminal: the rail panel keeps the logo and agents; the digest follo
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
 	const rail = sim.parts.get("footer") as { render(width: number): string[]; digest(): string };
-	const full = rail.render(58).map(plain);
+	// The panel inside the rail, after the divider and a blank (sidebar-chrome).
+	const panel = () => rail.render(58).map((line) => plain(railPanelLine(line)));
+	const full = panel();
 	assert.ok(!full[0].startsWith("╭"), "no rows known: the logo shows");
 	const tall = rail.digest();
 
 	// The rail sits under the top row: two rows of the screen are not the panel's.
 	terminal.rows = full.length + 2;
-	assert.deepEqual(rail.render(58).map(plain), full, "it fits: unchanged");
+	assert.deepEqual(panel(), full, "it fits: unchanged");
 	terminal.rows = full.length + 1;
-	const label = (line: string) => /^│ (where|usage|connections) ──/.test(line);
-	assert.ok(full.some(label), "the session's group labels");
-	assert.deepEqual(rail.render(58).map(plain), full.filter((line) => !label(line)), "the session's group labels drop first (artboard 02)");
-	terminal.rows = full.filter((line) => !label(line)).length + 1;
-	assert.deepEqual(rail.render(58).map(plain), full.filter((line) => !label(line)), "no odd or changes to drop: logo and agents stay, the rail scrolls");
+	assert.ok(!full.some((line) => /^│ (where|usage|connections) ──/.test(line)), "no session group labels to drop (sidebar-chrome 02)");
+	assert.deepEqual(panel(), full, "no labels, odd or changes to drop: logo and agents stay, the rail scrolls");
 	assert.notEqual(rail.digest(), tall, "the rail memo key follows the rows");
+	// A tall screen: the rail fills its rows so the divider spans them; the panel stays as is.
+	terminal.rows = full.length + 12;
+	const padded = panel();
+	assert.equal(padded.length, full.length + 10, "the rail fills the rows under the top row");
+	assert.deepEqual(padded.slice(0, full.length).map((line) => line.trimEnd()), full.map((line) => line.trimEnd()), "the panel on top, unchanged");
+	assert.deepEqual(padded.slice(full.length).map((line) => line.trim()), Array(10).fill(""), "blank rows under it");
 	terminal.rows = 6;
-	const tiny = rail.render(58).map(plain);
+	const tiny = panel();
 	assert.ok(!tiny[0].startsWith("╭") && tiny.some((line) => line.startsWith("╭─ session")) && tiny.some((line) => line.startsWith("╭─ agents")), "logo, session and agents kept");
 	for (const line of rail.render(58)) assert.ok(visibleWidth(line) <= 58);
 
@@ -1171,7 +1187,7 @@ test("idle refresh: git, heads-up git, plans and MCP state re-read every ~10 s w
 	await waitFor(() => count("worktree") > start.worktree);
 	assert.equal(count("worktree"), start.worktree + 1, "heads-up git re-read once");
 	assert.ok(rail().some((line) => /^│ mcp +● rea/.test(line)));
-	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => plain(line).startsWith("│ mcp"))!;
+	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(58).map(railPanelLine).find((line) => plain(line).startsWith("│ mcp"))!;
 	assert.ok(raw.includes(dotBefore([0x8f, 0xc9, 0x8f], "rea")), "MCP state refreshed without any event");
 
 	// A run is active: no idle reads (the run's own triggers refresh).
@@ -1213,15 +1229,12 @@ test("no MCP config: a muted `mcp none configured` row, cost in session and no f
 	await waitFor(() => railOf(sim)(58).some((line) => line.startsWith("│ mcp")));
 	const lines = railOf(sim)(58);
 	assert.deepEqual(sessionRows(lines).map((line) => line.replace(/ +│$/, "")), [
-		"│ where ──",
 		"│ project  app",
-		"│ usage ──",
 		"│ cost     $0.000",
-		"│ connections ──",
 		"│ memory   ○ engram  not installed",
 		"│ mcp      none configured",
 	]);
-	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => plain(line).startsWith("│ mcp"))!;
+	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(58).map(railPanelLine).find((line) => plain(line).startsWith("│ mcp"))!;
 	assert.ok(raw.includes("\x1b[38;2;108;108;108mnone configured"), "muted");
 	assert.match(lines.at(-1)!, /^╰─+╯$/, "the panel ends with the last section");
 	assert.ok(!lines.some((line) => /^─+$/.test(line)), "no footer separator");
@@ -1241,7 +1254,7 @@ test("engram memory row from gentle-engram's mem_* tools: not installed, connect
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const row = () => sessionRows(railOf(sim)(47)).find((line) => line.startsWith("│ memory"));
-	const raw = () => (sim.parts.get("footer") as { render(width: number): string[] }).render(47).find((line) => plain(line).startsWith("│ memory"))!;
+	const raw = () => (sim.parts.get("footer") as { render(width: number): string[] }).render(47).map(railPanelLine).find((line) => plain(line).startsWith("│ memory"))!;
 	const toolEnd = (toolName: string, isError = false) => {
 		for (const handler of sim.handlers.get("tool_execution_end") ?? []) handler({ type: "tool_execution_end", toolCallId: `c-${toolName}`, toolName, result: { content: [] }, isError }, sim.ctx);
 	};
@@ -1339,7 +1352,7 @@ test("MCP servers from Pi's mcp.json and the project's: one row each, green with
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const connections = () => {
 		const rows = sessionRows(railOf(sim)(58));
-		return rows.slice(rows.findIndex((line) => line.startsWith("│ connections")) + 1).map((line) => line.replace(/ +│$/, ""));
+		return rows.slice(rows.findIndex((line) => line.startsWith("│ memory"))).map((line) => line.replace(/ +│$/, ""));
 	};
 	await waitFor(() => connections().some((line) => line.startsWith("│ mcp")));
 	assert.deepEqual(connections(), [
@@ -1349,7 +1362,7 @@ test("MCP servers from Pi's mcp.json and the project's: one row each, green with
 		"│          ◌ rea       connecting",
 		"│          ◌ local     connecting",
 	], "an MCP server named engram is not gentle-engram's mem_save tool");
-	const raw = (name: string) => (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => /^│ (mcp| ) +[●◌✗] /.test(plain(line)) && plain(line).includes(` ${name} `))!;
+	const raw = (name: string) => (sim.parts.get("footer") as { render(width: number): string[] }).render(58).map(railPanelLine).find((line) => /^│ (mcp| ) +[●◌✗] /.test(plain(line)) && plain(line).includes(` ${name} `))!;
 	const glyphBefore = (color: readonly number[], glyph: string, name: string) => `\x1b[38;2;${color.join(";")}m${glyph}\x1b[39m \x1b[38;2;225;225;225m${name}`;
 	assert.ok(raw("engram").includes(glyphBefore([0x8f, 0xc9, 0x8f], "●", "engram")), "engram green");
 	assert.ok(raw("context7").includes(glyphBefore([0x8f, 0xc9, 0x8f], "●", "context7")), "context7 green (namespace)");
@@ -1366,7 +1379,7 @@ test("MCP servers from Pi's mcp.json and the project's: one row each, green with
 	assert.ok(raw("local").includes(glyphBefore([0x8f, 0xc9, 0x8f], "●", "local")), "local green once its tools exist");
 	const all = railOf(sim)(58).join("\n");
 	assert.ok(!all.includes("s3cr3t") && !all.includes("example.invalid") && !/\boff\b/.test(all), "only enabled server names are drawn");
-	for (const width of [58, 55, 47, 30, 20]) for (const line of railOf(sim)(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
+	for (const width of [58, 55, 47, 30, 20]) for (const line of (sim.parts.get("footer") as { render(width: number): string[] }).render(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
 	const shown = railOf(sim)(58);
 	console.log(`--- simulated session section with MCP, 58 columns\n${[shown.find((line) => line.startsWith("╭─ session"))!, ...sessionRows(shown)].join("\n")}`);
 	sim.emit("session_shutdown");
@@ -1462,10 +1475,10 @@ test("claude-bridge replies at cost 0: session row and narrow header show tokens
 	const rows = sessionRows(railOf(sim)(58));
 	// 2 × (0.4 + 4 + 1.14 + 1) = $13.08 at Anthropic's catalog price.
 	const costRow = rows.find((row) => row.startsWith("│ cost"));
-	assert.equal(costRow, `│ cost     12.4M tok · ≈$13${" ".repeat(29)} │`);
+	assert.equal(costRow, `│ cost     12.4M tok · ≈$13${" ".repeat(27)} │`, "the panel at 56 inside the rail at 58");
 	assert.ok(!rows.some((row) => row.includes("$0.000")), "no $0.000 while tokens are known");
 	assert.ok(asked.includes("claude-bridge/claude-opus-5-5") && asked.includes("anthropic/claude-opus-5-5"), "own provider first, then anthropic");
-	for (const width of [58, 47, 30, 20]) for (const line of railOf(sim)(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${line}`);
+	for (const width of [58, 47, 30, 20]) for (const line of (sim.parts.get("footer") as { render(width: number): string[] }).render(width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
 	wide = false;
 	const header = sim.parts.get("header") as { render(width: number): string[] };
 	assert.ok(plain(header.render(64)[0]).includes("  12.4M tok · ≈$13"), plain(header.render(64)[0]));

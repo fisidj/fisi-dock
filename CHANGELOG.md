@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Side rail (design sidebar-chrome/02): the section frames keep their boxes but fade, each edge a neutral gray brightest at its middle that sinks into the background at the corners; titles, counters and rows keep their colors. `/dock` draws the same frames; the narrow-screen todo and agents cards keep the flat gray frame.
+- A divider line runs between the chat and the panel in the rail's first column, brightest halfway down and fading out at the top and bottom, with a blank column before the panel (the panel is two columns narrower than the rail). The rail fills the screen's rows so the divider spans them.
+- The session section drops its group labels (`where ──`, `usage ──`, `connections ──`): project, context, profile, memory and mcp follow each other. On short screens the spacer rows between ODD steps and RDD reviews are now the first to go.
+
 ## 0.3.1
 
 ### Changed
