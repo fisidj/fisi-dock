@@ -2583,3 +2583,50 @@ test("no-box headers fall back like the boxed top border on narrow widths: the r
 	assert.equal(header(7, "R"), " RDD ─ ");
 	assert.equal(header(8, "s"), " ses… ─ ", "the title ellipsizes to keep one rule cell");
 });
+
+// --- Look settings S4, S6: soft colors ---------------------------------------------
+
+const lookModel: PanelModel = {
+	...samplePanelModel,
+	headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }],
+	ci: { sha: "fb7ca9d", checks: [{ name: "test", state: "running", seconds: 12 }] },
+};
+
+test("S4 soft colors: section titles and counters in their own pastel on the rail, /dock and the narrow cards, in every frame style", () => {
+	const titles: [string, (typeof palette)[keyof typeof palette]][] = [
+		["session", palette.teal], ["heads-up", palette.red], ["ODD", palette.amber], ["RDD", palette.rose],
+		["CI", palette.blue], ["agents", palette.lilac], ["todo", palette.coral], ["changes", palette.green],
+	];
+	const titleLine = (lines: string[], title: string) => lines.find((line) => plain(line).replace(/^[│ ]+/, "").replace(/^╭─ /, "").startsWith(`${title} `))!;
+	for (const frames of ["faded", "classic", "none"] as const) {
+		const views = [renderPanel(lookModel, 55, { frames, colors: "soft" }), renderRail(lookModel, 57, { frames, colors: "soft" }), renderDock(lookModel, DOCK_WIDTH + 2, 200, 0, { frames, colors: "soft" }).lines];
+		for (const lines of views) {
+			for (const [title, color] of titles) {
+				const line = titleLine(lines, title);
+				assert.ok(line.includes(`\x1b[1m${fgCode(color)}${title}`), `${frames}: ${title} bold in its pastel`);
+				assert.ok(!line.includes(fgCode(panelVivid(color))), `${frames}: ${title} no vivid tone`);
+			}
+			assert.ok(titleLine(lines, "todo").includes(`${fgCode(palette.coral)}3/7`), "the todo counter pastel");
+			assert.ok(titleLine(lines, "RDD").includes(`\x1b[1m${fgCode(palette.green)}on`), "the RDD switch pastel");
+		}
+		assert.deepEqual(renderPanel(lookModel, 55, { frames, colors: "soft" }).map(plain), renderPanel(lookModel, 55, { frames }).map(plain), `${frames}: same words and layout`);
+	}
+	const todoCard = renderTodoCard(lookModel.todo, 64, undefined, "soft");
+	assert.ok(todoCard[0].includes(`\x1b[1m${fgCode(palette.coral)}todo`) && todoCard[0].includes(`${fgCode(palette.coral)}3/7`), "the todo card pastel");
+	const agentsCard = renderAgentsCard(lookModel.agents, 53, 1, 0, "soft");
+	assert.ok(agentsCard[0].includes(`\x1b[1m${fgCode(palette.lilac)}agents`) && agentsCard[0].includes(`${fgCode(palette.lilac)}1`), "the agents card pastel");
+	assert.ok(!agentsCard[0].includes(fgCode(panelVivid(palette.lilac))), "no vivid lilac on the agents card");
+});
+
+test("S6 omitting the colors draws vivid, byte for byte, on the rail, /dock and the narrow cards", () => {
+	for (const frames of ["faded", "classic", "none"] as const) {
+		for (const width of [55, 47, 30]) {
+			assert.deepEqual(renderPanel(lookModel, width, { frames }), renderPanel(lookModel, width, { frames, colors: "vivid" }), `panel ${frames} ${width}`);
+			assert.deepEqual(renderRail(lookModel, width, { frames, maxRows: 40 }), renderRail(lookModel, width, { frames, maxRows: 40, colors: "vivid" }), `rail ${frames} ${width}`);
+		}
+		assert.deepEqual(renderDock(lookModel, 60, 50, 0, { frames }), renderDock(lookModel, 60, 50, 0, { frames, colors: "vivid" }), `dock ${frames}`);
+	}
+	assert.deepEqual(renderTodoCard(lookModel.todo, 64, 1), renderTodoCard(lookModel.todo, 64, 1, "vivid"));
+	assert.deepEqual(renderAgentsCard(lookModel.agents, 53, 1, 0), renderAgentsCard(lookModel.agents, 53, 1, 0, "vivid"));
+	assert.ok(renderPanel(lookModel, 55).some((line) => line.includes(`\x1b[1m${fgCode(panelVivid(palette.coral))}todo`)), "vivid is today's panelVivid");
+});

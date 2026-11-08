@@ -27,6 +27,11 @@ function pick<T extends string>(options: readonly T[], value: unknown, fallback:
 	return options.includes(value as T) ? (value as T) : fallback;
 }
 
+/** The Pi theme for color mode `mode` (S4): `Fisi-Dock` with the vivid accents, `Fisi-Dock-Soft` with the pastels from before 0.3.0. */
+export function themeNameFor(mode: ColorMode): "Fisi-Dock" | "Fisi-Dock-Soft" {
+	return mode === "soft" ? "Fisi-Dock-Soft" : "Fisi-Dock";
+}
+
 /** A look from anything (a saved file, say): each valid field kept, every other one the default. Never throws. */
 export function normalizeLook(value: unknown): Look {
 	const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};

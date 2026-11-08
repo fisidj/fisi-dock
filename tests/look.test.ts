@@ -29,3 +29,10 @@ test("S6 normalizeLook returns a fresh object, never DEFAULT_LOOK itself", () =>
 	look.logo = "none";
 	assert.equal(DEFAULT_LOOK.logo, "braille");
 });
+
+test("S4 themeNameFor: Fisi-Dock for vivid, Fisi-Dock-Soft for soft", async () => {
+	const { themeNameFor } = await import("../lib/look.ts");
+	assert.equal(themeNameFor("vivid"), "Fisi-Dock");
+	assert.equal(themeNameFor("soft"), "Fisi-Dock-Soft");
+	assert.equal(themeNameFor(DEFAULT_LOOK.colors), "Fisi-Dock", "S6 the default look keeps today's theme");
+});

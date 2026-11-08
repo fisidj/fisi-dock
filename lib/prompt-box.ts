@@ -13,7 +13,8 @@
 // before it (S96); with the clock the wave sweeps both and the petal turns by
 // the same clock (S97).
 import { waveLabel, wavePetal } from "./label-wave.ts";
-import { fg, palette, vivid } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { fg, labelAccent, palette } from "./palette.ts";
 import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
 
@@ -67,13 +68,13 @@ const join = (segments: Segment[], plain: string, styled = plain): Segment => ({
 	styled: segments.map((segment) => segment.styled).join(styled),
 });
 
-/** `● SUPER-YOLO  opus-5.5 · high`, or tight `● SUPER-YOLO opus-5.5·high`: the dot in vivid red, the rest as the prompt line paints it. */
-function ownSegment(parts: PromptLinePart[], tight: boolean): Segment {
+/** `● SUPER-YOLO  opus-5.5 · high`, or tight `● SUPER-YOLO opus-5.5·high`: the dot in vivid red (pastel in soft `colors`), the rest as the prompt line paints it. */
+function ownSegment(parts: PromptLinePart[], tight: boolean, colors?: ColorMode): Segment {
 	const mode = parts.find((part) => part.kind === "mode");
 	const rest = parts.filter((part) => part.kind !== "mode");
 	const dot = tight ? "·" : " · ";
 	const segments: Segment[] = [
-		...(mode ? [{ plain: `● ${mode.plain}`, styled: `${fg(vivid(palette.red), "●")} ${mode.styled}` }] : []),
+		...(mode ? [{ plain: `● ${mode.plain}`, styled: `${fg(labelAccent(palette.red, colors), "●")} ${mode.styled}` }] : []),
 		...(rest.length ? [join(rest, dot, fg(palette.faint, dot))] : []),
 	];
 	return join(segments, tight ? " " : "  ");
@@ -84,10 +85,10 @@ function ownSegment(parts: PromptLinePart[], tight: boolean): Segment {
  * `● SUPER-YOLO opus-5.5·high`, `● SUPER-YOLO opus-5.5`, `● SUPER-YOLO` (`opus-5.5` in
  * normal mode); a step that looks like the one before is left out. None without a model.
  */
-function ownSteps(labels: PromptLineModel): Segment[] {
-	const steps = promptLineSteps(labels);
+function ownSteps(labels: PromptLineModel, colors?: ColorMode): Segment[] {
+	const steps = promptLineSteps(labels, colors);
 	if (steps.length === 0) return [];
-	const segments = [ownSegment(steps[0], false), ...steps.map((step) => ownSegment(step, true))];
+	const segments = [ownSegment(steps[0], false, colors), ...steps.map((step) => ownSegment(step, true, colors))];
 	return segments.filter((segment, index) => segments.findIndex((other) => other.plain === segment.plain) === index);
 }
 
@@ -117,9 +118,10 @@ function isIdleLabel(label: string, scanning: boolean): boolean {
  * frame (S97). An ODD phase label gets `ODD ` before it, inside the wave; without
  * `waveAt` in Gentle Shell's label gray (S96). Too tight for `ODD ` the bare label stays.
  * Too tight for an idle label and the labels, the petal alone keeps them (S2); too tight for
- * the full labels even so, they compact step by step (S3).
+ * the full labels even so, they compact step by step (S3). `colors` paints the dot, the labels
+ * and the clock petal vivid (the default) or soft (look settings S4).
  */
-export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number): PromptBox {
+export function boxPromptRows(rows: string[], width: number, topRowCount: number, labels: PromptLineModel, waveAt?: number, colors?: ColorMode): PromptBox {
 	const unchanged: PromptBox = { rows, boxed: false, ruleShift: 0, buttonDropped: false, scanning: false };
 	const columns = Math.floor(width);
 	const top = Math.max(0, Math.min(rows.length, Number.isInteger(topRowCount) ? topRowCount : 0));
@@ -148,7 +150,7 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	const scanning = labelWidth >= 3 && labelEscapes >= labelWidth;
 	const wave = scanning && waveAt !== undefined;
 	// Every petal frame is one column like Gentle Shell's, so the rule never shifts (S97).
-	const clockPetal = wave ? wavePetal(waveAt) : undefined;
+	const clockPetal = wave ? wavePetal(waveAt, colors) : undefined;
 	const petal = clockPetal !== undefined && visibleWidth(clockPetal) === glyphWidth ? clockPetal : sliceColumns(rule, 2, 2 + glyphWidth);
 	const bare: Segment = { plain: label, styled: wave ? waveLabel(label, waveAt) : gentleLabel };
 	const prefixed: Segment | undefined = ODD_PHASE_LABEL.test(label)
@@ -161,7 +163,7 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	const tailText = buttonDropped ? tailMatch![1].slice(PANEL_BUTTON.length).trimStart() : (tailMatch?.[1] ?? "");
 	const tailFrom = tailStart + 1 + (buttonDropped ? visibleWidth(tailMatch![1]) - visibleWidth(tailText) : 0);
 	const gentleRight: Segment | undefined = tailMatch && tailText !== "" ? { plain: tailText, styled: sliceColumns(rule, tailFrom, tailFrom + visibleWidth(tailText)) } : undefined;
-	const steps = ownSteps(labels);
+	const steps = ownSteps(labels, colors);
 	const own = steps[0];
 	// The labels drop first, then Gentle Shell's hint; the bare rule last.
 	const withOwn = own ? [...(gentleRight ? [join([own, gentleRight], "  ")] : []), own] : [];
@@ -241,6 +243,8 @@ export interface PromptBoxDeps {
 	waveAt?(): number | undefined;
 	/** After each render: whether its boxed label scans. */
 	onScanning?(scanning: boolean): void;
+	/** The color mode for the labels and petal, read per frame (look settings S4); vivid when absent. */
+	colors?(): ColorMode;
 }
 
 /** True when the row after `topRowCount` is Gentle Shell's panel rule. */
@@ -290,7 +294,7 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 			}
 			const rows = render.call(editor, columns - FRAME_COLUMNS);
 			const top = topRowsOf(editor);
-			const box = boxPromptRows(rows, columns, top, deps.labels(), deps.waveAt?.());
+			const box = boxPromptRows(rows, columns, top, deps.labels(), deps.waveAt?.(), deps.colors?.());
 			if (box.boxed) {
 				direct = undefined;
 				frame = { boxed: true, ruleShift: box.ruleShift, top, buttonDropped: box.buttonDropped };

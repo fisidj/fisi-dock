@@ -93,3 +93,20 @@ test("S3 prompt line compacts its labels before it cuts them", () => {
 		for (const model of [labels, normal]) for (const row of renderPromptLine(model, width)) assert.ok(visibleWidth(row) <= width, `${width}: ${JSON.stringify(row)}`);
 	}
 });
+
+// Look settings S4, S6: soft paints the mode and effort in their plain pastels; no mode is vivid, byte for byte.
+test("S4 soft colors: the mode bold in pastel red, the effort pastel blue; omitting the mode equals vivid (S6)", async () => {
+	const { promptLineParts, promptLineSteps } = await import("../lib/prompt-line.ts");
+	const model = { mode: "super-yolo", modelId: "claude-opus-5-5", effort: "high" };
+	const [soft] = renderPromptLine(model, 60, "soft");
+	assert.ok(soft.includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the mode bold in pastel red");
+	assert.ok(soft.includes(`${fgCode(palette.blue)}high`), "the effort pastel blue");
+	assert.ok(!soft.includes(fgCode(vivid(palette.red))) && !soft.includes(fgCode(vivid(palette.blue))), "no vivid tone");
+	assert.ok(soft.includes(`${fgCode(palette.muted)}opus-5.5`), "the model stays muted");
+	assert.deepEqual(plain([soft]), plain(renderPromptLine(model, 60)), "same words and layout");
+	for (const width of [60, 26, 20, 12]) assert.deepEqual(renderPromptLine(model, width), renderPromptLine(model, width, "vivid"), `${width}`);
+	assert.deepEqual(promptLineParts(model), promptLineParts(model, "vivid"));
+	assert.deepEqual(promptLineSteps(model), promptLineSteps(model, "vivid"));
+	assert.ok(promptLineParts(model, "soft")[0].styled.includes(fgCode(palette.red)));
+	assert.ok(promptLineSteps(model, "soft")[0][2].styled.includes(fgCode(palette.blue)));
+});

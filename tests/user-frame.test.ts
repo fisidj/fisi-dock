@@ -96,3 +96,14 @@ test("install finds Pi's user message class in the TUI tree, patches it once, an
 	};
 	assert.deepEqual(message.render(20), original.call(message, 20), "a throwing hook falls back to Pi's lines");
 });
+
+// Look settings S4, S6: soft paints `you` in the plain pink of before 0.3.1; no mode is vivid, byte for byte.
+test("S4 soft colors draw `you` in the pastel pink; omitting the mode equals vivid (S6)", () => {
+	const render = piUserMessage(["hola"]);
+	const soft = frameUserLines(render, 30, "soft");
+	assert.ok(soft[0].includes(`${fgCode(palette.pink)}you`), "`you` in the pastel pink");
+	assert.ok(!soft[0].includes(fgCode(vivid(palette.pink))), "no vivid pink");
+	assert.deepEqual(frameUserLines(render, 30), frameUserLines(render, 30, "vivid"));
+	assert.ok(frameUserLines(render, 30, "vivid")[0].includes(`${fgCode(vivid(palette.pink))}you`));
+	assert.deepEqual(soft.map(plain), frameUserLines(render, 30).map(plain), "same words and layout");
+});

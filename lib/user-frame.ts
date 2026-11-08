@@ -3,7 +3,8 @@
 // top rule. Pi is never imported: the live UserMessageComponent class is found
 // in the TUI tree and its render goes through a global hook, so a removed or
 // reloaded Fisi Dock leaves Pi's own lines.
-import { fg, palette, vivid } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { fg, labelAccent, palette } from "./palette.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
 
 export const USER_FRAME_HOOK = Symbol.for("fisi-dock.user-frame");
@@ -36,8 +37,9 @@ const blank = (line: string) => line.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x
  * Pi's user message in a gray box: `╭─ you ─…─╮`, each row between `│` sides,
  * `╰─…─╯`. Pi renders two columns narrower; its blank padding rows go. Under
  * MIN_WIDTH columns, or when nothing shows, Pi's lines stay as they are.
+ * `you` in vivid pink, or its pastel in soft `colors` (look settings S4).
  */
-export function frameUserLines(render: Render, width: number): string[] {
+export function frameUserLines(render: Render, width: number, colors?: ColorMode): string[] {
 	if (width < MIN_WIDTH) return render(width);
 	const inner = width - 2;
 	const rows = render(inner).map((line) => line.replace(ZONE_MARK, ""));
@@ -48,7 +50,7 @@ export function frameUserLines(render: Render, width: number): string[] {
 	if (first > last) return render(width);
 	const side = fg(palette.frame, "│");
 	return [
-		`${ZONE_START}${fg(palette.frame, "╭─ ")}${fg(vivid(palette.pink), "you")}${fg(palette.frame, ` ${"─".repeat(width - TOP_RULE_CHROME)}╮`)}`,
+		`${ZONE_START}${fg(palette.frame, "╭─ ")}${fg(labelAccent(palette.pink, colors), "you")}${fg(palette.frame, ` ${"─".repeat(width - TOP_RULE_CHROME)}╮`)}`,
 		...rows.slice(first, last + 1).map((row) => `${side}${padEnd(truncateToWidth(row, inner), inner)}${side}`),
 		`${ZONE_END}${fg(palette.frame, `╰${"─".repeat(inner)}╯`)}`,
 	];

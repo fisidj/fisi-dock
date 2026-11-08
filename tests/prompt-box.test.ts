@@ -622,3 +622,35 @@ test("the mode, its dot and the effort draw vivid, the ODD wave passes in pastel
 	const still = boxPromptRows(gentleRows(56, { label: "checking…", scan: true }), 60, 0, LABELS).rows[0];
 	assert.ok(still.includes(`${fgCode(palette.muted)}ODD `) && still.includes(gsScan("checking…")), "Gentle Shell's scan as it painted it");
 });
+
+// Look settings S4, S6: soft paints the dot, the mode, the effort and the petal in their plain pastels; no mode is vivid, byte for byte.
+test("S4 soft colors on the rule: the dot and mode pastel red, the effort pastel blue, the petal pastel; omitting the mode equals vivid (S6)", async () => {
+	const { wavePetal } = await import("../lib/label-wave.ts");
+	const rows = gentleRows(56, { text: ["hello"] });
+	const soft = boxPromptRows(rows, 60, 0, LABELS, undefined, "soft").rows[0];
+	assert.ok(soft.includes(`${fgCode(palette.red)}●`), "the dot pastel red");
+	assert.ok(soft.includes(`\x1b[1m${fgCode(palette.red)}SUPER-YOLO`), "the mode bold in pastel red");
+	assert.ok(soft.includes(`${fgCode(palette.blue)}high`), "the effort pastel blue");
+	assert.ok(!soft.includes(fgCode(vivid(palette.red))) && !soft.includes(fgCode(vivid(palette.blue))), "no vivid tone");
+	assert.equal(plain(soft), plain(boxPromptRows(rows, 60, 0, LABELS).rows[0]), "same words and layout");
+	const at = WAVE_STEP_MS * 5;
+	const working = gentleRows(56, { label: "checking…", scan: true });
+	assert.ok(boxPromptRows(working, 60, 0, LABELS, at, "soft").rows[0].includes(wavePetal(at, "soft")), "the clock petal in pastel");
+	for (const width of [60, 40, 30]) {
+		const idle = gentleRows(width - 4, { text: ["hello"] });
+		const busy = gentleRows(width - 4, { label: "checking…", scan: true });
+		assert.deepEqual(boxPromptRows(idle, width, 0, LABELS), boxPromptRows(idle, width, 0, LABELS, undefined, "vivid"), `idle ${width}`);
+		assert.deepEqual(boxPromptRows(busy, width, 0, LABELS, at), boxPromptRows(busy, width, 0, LABELS, at, "vivid"), `working ${width}`);
+	}
+	// The factory reads the mode per frame from its deps; without it the box paints vivid.
+	const factory = () => ({ render: (columns: number) => gentleRows(columns, { text: ["hello"] }) });
+	let mode: "vivid" | "soft" = "soft";
+	const painted = wrapPromptFactory(factory, { painting: () => true, labels: () => LABELS, colors: () => mode })(undefined, undefined, undefined);
+	assert.ok(painted.render(60)[0].includes(`${fgCode(palette.red)}●`), "soft from deps.colors");
+	mode = "vivid";
+	const vividRule = painted.render(60)[0];
+	assert.ok(vividRule.includes(`${fgCode(vivid(palette.red))}●`), "read per frame");
+	const defaults = wrapPromptFactory(factory, { painting: () => true, labels: () => LABELS })(undefined, undefined, undefined);
+	assert.equal(defaults.render(60)[0], vividRule, "no colors dep: vivid");
+});
+

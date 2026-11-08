@@ -1,12 +1,12 @@
 import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
-import type { FrameStyle } from "./look.ts";
+import type { ColorMode, FrameStyle } from "./look.ts";
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
-import { RESET, bgCode, bold, dim, fg, palette, panelVivid, type Rgb } from "./palette.ts";
+import { RESET, bgCode, bold, dim, fg, palette, panelAccent, type Rgb } from "./palette.ts";
 import { ellipsize, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
 // Pure model-to-lines renderer for the rail (design 07, S2/S8/S9). Gentle Shell
@@ -349,10 +349,10 @@ function emptyTodoSection(width: number): Section {
 	return { title: "todo", color: palette.coral, rows: [{ text: item(fg(palette.faint, "○"), (rest) => muted(ellipsize("no tasks · the list shows while I plan", rest)), width) }] };
 }
 
-function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: number, compact = false): Section | undefined {
+function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: number, compact = false, colors?: ColorMode): Section | undefined {
 	if (todo.total <= 0) return undefined;
 	const color = palette.coral;
-	const right = fg(panelVivid(color), `${todo.done}/${todo.total}`);
+	const right = fg(panelAccent(color, colors), `${todo.done}/${todo.total}`);
 	if (expanded && todo.tasks?.length) return { title: "todo", color, right, rows: taskRows(todo.tasks, width, spinner, todo.entrance) };
 	if (!compact && todo.tasks?.length) {
 		// S58: the listed rail keeps the progress bar, on the title before done/total.
@@ -463,10 +463,10 @@ function rddRow(review: RddReview, width: number, spinner?: number): Row {
  * review like the ODD timeline, or one line saying what RDD does while there
  * are none. No switch and no reviews (no Gentle AI): no section.
  */
-function rddSection(rdd: RddInfo | undefined, mode: FooterInfo["rdd"], width: number, spacers = true, spinner?: number, doneDetails = true): Section | undefined {
+function rddSection(rdd: RddInfo | undefined, mode: FooterInfo["rdd"], width: number, spacers = true, spinner?: number, doneDetails = true, colors?: ColorMode): Section | undefined {
 	const reviews = rdd?.reviews ?? [];
 	if (reviews.length === 0 && !mode) return undefined;
-	const right = mode === "on" ? bold(fg(panelVivid(palette.green), "on")) : mode === "off" ? bold(fg(palette.muted, "off")) : undefined;
+	const right = mode === "on" ? bold(fg(panelAccent(palette.green, colors), "on")) : mode === "off" ? bold(fg(palette.muted, "off")) : undefined;
 	const section = (rows: Row[]): Section => ({ title: "RDD", color: palette.rose, ...(right ? { right } : {}), rows });
 	if (reviews.length === 0) {
 		// One-column dot (S57): the 🌹 emoji has no fixed width across terminals and broke the frame.
@@ -657,10 +657,10 @@ function changesSection(changes: ChangeInfo[], width: number, cap = LIST_CAP): S
 	return { ...section, right: muted(`${changes.length} to commit`), rows };
 }
 
-function topBorder(section: Section, width: number): string {
+function topBorder(section: Section, width: number, colors?: ColorMode): string {
 	const frame = palette.frame;
-	// Titles wear 75% of the cover title's vividness on their own hue (vivid labels S2, L10).
-	const title = (text: string) => bold(fg(panelVivid(section.color), text));
+	// Titles wear 75% of the cover title's vividness on their own hue (vivid labels S2, L10), their own color in soft (look settings S4).
+	const title = (text: string) => bold(fg(panelAccent(section.color, colors), text));
 	const titleWidth = visibleWidth(section.title);
 	// "╭─ " title " " fill [" " right " ─"] "╮", with at least one fill dash.
 	const bare = 3 + titleWidth + 1 + 1 + 1;
@@ -674,7 +674,7 @@ function topBorder(section: Section, width: number): string {
 	return fg(frame, truncateToWidth(`╭${"─".repeat(Math.max(0, width - 2))}╮`, width));
 }
 
-function drawSection(section: Section, width: number): string[] {
+function drawSection(section: Section, width: number, colors?: ColorMode): string[] {
 	const frame = palette.frame;
 	const inner = width - 4;
 	const side = fg(frame, "│");
@@ -685,7 +685,7 @@ function drawSection(section: Section, width: number): string[] {
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
 		return `${side}${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m${side}`;
 	});
-	return [topBorder(section, width), ...body, fg(frame, `╰${"─".repeat(Math.max(0, width - 2))}╯`)];
+	return [topBorder(section, width, colors), ...body, fg(frame, `╰${"─".repeat(Math.max(0, width - 2))}╯`)];
 }
 
 /** The divider's and the box frames' brightest cell, at their middle: this share of the text color over the background. */
@@ -703,8 +703,8 @@ function fadedEdge(text: string, start: number, width: number): string {
 }
 
 /** topBorder's geometry with every frame glyph faded by its column (sidebar-chrome/02). */
-function fadedTopBorder(section: Section, width: number): string {
-	const title = (text: string) => bold(fg(panelVivid(section.color), text));
+function fadedTopBorder(section: Section, width: number, colors?: ColorMode): string {
+	const title = (text: string) => bold(fg(panelAccent(section.color, colors), text));
 	const titleWidth = visibleWidth(section.title);
 	const edge = (text: string, start: number) => fadedEdge(text, start, width);
 	const bare = 3 + titleWidth + 1 + 1 + 1;
@@ -726,7 +726,7 @@ function fadedTopBorder(section: Section, width: number): string {
  * top and bottom fade by column, the sides by row over the box's full height, so
  * each edge is brightest at its middle and the corners sink into the background.
  */
-function drawFaded(section: Section, width: number): string[] {
+function drawFaded(section: Section, width: number, colors?: ColorMode): string[] {
 	const inner = width - 4;
 	const height = section.rows.length + 2;
 	const body = section.rows.map((row, index) => {
@@ -737,7 +737,7 @@ function drawFaded(section: Section, width: number): string[] {
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
 		return `${side}${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m${side}`;
 	});
-	return [fadedTopBorder(section, width), ...body, fadedEdge(`╰${"─".repeat(Math.max(0, width - 2))}╯`, 0, width)];
+	return [fadedTopBorder(section, width, colors), ...body, fadedEdge(`╰${"─".repeat(Math.max(0, width - 2))}╯`, 0, width)];
 }
 
 /** A `─` run `cells` long, brightest at its middle and fading into the background at both ends, like the divider. */
@@ -746,8 +746,8 @@ function fadedRule(cells: number): string {
 }
 
 /** topBorder's fallbacks without the box: ` title ─── right `, the right value dropping, then the title ellipsized. */
-function ruleHeader(section: Section, width: number): string {
-	const title = (text: string) => bold(fg(panelVivid(section.color), text));
+function ruleHeader(section: Section, width: number, colors?: ColorMode): string {
+	const title = (text: string) => bold(fg(panelAccent(section.color, colors), text));
 	const titleWidth = visibleWidth(section.title);
 	// " " title " " rule [" " right] " ", with at least one rule cell.
 	const bare = 1 + titleWidth + 1 + 1 + 1;
@@ -761,7 +761,7 @@ function ruleHeader(section: Section, width: number): string {
 }
 
 /** A section with no box (S3): its title on a fading rule, then its rows two cells in, highlighted rows in the boxed rows' columns. */
-function drawBare(section: Section, width: number): string[] {
+function drawBare(section: Section, width: number, colors?: ColorMode): string[] {
 	const inner = width - 4;
 	const body = section.rows.map((row) => {
 		const text = padEnd(ellipsize(row.text, inner), inner);
@@ -770,14 +770,14 @@ function drawBare(section: Section, width: number): string[] {
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
 		return ` ${HIGHLIGHT}${fg(palette.pink, "▎")}${lit} \x1b[49m `;
 	});
-	return [ruleHeader(section, width), ...body];
+	return [ruleHeader(section, width, colors), ...body];
 }
 
-/** Every section of the panel in frame style `frames`; `gaps` puts a blank row between consecutive no-box sections (S3). */
-function drawSections(sections: Section[], width: number, frames: FrameStyle, gaps: boolean): string[] {
-	if (frames === "classic") return sections.flatMap((section) => drawSection(section, width));
-	if (frames !== "none") return sections.flatMap((section) => drawFaded(section, width));
-	return sections.flatMap((section, index) => [...(gaps && index > 0 ? [" ".repeat(width)] : []), ...drawBare(section, width)]);
+/** Every section of the panel in frame style `frames` and color mode `colors`; `gaps` puts a blank row between consecutive no-box sections (S3). */
+function drawSections(sections: Section[], width: number, frames: FrameStyle, gaps: boolean, colors?: ColorMode): string[] {
+	if (frames === "classic") return sections.flatMap((section) => drawSection(section, width, colors));
+	if (frames !== "none") return sections.flatMap((section) => drawFaded(section, width, colors));
+	return sections.flatMap((section, index) => [...(gaps && index > 0 ? [" ".repeat(width)] : []), ...drawBare(section, width, colors)]);
 }
 
 function logoLines(width: number): string[] {
@@ -799,6 +799,8 @@ export interface PanelOptions {
 	maxRows?: number;
 	/** The section frames (S3): faded boxes (the default, S6), the classic flat gray box, or no box. With no box, a short screen drops the blank rows between sections before anything else. */
 	frames?: FrameStyle;
+	/** The section titles' and counters' colors (look settings S4): vivid (the default, S6) or soft, their own pastel as before 0.3.0. */
+	colors?: ColorMode;
 }
 
 interface Shape {
@@ -839,18 +841,19 @@ export function renderPanel(model: PanelModel, width: number, options: PanelOpti
 	// A check that runs, waits or failed keeps CI on screen longer (S77).
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const frames = options.frames ?? "faded";
+	const colors = options.colors;
 	const draw = (shape: Shape, gaps: boolean) => {
 		const sections = [
 			sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS),
 			model.headsUp && headsUpSection(model.headsUp, inner),
 			oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
-			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails) : undefined,
+			shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails, colors) : undefined,
 			(ciUrgent ? shape.ci : shape.settledCi) ? ciSection(model.ci, inner, shape.ciDetails, model.spinner) : undefined,
 			model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP),
-			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner)) || emptyTodoSection(inner),
+			(model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors)) || emptyTodoSection(inner),
 			shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined,
 		].filter((section): section is Section => section !== undefined);
-		return [...logoLines(columns), ...drawSections(sections, columns, frames, gaps)];
+		return [...logoLines(columns), ...drawSections(sections, columns, frames, gaps, colors)];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;
 	// No-box sections give up their blank rows first, then the panel shrinks as usual.
@@ -892,11 +895,11 @@ export function renderRail(model: PanelModel, width: number, options: PanelOptio
  * above the prompt. Compact, fixed height even with a task list (S7); [] without a todo.
  * `spinner` is the active row's frame (PanelModel.spinner).
  */
-export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinner?: number): string[] {
+export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinner?: number, colors?: ColorMode): string[] {
 	const columns = Math.max(0, Math.floor(width));
-	const section = columns > 0 && todo ? todoSection(todo, columns - 4, false, spinner, true) : undefined;
+	const section = columns > 0 && todo ? todoSection(todo, columns - 4, false, spinner, true, colors) : undefined;
 	if (!section) return [];
-	return drawSection(section, columns).map((line) => truncateToWidth(line, columns));
+	return drawSection(section, columns, colors).map((line) => truncateToWidth(line, columns));
 }
 
 /** Agent names past this many cells are cut, so the tasks keep one column. */
@@ -910,7 +913,7 @@ const AGENT_NAME_CAP = 12;
  * is unknown. Up to 4 rows, then `+N more`. Queued and finished agents are
  * not listed; [] when nothing runs.
  */
-export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number, spinner: number | undefined, now: number): string[] {
+export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number, spinner: number | undefined, now: number, colors?: ColorMode): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	const running = (agents ?? []).filter(agentLive);
 	if (columns === 0 || running.length === 0) return [];
@@ -924,8 +927,8 @@ export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number,
 	});
 	const hidden = running.length - shown.length;
 	if (hidden > 0) rows.push({ text: item(" ", (rest) => spread(muted(`+${hidden} more`), `${plainText("/dock")}${muted(" all")}`, rest), inner) });
-	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelVivid(palette.lilac), String(running.length)), rows };
-	return drawSection(section, columns).map((line) => truncateToWidth(line, columns));
+	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelAccent(palette.lilac, colors), String(running.length)), rows };
+	return drawSection(section, columns, colors).map((line) => truncateToWidth(line, columns));
 }
 
 /** The panel width the rail draws it at in Gentle Shell fisi/custom's 58-column rail. */
@@ -941,7 +944,7 @@ function boxed(text: string, width: number): string {
 }
 
 /** How /dock draws its panel: the rail's look (S3). */
-export type DockOptions = Pick<PanelOptions, "frames">;
+export type DockOptions = Pick<PanelOptions, "frames" | "colors">;
 
 export interface DockView {
 	lines: string[];
@@ -964,7 +967,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames }) : [];
+	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));

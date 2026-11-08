@@ -276,3 +276,17 @@ test("S97 potato (no clock) and an idle label keep Gentle Shell's own petal", ()
 	const quiet = boxPromptRows(idle(76, "waiting for input"), 80, 0, LABELS, WAVE_STEP_MS);
 	assert.ok(quiet.rows[0].includes("\x1b[35m✿\x1b[39m"), "idle: Gentle Shell's still petal");
 });
+
+// Look settings S4, S6: soft turns the petal in the theme's pastels of before 0.3.0; no mode is vivid, byte for byte.
+test("S4 soft colors: the petal in the pastel tones, the wave unchanged; omitting the mode equals vivid (S6)", () => {
+	const tones = [palette.deepPink, palette.lilac, palette.pink, palette.pink, palette.pink, palette.lilac, palette.deepPink, palette.deepPink];
+	for (let step = 0; step < 16; step++) {
+		const at = step * WAVE_STEP_MS + 5;
+		const soft = wavePetal(at, "soft");
+		assert.equal(soft, `${fgCode(tones[step % 8])}\x1b[1m${plain(soft)}\x1b[22m\x1b[39m`, `step ${step}`);
+		assert.equal(plain(soft), plain(wavePetal(at)), "the same flower");
+		assert.equal(wavePetal(at), wavePetal(at, "vivid"));
+	}
+	// The wave already passes in pastel in vivid (0.3.1): soft paints it the same.
+	assert.equal(waveLabel("ODD checking…", WAVE_STEP_MS * 5), waveLabel("ODD checking…", WAVE_STEP_MS * 5));
+});

@@ -71,3 +71,29 @@ test("theme accents are the vivid version of the panel's pastels; neutrals and b
 		{ bg: "#161616", bgBar: "#1f1f1f", bgHighlight: "#262626", border: "#2a2a2a", borderSubtle: "#222222", text: "#e1e1e1", muted: "#6c6c6c", dim: "#6b6b6b", pinkSelection: "#2a2228", diffAddedBg: "#24321f", toolErrorBg: "#2e1a1d" },
 	);
 });
+
+// Look settings S4: Fisi-Dock-Soft is the Fisi-Dock theme as it was before 0.3.0 (ce511ae^), the pastel accents.
+test("S4 the Fisi-Dock-Soft theme: same roles and keys as Fisi-Dock, the pre-0.3.0 pastel accents, the panel's palette", async () => {
+	const { palette } = await import("../lib/palette.ts");
+	const soft = read("../themes/Fisi-Dock-Soft.json");
+	const hex = (rgb: readonly number[]) => `#${rgb.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+	assert.equal(soft.name, "Fisi-Dock-Soft");
+	assert.equal(soft.appearance, "dark");
+	assert.deepEqual(Object.keys(soft), Object.keys(theme), "top-level keys");
+	for (const key of ["vars", "colors", "export"]) assert.deepEqual(Object.keys(soft[key]), Object.keys(theme[key]), key);
+	assert.deepEqual(soft.colors, theme.colors, "the same roles on the same vars");
+	assert.deepEqual(soft.export, theme.export);
+	const accents = { pink: "#f2a7c9", deepPink: "#c9779f", teal: "#5fd4e0", coral: "#ff9b85", amber: "#e0af68", lilac: "#c3a6ff", green: "#8fc98f", blue: "#7b9cff", red: "#ff6b6b" } as const;
+	for (const [name, value] of Object.entries(accents)) {
+		assert.equal(soft.vars[name], value, name);
+		assert.equal(value, hex(palette[name as keyof typeof accents]), `${name} is the panel's own color`);
+	}
+	assert.deepEqual(
+		Object.fromEntries(Object.entries(soft.vars).filter(([name]) => !(name in accents))),
+		Object.fromEntries(Object.entries(theme.vars).filter(([name]) => !(name in accents))),
+		"neutrals and backgrounds as in Fisi-Dock",
+	);
+	const resolve = (value: string): string => (value.startsWith("#") ? value : resolve(soft.vars[value]));
+	for (const role of ROLES) assert.match(resolve(soft.colors[role]), /^#[0-9a-f]{6}$/i, role);
+	assert.equal(soft.vars[soft.colors.selectedBg], "#2a2228", "selection stays pink-tinted (S10)");
+});

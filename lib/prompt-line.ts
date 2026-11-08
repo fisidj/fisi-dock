@@ -1,4 +1,5 @@
-import { bold, fg, palette, vivid } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { bold, fg, labelAccent, palette } from "./palette.ts";
 import { ellipsize, visibleWidth } from "./text.ts";
 
 // Design 07 shows the model and effort beside the prompt. The prompt editor is
@@ -40,17 +41,17 @@ export interface PromptLinePart {
 /**
  * The labels in order, each plain and styled: the mode bold in vivid red, like its dot (only
  * when it is not normal), the model muted, the effort in vivid blue (vivid labels S3).
- * Nothing without a model.
+ * Nothing without a model. Soft `colors` paint the plain red and blue (look settings S4).
  * The line under the prompt and the prompt box (S88) paint the same parts.
  */
-export function promptLineParts(model: PromptLineModel): PromptLinePart[] {
+export function promptLineParts(model: PromptLineModel, colors?: ColorMode): PromptLinePart[] {
 	if (!model.modelId) return [];
 	const mode = permissionModeLabel(model.mode);
 	const name = shortModelName(model.modelId);
 	return [
-		...(mode ? [{ kind: "mode" as const, plain: mode, styled: bold(fg(vivid(palette.red), mode)) }] : []),
+		...(mode ? [{ kind: "mode" as const, plain: mode, styled: bold(fg(labelAccent(palette.red, colors), mode)) }] : []),
 		{ kind: "model" as const, plain: name, styled: fg(palette.muted, name) },
-		...(model.effort ? [{ kind: "effort" as const, plain: model.effort, styled: fg(vivid(palette.blue), model.effort) }] : []),
+		...(model.effort ? [{ kind: "effort" as const, plain: model.effort, styled: fg(labelAccent(palette.blue, colors), model.effort) }] : []),
 	];
 }
 
@@ -59,8 +60,8 @@ export function promptLineParts(model: PromptLineModel): PromptLinePart[] {
  * then the first alone (the mode, or the model in normal mode). The mode goes last: it is
  * the safety signal. A step that drops nothing is left out; no steps without a model.
  */
-export function promptLineSteps(model: PromptLineModel): PromptLinePart[][] {
-	const parts = promptLineParts(model);
+export function promptLineSteps(model: PromptLineModel, colors?: ColorMode): PromptLinePart[][] {
+	const parts = promptLineParts(model, colors);
 	if (parts.length === 0) return [];
 	const steps = [parts, parts.filter((part) => part.kind !== "effort"), parts.slice(0, 1)];
 	return steps.filter((step, index) => index === 0 || step.length < steps[index - 1].length);
@@ -71,9 +72,9 @@ export function promptLineSteps(model: PromptLineModel): PromptLinePart[][] {
  * or no line without a model. Too narrow, the labels compact (S3): tight dots
  * (`MODE·model·effort`), then no effort, then the mode alone; narrower still the line is cut.
  */
-export function renderPromptLine(model: PromptLineModel, width: number): string[] {
+export function renderPromptLine(model: PromptLineModel, width: number, colors?: ColorMode): string[] {
 	const columns = Math.max(0, Math.floor(width));
-	const steps = promptLineSteps(model);
+	const steps = promptLineSteps(model, colors);
 	if (steps.length === 0 || columns === 0) return [];
 	const plainText = steps[0].map((part) => part.plain).join(" · ");
 	// One trailing space keeps the text off the terminal edge, like the input bar.

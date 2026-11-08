@@ -1,5 +1,6 @@
 // Design 07 palette in 24-bit color. The panel paints with its own accents
 // instead of Pi theme roles so each section keeps its hue (S9).
+import type { ColorMode } from "./look.ts";
 
 export type Rgb = readonly [number, number, number];
 
@@ -83,6 +84,16 @@ export const PANEL_VIVIDNESS = 0.75;
 export function panelVivid(color: Rgb): Rgb {
 	const target = vivid(color);
 	return color.map((channel, index) => Math.round(channel + (target[index] - channel) * PANEL_VIVIDNESS)) as unknown as Rgb;
+}
+
+/** A prompt label in color mode `mode` (look settings S4): vivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0. */
+export function labelAccent(color: Rgb, mode: ColorMode = "vivid"): Rgb {
+	return mode === "soft" ? color : vivid(color);
+}
+
+/** A side panel title or counter in color mode `mode` (look settings S4): panelVivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0. */
+export function panelAccent(color: Rgb, mode: ColorMode = "vivid"): Rgb {
+	return mode === "soft" ? color : panelVivid(color);
 }
 
 export const fgCode = ([r, g, b]: Rgb) => `\x1b[38;2;${r};${g};${b}m`;

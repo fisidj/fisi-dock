@@ -8,7 +8,8 @@
 // Gentle Shell steps its wave once a second).
 // The petal before the label turns on the same clock (S97).
 import type { OrbMotion } from "./orbs.ts";
-import { bold, fg, palette, vivid } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { bold, fg, labelAccent, palette } from "./palette.ts";
 
 export const WAVE_STEP_MS = 120;
 const WAVE_HEAD = palette.pink;
@@ -34,13 +35,16 @@ export function waveLabel(label: string, now: number): string {
 
 /** Gentle Shell's working petal (lib/shell-prompt.ts PETAL_FRAMES): four flowers, one column each. */
 const PETAL_FRAMES = ["✿", "❀", "❁", "✾"] as const;
-/** Its tones (PETAL_TONE_FRAMES: mdQuoteBorder, thinkingHigh, accent, borderAccent, accent, thinkingHigh, mdQuoteBorder twice) in the Fisi-Dock theme's vivid colors. */
-const PETAL_TONES = [palette.deepPink, palette.lilac, palette.pink, palette.pink, palette.pink, palette.lilac, palette.deepPink, palette.deepPink].map(vivid);
+/** Its tones (PETAL_TONE_FRAMES: mdQuoteBorder, thinkingHigh, accent, borderAccent, accent, thinkingHigh, mdQuoteBorder twice) in the Fisi-Dock theme's colors. */
+const PETAL_BASE = [palette.deepPink, palette.lilac, palette.pink, palette.pink, palette.pink, palette.lilac, palette.deepPink, palette.deepPink];
+/** The tones per color mode (look settings S4): the vivid theme's, or Fisi-Dock-Soft's pastels. */
+const PETAL_TONES = { vivid: PETAL_BASE.map((tone) => labelAccent(tone, "vivid")), soft: PETAL_BASE.map((tone) => labelAccent(tone, "soft")) } as const;
 
-/** Gentle Shell's working petal at the moment `now`. Gentle Shell turns the petal and the wave on one tick, so one frame per wave step. */
-export function wavePetal(now: number): string {
+/** Gentle Shell's working petal at the moment `now`, in `colors` (vivid by default). Gentle Shell turns the petal and the wave on one tick, so one frame per wave step. */
+export function wavePetal(now: number, colors: ColorMode = "vivid"): string {
 	const step = Math.floor(now / WAVE_STEP_MS);
-	return fg(PETAL_TONES[step % PETAL_TONES.length], bold(PETAL_FRAMES[step % PETAL_FRAMES.length]));
+	const tones = PETAL_TONES[colors === "soft" ? "soft" : "vivid"];
+	return fg(tones[step % tones.length], bold(PETAL_FRAMES[step % PETAL_FRAMES.length]));
 }
 
 export interface WaveClockOptions {

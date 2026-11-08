@@ -39,3 +39,16 @@ test("panelVivid goes 75% of the way from a color to its vivid one", () => {
 	];
 	for (const [pastel, expected] of examples) assert.deepEqual([...panelVivid(rgb(pastel))], [...rgb(expected)], `${pastel} -> ${expected}`);
 });
+
+// Look settings S4, S6: the soft mode paints the plain palette colors, as before 0.3.0; vivid (the default) is today's.
+test("S4 labelAccent and panelAccent: vivid and panelVivid by default and in vivid, the color itself in soft", async () => {
+	const { labelAccent, panelAccent, palette } = await import("../lib/palette.ts");
+	for (const color of [palette.pink, palette.red, palette.blue, palette.coral, palette.rose]) {
+		assert.deepEqual([...labelAccent(color)], [...vivid(color)], "default: vivid");
+		assert.deepEqual([...labelAccent(color, "vivid")], [...vivid(color)]);
+		assert.deepEqual([...labelAccent(color, "soft")], [...color], "soft: the pastel");
+		assert.deepEqual([...panelAccent(color)], [...panelVivid(color)], "default: panelVivid");
+		assert.deepEqual([...panelAccent(color, "vivid")], [...panelVivid(color)]);
+		assert.deepEqual([...panelAccent(color, "soft")], [...color], "soft: the pastel");
+	}
+});
