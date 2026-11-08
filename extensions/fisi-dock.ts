@@ -56,8 +56,8 @@ const WELCOME_TRIES = 40;
 /** Card renders that look for Pi's loaded-resources container before giving up for the session. */
 const LOADED_BOX_TRIES = 20;
 const HEADER_SLOT = "header";
-// Pi's themes while Fisi Dock is on (S95, look settings S4, look-more S4): themes/Fisi-Dock.json,
-// Fisi-Dock-Soft.json in soft colors, or an accent's Fisi-Dock-<Accent>[-Soft].json. Never remembered as the user's.
+// Pi's themes while Fisi Dock is on (S95, look settings S4, look-more S4, S5): themes/Fisi-Dock.json,
+// Fisi-Dock-Soft.json in soft colors, Fisi-Dock-Light.json in light, or an accent's Fisi-Dock-<Accent>[-Soft].json. Never remembered as the user's.
 const isDockTheme = (name: unknown) => typeof name === "string" && FISI_DOCK_THEMES.includes(name);
 // Off puts back the theme in use before /fisi-dock on (S7); without one, or when it
 // is gone, Gentle Shell's own theme: gentle-pi's DEFAULT_THEME_NAME
@@ -667,7 +667,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		const findLoaded = (tui: unknown, component: object) => {
 			if (restoreLoaded || loadedTries >= LOADED_BOX_TRIES || live !== session) return;
 			loadedTries++;
-			restoreLoaded = attempt(() => installLoadedBox(tui, component, { active: () => card !== undefined && live === session }));
+			restoreLoaded = attempt(() => installLoadedBox(tui, component, { active: () => card !== undefined && live === session, colors: () => look.colors }));
 		};
 		const install = () => {
 			timer = undefined;
@@ -678,7 +678,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						render: (width: number) => {
 							findLoaded(tui, component);
 							const { project, branch } = session.store.model().session;
-							return renderWelcomeCard({ version, project, branch }, width);
+							return renderWelcomeCard({ version, project, branch }, width, look.colors);
 						},
 						invalidate() {},
 						dispose: () => {
@@ -835,7 +835,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						if (drawn?.key !== key) {
 							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors, look.motion);
 							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors, look.motion, look.accent);
-							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0, motion: look.motion }), ...agents, ...todo] };
+							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0, motion: look.motion, colors: look.colors }), ...agents, ...todo] };
 						}
 						return drawn.lines;
 					},
@@ -884,13 +884,13 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			const header = {
 				digest: () => {
 					const current = mode();
-					if (current === "wide") return `fisi:${path}`;
-					return current === "narrow" ? `fisi-narrow:${session.store.digest()}` : `gs:${attempt(() => gentleHeader()?.digest?.()) ?? ""}`;
+					if (current === "wide") return `fisi:${look.colors}:${path}`;
+					return current === "narrow" ? `fisi-narrow:${look.colors}:${session.store.digest()}` : `gs:${attempt(() => gentleHeader()?.digest?.()) ?? ""}`;
 				},
 				render: (width: number) => {
 					const current = mode();
-					if (current === "wide") return renderHeaderLine(path, width);
-					return current === "narrow" ? renderNarrowHeader(session.store.model(), width) : (attempt(() => gentleHeader()?.render?.(width)) ?? []);
+					if (current === "wide") return renderHeaderLine(path, width, look.colors);
+					return current === "narrow" ? renderNarrowHeader(session.store.model(), width, look.colors) : (attempt(() => gentleHeader()?.render?.(width)) ?? []);
 				},
 				invalidate() {},
 				// Gentle Shell's header opens /gentle:usage on click; ours have nothing to click.

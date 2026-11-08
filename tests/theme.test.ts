@@ -104,12 +104,12 @@ const ACCENT_THEMES = { teal: "Teal", lilac: "Lilac", amber: "Amber", green: "Gr
 /** The pink-family vars: accent, borderAccent, mdListBullet, thinkingXhigh (pink); searchMatchBg, mdQuoteBorder (deepPink); selectedBg (pinkSelection). */
 const ACCENT_VARS = ["pink", "deepPink", "pinkSelection"];
 
-test("look-more S4 the themes folder holds the ten Fisi Dock themes, named like their files", async () => {
+test("look-more S4 the themes folder holds the eleven Fisi Dock themes (look-more S5 adds Fisi-Dock-Light), named like their files", async () => {
 	const { readdirSync } = await import("node:fs");
 	const { FISI_DOCK_THEMES } = await import("../lib/look.ts");
 	const files = readdirSync(new URL("../themes/", import.meta.url)).filter((file) => file.endsWith(".json")).sort();
 	assert.deepEqual(files, [...FISI_DOCK_THEMES].map((name) => `${name}.json`).sort());
-	assert.equal(files.length, 10);
+	assert.equal(files.length, 11);
 	for (const file of files) assert.equal(read(`../themes/${file}`).name, file.slice(0, -5), file);
 });
 

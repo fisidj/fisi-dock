@@ -1,5 +1,5 @@
 import type { ColorMode } from "./look.ts";
-import { bold, fg, labelAccent, palette } from "./palette.ts";
+import { bold, fg, labelAccent, palette, tone } from "./palette.ts";
 import { ellipsize, visibleWidth } from "./text.ts";
 
 // Design 07 shows the model and effort beside the prompt. The prompt editor is
@@ -41,7 +41,8 @@ export interface PromptLinePart {
 /**
  * The labels in order, each plain and styled: the mode bold in vivid red, like its dot (only
  * when it is not normal), the model muted, the effort in vivid blue (vivid labels S3).
- * Nothing without a model. Soft `colors` paint the plain red and blue (look settings S4).
+ * Nothing without a model. Soft `colors` paint the plain red and blue (look settings S4); light
+ * paints every part for a light background (look-more S5).
  * The line under the prompt and the prompt box (S88) paint the same parts.
  */
 export function promptLineParts(model: PromptLineModel, colors?: ColorMode): PromptLinePart[] {
@@ -50,7 +51,7 @@ export function promptLineParts(model: PromptLineModel, colors?: ColorMode): Pro
 	const name = shortModelName(model.modelId);
 	return [
 		...(mode ? [{ kind: "mode" as const, plain: mode, styled: bold(fg(labelAccent(palette.red, colors), mode)) }] : []),
-		{ kind: "model" as const, plain: name, styled: fg(palette.muted, name) },
+		{ kind: "model" as const, plain: name, styled: fg(tone(palette.muted, colors), name) },
 		...(model.effort ? [{ kind: "effort" as const, plain: model.effort, styled: fg(labelAccent(palette.blue, colors), model.effort) }] : []),
 	];
 }
@@ -84,8 +85,8 @@ export function renderPromptLine(model: PromptLineModel, width: number, colors?:
 	for (const { parts, separator } of [{ parts: steps[0], separator: " · " }, ...compact]) {
 		const text = parts.map((part) => part.plain).join(separator);
 		if (visibleWidth(text) > room) continue;
-		const styled = parts.map((part) => part.styled).join(fg(palette.faint, separator));
+		const styled = parts.map((part) => part.styled).join(fg(tone(palette.faint, colors), separator));
 		return [`${" ".repeat(room - visibleWidth(text))}${styled} `];
 	}
-	return [ellipsize(fg(palette.muted, plainText), columns)];
+	return [ellipsize(fg(tone(palette.muted, colors), plainText), columns)];
 }

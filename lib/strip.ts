@@ -1,6 +1,6 @@
-import type { MotionMode } from "./look.ts";
+import type { ColorMode, MotionMode } from "./look.ts";
 import { spinnerAt } from "./orbs.ts";
-import { fg, palette } from "./palette.ts";
+import { fg, paint, palette } from "./palette.ts";
 import type { PanelModel } from "./panel-model.ts";
 import { agentLive, formatTime, warningGlyph } from "./panel.ts";
 import { ellipsize, visibleWidth } from "./text.ts";
@@ -55,6 +55,8 @@ export interface StripOptions {
 	agents?: boolean;
 	/** Off holds the agents spinner on its still frame (look-more S2). */
 	motion?: MotionMode;
+	/** Light paints the strip for a light background (look-more S5); vivid and soft as today. */
+	colors?: ColorMode;
 }
 
 /** Zero, one or two strip lines for `model`, none wider than `width`. */
@@ -62,5 +64,5 @@ export function renderStrip(model: PanelModel, width: number, options: StripOpti
 	const columns = Math.max(0, Math.floor(width));
 	if (columns === 0) return [];
 	const warnings = (model.headsUp ?? []).map((warning) => `${warningGlyph(warning.kind)} ${fg(palette.text, warning.text)}`);
-	return [fit(statusSegments(model, options.todo !== false, options.agents !== false, options.motion === "off"), columns), fit(warnings, columns)].filter((line): line is string => line !== undefined);
+	return [fit(statusSegments(model, options.todo !== false, options.agents !== false, options.motion === "off"), columns), fit(warnings, columns)].filter((line): line is string => line !== undefined).map((line) => paint(line, options.colors));
 }

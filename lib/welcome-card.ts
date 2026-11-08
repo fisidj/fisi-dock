@@ -1,4 +1,5 @@
-import { bold, fg, palette } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { bold, fg, paint, palette } from "./palette.ts";
 import { ellipsize, visibleWidth } from "./text.ts";
 
 // The startup header in place of Gentle Shell's rose (design
@@ -44,8 +45,12 @@ function readyRow({ project, branch }: WelcomeInfo, width: number): string {
 	return muted("Ready in ") + text(project) + (branch ? muted(" on ") + text(branch) : "") + muted(".");
 }
 
-/** The welcome card for `width` columns, centered; title and ready lines alone when narrow. */
-export function renderWelcomeCard(info: WelcomeInfo, width: number): string[] {
+/** The welcome card for `width` columns, centered; title and ready lines alone when narrow. Light `colors` paints it for a light background (look-more S5). */
+export function renderWelcomeCard(info: WelcomeInfo, width: number, colors?: ColorMode): string[] {
+	return cardLines(info, width).map((line) => paint(line, colors));
+}
+
+function cardLines(info: WelcomeInfo, width: number): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns < 1) return [];
 	if (columns < MIN_CARD_WIDTH) return [titleRow(info.version, columns), readyRow(info, columns)];

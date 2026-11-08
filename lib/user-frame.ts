@@ -3,9 +3,10 @@
 // top rule. Pi is never imported: the live UserMessageComponent class is found
 // in the TUI tree and its render goes through a global hook, so a removed or
 // reloaded Fisi Dock leaves Pi's own lines. The box takes the look's `frames`
-// (look-more S3), like the prompt box.
+// (look-more S3), like the prompt box. Light colors paint the box and `you` for a light
+// background (look-more S5); Pi's rows keep their own colors.
 import type { Accent, ColorMode, FrameStyle } from "./look.ts";
-import { accentLabel, dim, fadeAmount, fadedEdge, fg, palette } from "./palette.ts";
+import { accentLabel, dim, fadeAmount, fadedEdge, fg, palette, tone } from "./palette.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
 
 export const USER_FRAME_HOOK = Symbol.for("fisi-dock.user-frame");
@@ -57,9 +58,9 @@ export function frameUserLines(render: Render, width: number, colors?: ColorMode
 	const text = rows.slice(first, last + 1);
 	const height = text.length + 2;
 	// Frame glyphs from column `start`: flat gray in classic, faded by column otherwise; none's rule has no corners.
-	const edge = (glyphs: string, start: number) => (frames === "classic" ? fg(palette.frame, glyphs) : fadedEdge(glyphs, start, width));
+	const edge = (glyphs: string, start: number) => (frames === "classic" ? fg(tone(palette.frame, colors), glyphs) : fadedEdge(glyphs, start, width, colors));
 	const corner = (glyph: string) => (frames === "none" ? "─" : glyph);
-	const side = (index: number) => (frames === "classic" ? fg(palette.frame, "│") : frames === "none" ? " " : fg(dim(palette.text, fadeAmount(index + 1, height)), "│"));
+	const side = (index: number) => (frames === "classic" ? fg(tone(palette.frame, colors), "│") : frames === "none" ? " " : fg(tone(dim(palette.text, fadeAmount(index + 1, height)), colors), "│"));
 	const body = text.map((row, index) => `${side(index)}${padEnd(truncateToWidth(row, inner), inner)}${side(index)}`);
 	const top = `${ZONE_START}${edge(`${corner("╭")}─ `, 0)}${fg(accentLabel(accent, colors), "you")}${edge(` ${"─".repeat(width - TOP_RULE_CHROME)}${corner("╮")}`, 6)}`;
 	if (frames === "none") return [top, ...body.slice(0, -1), `${ZONE_END}${body.at(-1)}`];

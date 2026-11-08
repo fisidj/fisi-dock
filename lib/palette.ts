@@ -1,5 +1,7 @@
 // Design 07 palette in 24-bit color. The panel paints with its own accents
-// instead of Pi theme roles so each section keeps its hue (S9).
+// instead of Pi theme roles so each section keeps its hue (S9). Colors light
+// (look-more S5) paints every one of them as lightColor of it, for a light
+// terminal background.
 import type { Accent, ColorMode } from "./look.ts";
 
 export type Rgb = readonly [number, number, number];
@@ -48,9 +50,9 @@ export function fadeAmount(index: number, count: number, peak = FADE_PEAK): numb
 	return peak * middle * middle * (3 - 2 * middle);
 }
 
-/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. */
-export function fadedEdge(text: string, start: number, width: number): string {
-	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(dim(palette.text, fadeAmount(start + index, width)), glyph))).join("");
+/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. Light `mode` fades toward the light background (look-more S5). */
+export function fadedEdge(text: string, start: number, width: number, mode?: ColorMode): string {
+	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(tone(dim(palette.text, fadeAmount(start + index, width)), mode), glyph))).join("");
 }
 
 /** The WCAG relative luminance of `color`. */
@@ -116,14 +118,14 @@ export function panelVivid(color: Rgb): Rgb {
 	return color.map((channel, index) => Math.round(channel + (target[index] - channel) * PANEL_VIVIDNESS)) as unknown as Rgb;
 }
 
-/** A prompt label in color mode `mode` (look settings S4): vivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0. */
+/** A prompt label in color mode `mode` (look settings S4): vivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0; vivid's as lightColor in light (look-more S5). */
 export function labelAccent(color: Rgb, mode: ColorMode = "vivid"): Rgb {
-	return mode === "soft" ? color : vivid(color);
+	return mode === "soft" ? color : tone(vivid(color), mode);
 }
 
-/** A side panel title or counter in color mode `mode` (look settings S4): panelVivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0. */
+/** A side panel title or counter in color mode `mode` (look settings S4): panelVivid(color) in vivid, the default (S6); the color itself in soft, as before 0.3.0; vivid's as lightColor in light (look-more S5). */
 export function panelAccent(color: Rgb, mode: ColorMode = "vivid"): Rgb {
-	return mode === "soft" ? color : panelVivid(color);
+	return mode === "soft" ? color : tone(panelVivid(color), mode);
 }
 
 /** `color` itself when it reads `floor` on `background`; else lighter in HSL steps of 0.005, hue and saturation kept, until it does. */
@@ -154,20 +156,94 @@ export function retone(color: Rgb, toward: Rgb): Rgb {
 /**
  * The accent's own tone in color mode `mode` (look-more S4): labelAccent of its palette color,
  * lifted where it would read under pink's (only lilac). Pink is labelAccent(palette.pink), today's.
- * The accent themes' pink var is this tone too (scripts/build-themes.mjs).
+ * The accent themes' pink var is this tone too (scripts/build-themes.mjs). Light is vivid's tone
+ * as lightColor (look-more S5): the panel's pink family follows the accent there too, each tone
+ * reading at least 4.5:1 on the light background, while Pi's theme keeps Fisi-Dock-Light's pink.
  */
 export function accentLabel(accent: Accent = "pink", mode: ColorMode = "vivid"): Rgb {
+	if (mode === "light") return lightColor(accentLabel(accent, "vivid"));
 	return liftContrast(labelAccent(palette[accent], mode), contrast(labelAccent(palette.pink, mode)));
 }
 
-/** The accent's pastel (look-more S4), where the panel paints palette.pink as itself: the highlight bar, the wave head, the menu. */
-export function accentBase(accent: Accent = "pink"): Rgb {
-	return accentLabel(accent, "soft");
+/** The accent's pastel (look-more S4), where the panel paints palette.pink as itself: the highlight bar, the wave head, the menu; as lightColor in light `mode` (look-more S5). */
+export function accentBase(accent: Accent = "pink", mode?: ColorMode): Rgb {
+	return tone(accentLabel(accent, "soft"), mode);
 }
 
-/** A pink-family `color` (deepPink, the selection tint, the logo's SHELL) on the accent: retone toward accentLabel(accent, mode); pink keeps it as it is. */
+/** A pink-family `color` (deepPink, the selection tint, the logo's SHELL) on the accent: retone toward accentLabel(accent, mode); pink keeps it as it is. Light is vivid's as lightColor (look-more S5). */
 export function accentTone(color: Rgb, accent: Accent = "pink", mode: ColorMode = "vivid"): Rgb {
+	if (mode === "light") return lightColor(accentTone(color, accent, "vivid"));
 	return accent === "pink" ? color : retone(color, accentLabel(accent, mode));
+}
+
+/** The light terminal background colors light paints for (look-more S5): Fisi-Dock-Light's bg. */
+export const LIGHT_BACKGROUND: Rgb = [0xfa, 0xfa, 0xfa];
+/** The contrast a hue settles at on the light background when it reads more on dark: AA (4.5:1) on the light highlight row too, never muddy. */
+export const LIGHT_HUE_CONTRAST = 5.5;
+/** WCAG AA: muted rises to it on light (3.45:1 on dark); the light theme's text roles never read under it (scripts/build-themes.mjs). */
+export const LIGHT_TEXT_CONTRAST = 4.5;
+/** A color this chromatic (channel spread over 255) or more settles all the way to LIGHT_HUE_CONTRAST; a grayer one less, a gray not at all. */
+const FULL_CHROMA = 0.25;
+
+const LIGHT_COLORS = new Map<string, Rgb>();
+
+/**
+ * `color`, painted for the dark BACKGROUND, for the LIGHT_BACKGROUND (look-more S5): its hue and HSL
+ * saturation at the lightness that reads `color`'s contrast on dark mirrored onto light, so text
+ * turns dark, a fade toward the dark background fades toward the light one and BACKGROUND itself
+ * is LIGHT_BACKGROUND. A hue that reads more than LIGHT_HUE_CONTRAST settles there (by its chroma,
+ * so a blend toward gray moves smoothly), muted rises to LIGHT_TEXT_CONTRAST and nothing reads
+ * under `floor`; decorative tones under 4.5:1 (faint, frame, the logo's deep pink, the highlight
+ * row) keep theirs. Rounded so the contrast is never under the target.
+ */
+export function lightColor(color: Rgb, floor = 0): Rgb {
+	const key = `${color.join()}/${floor}`;
+	const known = LIGHT_COLORS.get(key);
+	if (known) return known;
+	const ratio = contrast(color);
+	const chroma = (Math.max(...color) - Math.min(...color)) / 255;
+	const settle = Math.min(1, chroma / FULL_CHROMA) * Math.max(0, ratio - LIGHT_HUE_CONTRAST);
+	const muted = color.every((channel, index) => channel === palette.muted[index]);
+	const target = Math.max(ratio - settle, muted ? LIGHT_TEXT_CONTRAST : 0, floor);
+	// Lighter than the dark background turns darker than the light one; the rare darker one, lighter.
+	const darker = luminance(color) >= luminance(BACKGROUND);
+	const back = luminance(LIGHT_BACKGROUND) + 0.05;
+	const goal = darker ? Math.max(0, back / target - 0.05) : Math.min(1, back * target - 0.05);
+	const [hue, saturation] = toHsl(color);
+	let [low, high] = [0, 1];
+	for (let step = 0; step < 40; step++) {
+		const middle = (low + high) / 2;
+		if (luminance(hslChannels(hue, saturation, middle) as unknown as Rgb) < goal) low = middle;
+		else high = middle;
+	}
+	let lightness = (low + high) / 2;
+	let out = fromHsl(hue, saturation, lightness);
+	while (contrast(out, LIGHT_BACKGROUND) < target - 1e-9 && lightness > 0 && lightness < 1) {
+		lightness = Math.min(1, Math.max(0, lightness + (darker ? -0.001 : 0.001)));
+		out = fromHsl(hue, saturation, lightness);
+	}
+	LIGHT_COLORS.set(key, out);
+	return out;
+}
+
+/** The palette as colors light paints it (look-more S5): each color as lightColor of it. */
+export const lightPalette = Object.fromEntries(Object.entries(palette).map(([name, color]) => [name, lightColor(color)])) as { readonly [K in keyof typeof palette]: Rgb };
+
+/** `color` in color mode `mode`: lightColor of it in light (look-more S5), itself in vivid and soft. */
+export function tone(color: Rgb, mode?: ColorMode): Rgb {
+	return mode === "light" ? lightColor(color) : color;
+}
+
+const TRUE_COLOR = /\x1b\[(38|48);2;(\d+);(\d+);(\d+)m/g;
+
+/**
+ * Fisi Dock's own painted `text` in color mode `mode`: in light each 24-bit foreground and
+ * background as lightColor of it (look-more S5); vivid and soft as it is. Only for text Fisi Dock
+ * painted all by itself, in vivid: what Gentle Shell or Pi painted keeps its colors.
+ */
+export function paint(text: string, mode?: ColorMode): string {
+	if (mode !== "light") return text;
+	return text.replace(TRUE_COLOR, (_, kind: string, r: string, g: string, b: string) => `\x1b[${kind};2;${lightColor([Number(r), Number(g), Number(b)]).join(";")}m`);
 }
 
 export const fgCode = ([r, g, b]: Rgb) => `\x1b[38;2;${r};${g};${b}m`;

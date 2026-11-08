@@ -7,7 +7,8 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { fg, palette } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { fg, paint, palette } from "./palette.ts";
 import { ellipsize, padEnd, visibleWidth } from "./text.ts";
 
 /** Same frame as the welcome card (lib/welcome-card.ts): 63 columns, or the screen's width down to 34. */
@@ -67,9 +68,14 @@ function kindRow({ label, names }: LoadedKind, labelWidth: number, countWidth: n
  * The loaded box for `width` columns, centered like the welcome card; kinds
  * with nothing loaded are left out, and nothing loaded draws nothing. Under the
  * card's 34-column minimum the rows print without a frame or hint. The bottom
- * rule names `key`, Pi's expand key; an empty key leaves the rule plain.
+ * rule names `key`, Pi's expand key; an empty key leaves the rule plain. Light `colors`
+ * paints it for a light background (look-more S5).
  */
-export function renderLoadedBox(kinds: readonly LoadedKind[], width: number, key = DEFAULT_EXPAND_KEY): string[] {
+export function renderLoadedBox(kinds: readonly LoadedKind[], width: number, key = DEFAULT_EXPAND_KEY, colors?: ColorMode): string[] {
+	return boxLines(kinds, width, key).map((line) => paint(line, colors));
+}
+
+function boxLines(kinds: readonly LoadedKind[], width: number, key: string): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	const shown = kinds.filter((kind) => kind.names.length > 0);
 	if (columns < 1 || shown.length === 0) return [];
@@ -228,7 +234,7 @@ const isText = (child: unknown) => typeof (child as { build?: unknown }).build =
  * print (the compact labels Pi derives for extensions have no public API, and
  * pi.getCommands() knows neither extensions nor context files).
  */
-function boxedLines(container: Node & { mouseLayout?: unknown }, width: number, key: string): string[] | undefined {
+function boxedLines(container: Node & { mouseLayout?: unknown }, width: number, key: string, colors?: ColorMode): string[] | undefined {
 	const children = childrenOf(container) ?? [];
 	const kinds: LoadedKind[] = [];
 	const listed = new Set<number>();
@@ -242,7 +248,7 @@ function boxedLines(container: Node & { mouseLayout?: unknown }, width: number, 
 		} else if (!isSpacer(child) && !isText(child)) return undefined;
 	}
 	if (listed.size === 0) return undefined;
-	const box = renderLoadedBox(kinds, width, key);
+	const box = renderLoadedBox(kinds, width, key, colors);
 	const first = Math.min(...listed);
 	// Pi's spacers around its sections give way to one blank row under the box.
 	const beside = (index: number) => isSpacer(children[index]) && (listed.has(index - 1) || listed.has(index + 1));
@@ -269,6 +275,8 @@ export type LoadedBoxOptions = {
 	active(): boolean;
 	/** Pi's keybindings file, for the hint when the tree holds no keybindings; piKeybindingsPath for this process by default. */
 	keybindingsPath?: string;
+	/** The color mode, read per render (look-more S5): light paints the box for a light background. */
+	colors?(): ColorMode;
 };
 
 /**
@@ -292,7 +300,7 @@ export function installLoadedBox(root: unknown, header: object, options: LoadedB
 		if (!restored) {
 			try {
 				if (options.active()) {
-					const lines = boxedLines(container, width, key());
+					const lines = boxedLines(container, width, key(), options.colors?.());
 					if (lines) return lines;
 				}
 			} catch {

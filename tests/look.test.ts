@@ -9,7 +9,7 @@ test("S6 the default look is today's: braille logo, faded frames, vivid colors, 
 test("S1 each look key has its ordered options, the default first", () => {
 	assert.deepEqual(LOGO_STYLES, ["braille", "text", "none"]);
 	assert.deepEqual(FRAME_STYLES, ["faded", "classic", "none"]);
-	assert.deepEqual(COLOR_MODES, ["vivid", "soft"]);
+	assert.deepEqual(COLOR_MODES, ["vivid", "soft", "light"], "look-more S5");
 	assert.deepEqual(ACCENTS, ["pink", "teal", "lilac", "amber", "green"], "look-more S4");
 	assert.deepEqual(DIVIDER_LEVELS, ["medium", "off", "subtle", "strong"], "look-more S1");
 	assert.deepEqual(MOTION_MODES, ["on", "off"], "look-more S2");
@@ -59,7 +59,7 @@ test("look-more S4 themeNameFor(colors, accent): pink keeps Fisi-Dock and Fisi-D
 		assert.equal(themeNameFor("vivid", accent), expected[accent][0], `${accent} vivid`);
 		assert.equal(themeNameFor("soft", accent), expected[accent][1], `${accent} soft`);
 	}
-	assert.deepEqual([...FISI_DOCK_THEMES], Object.values(expected).flat(), "every Fisi Dock theme, pink first");
+	assert.deepEqual([...FISI_DOCK_THEMES], [...Object.values(expected).flat(), "Fisi-Dock-Light"], "every Fisi Dock theme, pink first, the light one last (look-more S5)");
 });
 
 test("S1 lookKey names the look for memo keys: each field changes it, equal looks share it", async () => {
@@ -69,4 +69,14 @@ test("S1 lookKey names the look for memo keys: each field changes it, equal look
 	assert.equal(lookKey(normalizeLook({ frames: "classic" })), lookKey({ ...DEFAULT_LOOK, frames: "classic" }));
 	const keys = new Set([DEFAULT_LOOK, { ...DEFAULT_LOOK, logo: "none" }, { ...DEFAULT_LOOK, frames: "none" }, { ...DEFAULT_LOOK, colors: "soft" }, { ...DEFAULT_LOOK, accent: "teal" }, { ...DEFAULT_LOOK, divider: "strong" }, { ...DEFAULT_LOOK, motion: "off" }].map((look) => lookKey(look as typeof DEFAULT_LOOK)));
 	assert.equal(keys.size, 7);
+});
+
+test("look-more S5 themeNameFor(light, accent) is Fisi-Dock-Light for every accent: one light theme, no light accents; it is one of Fisi Dock's own", async () => {
+	const { themeNameFor, FISI_DOCK_THEMES } = await import("../lib/look.ts");
+	for (const accent of ACCENTS) assert.equal(themeNameFor("light", accent), "Fisi-Dock-Light", accent);
+	assert.equal(themeNameFor("light"), "Fisi-Dock-Light");
+	assert.ok(FISI_DOCK_THEMES.includes("Fisi-Dock-Light"));
+	assert.equal(new Set(FISI_DOCK_THEMES).size, FISI_DOCK_THEMES.length, "each theme once");
+	assert.deepEqual(normalizeLook({ colors: "light", accent: "teal" }), { ...DEFAULT_LOOK, colors: "light", accent: "teal" }, "light is saved with the accent it was picked with");
+	for (const colors of ["Light", "dark", "LIGHT"]) assert.equal(normalizeLook({ colors }).colors, "vivid", colors);
 });

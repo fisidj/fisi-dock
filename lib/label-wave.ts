@@ -8,10 +8,11 @@
 // Gentle Shell steps its wave once a second).
 // The petal before the label turns on the same clock (S97). With motion off (look-more
 // S2) both stand still on the moment WAVE_STILL_AT. The head and the petal's pink tones
-// take the accent (look-more S4); its lilac tones stay.
+// take the accent (look-more S4); its lilac tones stay. Light colors paint both for a light
+// background (look-more S5).
 import type { OrbMotion } from "./orbs.ts";
 import type { Accent, ColorMode } from "./look.ts";
-import { accentBase, accentLabel, accentTone, bold, fg, labelAccent, palette, type Rgb } from "./palette.ts";
+import { accentBase, accentLabel, accentTone, bold, fg, labelAccent, paint, palette, type Rgb } from "./palette.ts";
 
 export const WAVE_STEP_MS = 120;
 const WAVE_SOFT = palette.lilac;
@@ -24,8 +25,8 @@ const FRAME_WINDOW_MS = 2000;
 /** The fixed moment motion off paints (look-more S2): the wave not yet on the label, all muted, and the first petal. */
 export const WAVE_STILL_AT = 0;
 
-/** `label` with the wave at the moment `now`, its head in `accent`'s pastel (pink by default). */
-export function waveLabel(label: string, now: number, accent: Accent = "pink"): string {
+/** `label` with the wave at the moment `now`, its head in `accent`'s pastel (pink by default); light `colors` paints it for a light background. */
+export function waveLabel(label: string, now: number, accent: Accent = "pink", colors?: ColorMode): string {
 	const head = accentBase(accent);
 	const chars = Array.from(label);
 	const steps = Math.max(MIN_STEPS, chars.length + ENTRY_STEPS * 2);
@@ -33,7 +34,7 @@ export function waveLabel(label: string, now: number, accent: Accent = "pink"): 
 	return chars
 		.map((char, index) => {
 			const distance = Math.abs(at - index);
-			return fg(distance <= 1 ? head : distance === 2 ? WAVE_SOFT : palette.muted, char);
+			return paint(fg(distance <= 1 ? head : distance === 2 ? WAVE_SOFT : palette.muted, char), colors);
 		})
 		.join("");
 }
@@ -61,7 +62,7 @@ export function wavePetal(now: number, colors: ColorMode = "vivid", accent: Acce
 	const key = `${mode}/${accent}`;
 	const tones = PETAL_TONES.get(key) ?? petalTones(mode, accent);
 	PETAL_TONES.set(key, tones);
-	return fg(tones[step % tones.length], bold(PETAL_FRAMES[step % PETAL_FRAMES.length]));
+	return paint(fg(tones[step % tones.length], bold(PETAL_FRAMES[step % PETAL_FRAMES.length])), colors);
 }
 
 export interface WaveClockOptions {

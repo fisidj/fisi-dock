@@ -1,4 +1,5 @@
-import { bold, fg, palette, type Rgb } from "./palette.ts";
+import type { ColorMode } from "./look.ts";
+import { bold, fg, paint, palette, type Rgb } from "./palette.ts";
 import type { McpServerInfo, PanelModel } from "./panel-model.ts";
 import { contextColor, usageParts } from "./panel.ts";
 import { ellipsize, truncateToWidth, visibleWidth } from "./text.ts";
@@ -44,9 +45,14 @@ const MCP_DOT: Record<McpServerInfo["state"], Rgb> = { connected: palette.green,
  * The top row while the rail is hidden (S33): Gentle Shell's narrow header
  * showed model, context and cost; ours shows project · branch, a short context
  * meter, cost and MCP dots. The model and effort are on the prompt frame (S8).
- * Segments drop from the right to fit; the project is cut last.
+ * Segments drop from the right to fit; the project is cut last. Light `colors` paints it for a
+ * light background (look-more S5).
  */
-export function renderNarrowHeader(model: PanelModel, width: number): string[] {
+export function renderNarrowHeader(model: PanelModel, width: number, colors?: ColorMode): string[] {
+	return narrowHeaderLines(model, width).map((line) => paint(line, colors));
+}
+
+function narrowHeaderLines(model: PanelModel, width: number): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns === 0) return [];
 	const { session } = model;
@@ -75,12 +81,12 @@ export function renderNarrowHeader(model: PanelModel, width: number): string[] {
 	return [pad + ellipsize(project, columns - pad.length), rule];
 }
 
-/** One muted line with the path, or no line for an empty path or zero width. */
-export function renderHeaderLine(path: string, width: number): string[] {
+/** One muted line with the path, or no line for an empty path or zero width; light `colors` paints it for a light background (look-more S5). */
+export function renderHeaderLine(path: string, width: number, colors?: ColorMode): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (!path || columns === 0) return [];
 	// One column of left padding, like the header text start in Gentle Shell's
 	// float style; dropped when the width leaves no room for it.
 	const pad = columns >= 2 ? " " : "";
-	return [pad + fg(palette.muted, fitPath(path, columns - pad.length))];
+	return [paint(pad + fg(palette.muted, fitPath(path, columns - pad.length)), colors)];
 }

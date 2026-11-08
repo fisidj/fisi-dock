@@ -6,8 +6,8 @@
 export const LOGO_STYLES = ["braille", "text", "none"] as const;
 /** Faded boxes (today), the classic flat gray box, or no box (S3). */
 export const FRAME_STYLES = ["faded", "classic", "none"] as const;
-/** Today's vivid tones or the soft pastels from before 0.3.0 (S4). */
-export const COLOR_MODES = ["vivid", "soft"] as const;
+/** Today's vivid tones, the soft pastels from before 0.3.0 (S4), or light, for a light terminal background (look-more S5). */
+export const COLOR_MODES = ["vivid", "soft", "light"] as const;
 /** Fisi Dock's own pink (today) or another accent for the theme and the panel's pink family (look-more S4). */
 export const ACCENTS = ["pink", "teal", "lilac", "amber", "green"] as const;
 /** The rail divider's brightness (look-more S1): today's medium, none, dimmer or brighter. */
@@ -42,15 +42,20 @@ function pick<T extends string>(options: readonly T[], value: unknown, fallback:
 /**
  * The Pi theme for color mode `mode` and `accent` (S4, look-more S4): `Fisi-Dock` with the vivid
  * accents, `Fisi-Dock-Soft` with the pastels from before 0.3.0; another accent adds its name,
- * `Fisi-Dock-Teal`, `Fisi-Dock-Teal-Soft` (scripts/build-themes.mjs writes them).
+ * `Fisi-Dock-Teal`, `Fisi-Dock-Teal-Soft` (scripts/build-themes.mjs writes them). Light is one
+ * theme, `Fisi-Dock-Light`, for every accent (look-more S5).
  */
 export function themeNameFor(mode: ColorMode, accent: Accent = "pink"): string {
+	if (mode === "light") return LIGHT_THEME;
 	const name = accent === "pink" ? "Fisi-Dock" : `Fisi-Dock-${accent[0].toUpperCase()}${accent.slice(1)}`;
 	return mode === "soft" ? `${name}-Soft` : name;
 }
 
-/** Every theme Fisi Dock ships, per accent vivid then soft, pink first: never remembered as the user's (S95). */
-export const FISI_DOCK_THEMES: readonly string[] = ACCENTS.flatMap((accent) => COLOR_MODES.map((mode) => themeNameFor(mode, accent)));
+/** The one light theme (look-more S5): no accents, no soft. */
+const LIGHT_THEME = "Fisi-Dock-Light";
+
+/** Every theme Fisi Dock ships, per accent vivid then soft, pink first, then the light one: never remembered as the user's (S95). */
+export const FISI_DOCK_THEMES: readonly string[] = [...ACCENTS.flatMap((accent) => (["vivid", "soft"] as const).map((mode) => themeNameFor(mode, accent))), LIGHT_THEME];
 
 /** A look from anything (a saved file, say): each valid field kept, every other one the default. Never throws. */
 export function normalizeLook(value: unknown): Look {

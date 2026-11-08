@@ -3,7 +3,7 @@
 // look as a live preview. The render and the key reducer are pure; the
 // extension saves and applies each change.
 import { type Look, LOOK_OPTIONS } from "./look.ts";
-import { accentBase, bold, fg, palette } from "./palette.ts";
+import { accentBase, bold, fg, paint, palette } from "./palette.ts";
 import { DOCK_WIDTH, renderRail } from "./panel.ts";
 import type { PanelModel } from "./panel-model.ts";
 import { padEnd, truncateToWidth } from "./text.ts";
@@ -90,14 +90,16 @@ function settingsRow(state: SettingsState, index: number): string {
  * The settings overlay at `width` x `height`: exactly `height` rows of exactly
  * `width` columns. The title, the rows (the selected one marked `›`), then,
  * with `model` and the room for it, the rail in the chosen look, and the hint
- * on the last row. A screen too short for all of it keeps the rows and the hint.
+ * on the last row. A screen too short for all of it keeps the rows and the hint. Light colors
+ * paint the menu for a light background, like the preview (look-more S5).
  */
 export function renderSettings(state: SettingsState, width: number, height: number, model?: PanelModel): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	const rows = Math.max(0, Math.floor(height));
 	if (columns === 0 || rows === 0) return [];
-	const items = SETTINGS_ROWS.map((_, index) => settingsRow(state, index));
-	const hint = ` ${fg(palette.muted, SETTINGS_HINT)}`;
+	const own = (line: string) => paint(line, state.look.colors);
+	const items = SETTINGS_ROWS.map((_, index) => own(settingsRow(state, index)));
+	const hint = own(` ${fg(palette.muted, SETTINGS_HINT)}`);
 	let lines: string[];
 	if (rows < HEAD_ROWS + 1) {
 		lines = [...items.slice(0, rows - 1), ...Array<string>(Math.max(0, rows - 1 - items.length)).fill(""), hint].slice(-rows);
@@ -105,7 +107,7 @@ export function renderSettings(state: SettingsState, width: number, height: numb
 		const room = rows - HEAD_ROWS - 1;
 		const previewWidth = Math.min(PREVIEW_WIDTH, columns - 2);
 		const preview = model && room >= PREVIEW_MIN_ROWS && previewWidth >= PREVIEW_MIN_WIDTH ? renderRail(model, previewWidth, { maxRows: room, ...state.look }).slice(0, room).map((line) => ` ${line}`) : [];
-		lines = [` ${bold(fg(accentBase(state.look.accent), "Fisi Dock look"))}`, "", ...items, "", ...preview, ...Array<string>(room - preview.length).fill(""), hint];
+		lines = [own(` ${bold(fg(accentBase(state.look.accent), "Fisi Dock look"))}`), "", ...items, "", ...preview, ...Array<string>(room - preview.length).fill(""), hint];
 	}
 	return lines.map((line) => padEnd(truncateToWidth(line, columns), columns));
 }

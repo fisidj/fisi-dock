@@ -6,11 +6,13 @@ import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
-import { FADE_PEAK, RESET, accentBase, bgCode, bold, dim, fadeAmount, fadedEdge, fg, palette, panelAccent, type Rgb } from "./palette.ts";
+import { FADE_PEAK, RESET, accentBase, bgCode, bold, dim, fadeAmount, fadedEdge, fg, paint, palette, panelAccent, type Rgb } from "./palette.ts";
 import { ellipsize, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
 // Pure model-to-lines renderer for the rail (design 07, S2/S8/S9). Gentle Shell
 // hides the whole rail when one line is too wide, so every line is cut to fit.
+// Colors light (look-more S5): the lines are drawn in vivid and painted for the
+// light background once, by each exported renderer (lib/palette.ts paint).
 
 interface Row {
 	text: string;
@@ -786,7 +788,7 @@ export interface PanelOptions {
 	maxRows?: number;
 	/** The section frames (S3): faded boxes (the default, S6), the classic flat gray box, or no box. With no box, a short screen drops the blank rows between sections before anything else. */
 	frames?: FrameStyle;
-	/** The section titles' and counters' colors (look settings S4): vivid (the default, S6) or soft, their own pastel as before 0.3.0. */
+	/** The section titles' and counters' colors (look settings S4): vivid (the default, S6) or soft, their own pastel as before 0.3.0; light paints every color for a light background (look-more S5). */
 	colors?: ColorMode;
 	/** Fisi Dock's own pink (look-more S4): the highlight bar, the active todo spinner and the logo's SHELL in the accent; pink (the default) is today's. Section titles keep their hues. */
 	accent?: Accent;
@@ -843,8 +845,16 @@ const SHAPES: Shape[] = [
 	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
 ];
 
+/** Light is drawn in vivid, then painted (look-more S5). */
+const drawnColors = (colors?: ColorMode): ColorMode | undefined => (colors === "light" ? "vivid" : colors);
+
 /** Every rail line for `model`, none wider than `width` visible columns. */
 export function renderPanel(moving: PanelModel, width: number, options: PanelOptions = {}): string[] {
+	return panelLines(moving, width, options).map((line) => paint(line, options.colors));
+}
+
+/** renderPanel's lines before light paints them. */
+function panelLines(moving: PanelModel, width: number, options: PanelOptions): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns === 0) return [];
 	const model = options.motion === "off" ? stillModel(moving) : moving;
@@ -853,7 +863,7 @@ export function renderPanel(moving: PanelModel, width: number, options: PanelOpt
 	// A check that runs, waits or failed keeps CI on screen longer (S77).
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const frames = options.frames ?? "faded";
-	const colors = options.colors;
+	const colors = drawnColors(options.colors);
 	const accent = options.accent;
 	const draw = (shape: Shape, gaps: boolean) => {
 		const sections = [
@@ -900,12 +910,12 @@ function dividerCell(index: number, rows: number, peak: number): string {
 export function renderRail(model: PanelModel, width: number, options: PanelOptions = {}): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns < 3) return renderPanel(model, columns, options);
-	const panel = renderPanel(model, columns - 2, options);
+	const panel = panelLines(model, columns - 2, options);
 	const screen = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.floor(options.maxRows) : 0;
 	const rows = Math.max(panel.length, screen);
 	// Off keeps the blank column, so the panel never moves (look-more S1).
 	const peak = DIVIDER_PEAKS[options.divider ?? "medium"] ?? FADE_PEAK;
-	return Array.from({ length: rows }, (_, index) => `${dividerCell(index, rows, peak)} ${padEnd(panel[index] ?? "", columns - 2)}`);
+	return Array.from({ length: rows }, (_, index) => paint(`${dividerCell(index, rows, peak)} ${padEnd(panel[index] ?? "", columns - 2)}`, options.colors));
 }
 
 /**
@@ -918,9 +928,9 @@ export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinne
 	const columns = Math.max(0, Math.floor(width));
 	const still = motion === "off";
 	const shown = still && todo ? { ...todo, entrance: undefined } : todo;
-	const section = columns > 0 && shown ? todoSection(shown, columns - 4, false, still ? undefined : spinner, true, colors, accent) : undefined;
+	const section = columns > 0 && shown ? todoSection(shown, columns - 4, false, still ? undefined : spinner, true, drawnColors(colors), accent) : undefined;
 	if (!section) return [];
-	return drawSection(section, columns, colors, accent).map((line) => truncateToWidth(line, columns));
+	return drawSection(section, columns, drawnColors(colors), accent).map((line) => paint(truncateToWidth(line, columns), colors));
 }
 
 /** Agent names past this many cells are cut, so the tasks keep one column. */
@@ -951,8 +961,9 @@ export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number,
 	});
 	const hidden = running.length - shown.length;
 	if (hidden > 0) rows.push({ text: item(" ", (rest) => spread(muted(`+${hidden} more`), `${plainText("/dock")}${muted(" all")}`, rest), inner) });
-	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelAccent(palette.lilac, colors), String(running.length)), rows };
-	return drawSection(section, columns, colors).map((line) => truncateToWidth(line, columns));
+	const drawn = drawnColors(colors);
+	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelAccent(palette.lilac, drawn), String(running.length)), rows };
+	return drawSection(section, columns, drawn).map((line) => paint(truncateToWidth(line, columns), colors));
 }
 
 /** The panel width the rail draws it at in Gentle Shell fisi/custom's 58-column rail. */
@@ -991,7 +1002,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? renderPanel(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion }) : [];
+	const panel = inner > 0 ? panelLines(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));
@@ -1001,7 +1012,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const shown = body.slice(at, at + room);
 	const hint = left + padEnd(spread(muted("Esc to close"), last > 0 ? muted("↑↓ scroll") : "", inner), inner) + right;
 	const lines = [...Array<string>(topRows).fill(""), ...shown, ...Array<string>(room - shown.length).fill(""), hint];
-	return { lines: lines.map((line) => boxed(truncateToWidth(line, columns), columns)), offset: at };
+	return { lines: lines.map((line) => paint(boxed(truncateToWidth(line, columns), columns), options.colors)), offset: at };
 }
 
 /** Cheap change key for the rail memo: any drawn value change changes it. */

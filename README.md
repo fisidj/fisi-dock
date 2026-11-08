@@ -109,7 +109,7 @@ Fisi Dock adds two commands:
 | Command | What it does |
 |---|---|
 | `/dock` | Shows the full panel over the whole screen, live. Made for narrow screens without the side rail; works on wide ones too. While Fisi Dock is off it only says so. |
-| `/fisi-dock on` | Turns Fisi Dock back on, as at the start of a session, and switches Pi to the `Fisi-Dock` theme (`Fisi-Dock-Soft` with `soft` [colors](#look), `Fisi-Dock-Teal` and the like with another [accent](#look)), remembering the theme you had. Already on: it says so and changes nothing. |
+| `/fisi-dock on` | Turns Fisi Dock back on, as at the start of a session, and switches Pi to the `Fisi-Dock` theme (`Fisi-Dock-Soft` with `soft` [colors](#look), `Fisi-Dock-Light` with `light`, `Fisi-Dock-Teal` and the like with another [accent](#look)), remembering the theme you had. Already on: it says so and changes nothing. |
 | `/fisi-dock off` | Puts Fisi Dock to sleep without uninstalling it: Gentle Shell gets its own panel back, and your theme comes back (see [Theme](#theme)). New sessions start asleep until `/fisi-dock on`. |
 | `/fisi-dock settings` | Opens the look menu: the rail logo, the section frames, the colors, the accent, the divider and the motion, with the rail drawn under them as a live preview (see [Look](#look)). Works while Fisi Dock is off too. |
 | `/fisi-dock` | Opens a picker titled with the current state (`Fisi Dock is on`), the change listed first, then `settings`: Enter picks, Esc changes nothing. Typing `/fisi-dock ` with the space suggests `on`, `off` and `settings`; any other argument shows the usage and changes nothing. |
@@ -135,7 +135,7 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 
 | Control | Effect on Fisi Dock |
 |---|---|
-| `/settings` → **Theme** | Picks any theme, `Fisi-Dock` and its accent and soft variants included ([Theme](#theme)). |
+| `/settings` → **Theme** | Picks any theme, `Fisi-Dock` and its accent, soft and light variants included ([Theme](#theme)). |
 | Your expand key (`ctrl+o` by default) | Shows Pi's full list of loaded skills, prompts and extensions in place of the `loaded` box; press it again for the box. |
 | `/gentle:vim disable` | Turns Gentle Shell's Vim mode off, and with it the `INSERT`/`NORMAL` hint on the prompt box. `/gentle:vim enable` turns it back on. |
 | `"quietStartup": true` in Pi's `settings.json` | Pi prints no loaded-resources listing, so there is no `loaded` box. |
@@ -148,14 +148,14 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 |---|---|
 | `logo` | `braille`: the GENTLESHELL wordmark in braille dots. `text`: one bold `GENTLESHELL` row. `none`: no logo, the panel starts at its first section. |
 | `frames` | `faded`: boxes whose edges fade toward the corners. `classic`: the flat gray boxes of 0.3.1. `none`: no box, each title on a fading rule with a blank row between sections. The prompt box and your messages follow: faded, flat gray, or only their top line as a fading rule with the same labels (no sides, no bottom). |
-| `colors` | `vivid`: the vivid titles and labels of 0.3.x. `soft`: the softer pastel tones from before 0.3.0, on the panel, the prompt box and your messages. |
-| `accent` | `pink`: Fisi Dock's pink, as before. `teal`, `lilac`, `amber`, `green`: that color instead, in the whole theme (the accent, borders, selection, list bullets, quotes and search matches) in vivid and in soft, and in the pink Fisi Dock paints itself: the highlight bar `▎` and the active todo spinner, `you` on your messages, the prompt label wave and petal, the SHELL half of the logo and the menu. Each section keeps its own color (session teal, ODD amber, agents lilac, changes green…), and the permission mode stays red. |
+| `colors` | `vivid`: the vivid titles and labels of 0.3.x. `soft`: the softer pastel tones from before 0.3.0, on the panel, the prompt box and your messages. `light`: for a light terminal background: dark text, the frames and divider fading toward the light background, each color darkened to read at least 4.5:1, on everything Fisi Dock paints (the rail, `/dock`, the cards and strip, the prompt box and the line under it, your messages, the top row, the welcome card and `loaded` box, the menu), with the `Fisi-Dock-Light` theme. The terminal's background stays yours. |
+| `accent` | `pink`: Fisi Dock's pink, as before. `teal`, `lilac`, `amber`, `green`: that color instead, in the whole theme (the accent, borders, selection, list bullets, quotes and search matches) in vivid and in soft, and in the pink Fisi Dock paints itself: the highlight bar `▎` and the active todo spinner, `you` on your messages, the prompt label wave and petal, the SHELL half of the logo and the menu. Each section keeps its own color (session teal, ODD amber, agents lilac, changes green…), and the permission mode stays red. With `light` colors the accent still paints Fisi Dock's own pink (darkened for the light background), but the theme stays `Fisi-Dock-Light`: there is one light theme, without accents. |
 | `divider` | `medium`: the fading line between the chat and the rail, as before. `off`: no line; its column stays blank, so the panel does not move. `subtle`: dimmer. `strong`: brighter. |
 | `motion` | `on`: spinners, the ODD orb and its shine, the prompt label wave and petal, and the entrance of new rows move as before. `off`: all of them stand still on one frame and new rows appear at once in their own colors; every state keeps its glyph (`✓`, `●`, `◌`, `✗`, `!`). |
 
 Each change applies at once: the preview under the menu repaints while you choose, and the rail, `/dock`, the cards, the prompt box and your messages follow. The look is remembered across sessions and across `/fisi-dock off` and `on`.
 
-With `soft` colors Fisi Dock uses its `Fisi-Dock-Soft` theme instead of `Fisi-Dock`, and with another accent its own pair, `Fisi-Dock-Teal` and `Fisi-Dock-Teal-Soft`, `Fisi-Dock-Lilac`, `Fisi-Dock-Amber`, `Fisi-Dock-Green` and their `-Soft` themes: the menu switches Pi's theme when it closes, and only while one of Fisi Dock's ten themes is in use. With a theme of your own picked in `/settings`, the menu changes Fisi Dock's colors and leaves your theme alone. Details: [docs/reference.md](docs/reference.md#look-settings).
+With `soft` colors Fisi Dock uses its `Fisi-Dock-Soft` theme instead of `Fisi-Dock`, and with another accent its own pair, `Fisi-Dock-Teal` and `Fisi-Dock-Teal-Soft`, `Fisi-Dock-Lilac`, `Fisi-Dock-Amber`, `Fisi-Dock-Green` and their `-Soft` themes; with `light` colors, `Fisi-Dock-Light` whatever the accent. The menu switches Pi's theme when it closes, and only while one of Fisi Dock's eleven themes is in use. With a theme of your own picked in `/settings`, the menu changes Fisi Dock's colors and leaves your theme alone. Details: [docs/reference.md](docs/reference.md#look-settings).
 
 ## Theme
 
@@ -169,7 +169,7 @@ With `soft` colors Fisi Dock uses its `Fisi-Dock-Soft` theme instead of `Fisi-Do
 |---|---|
 | The first start | Once, as above. Your theme is remembered for `/fisi-dock off`. |
 | `/fisi-dock off`, then `/fisi-dock on` | On remembers the theme in use and sets `Fisi-Dock` (`/fisi-dock on` while already on changes nothing). |
-| `/fisi-dock settings` → `colors` or `accent` | Switches between `Fisi-Dock` (`vivid`), `Fisi-Dock-Soft` (`soft`) and the accent themes (`Fisi-Dock-Teal`, `Fisi-Dock-Teal-Soft`, …) when the menu closes, while one of them is in use; on, the first start and `/fisi-dock on` set the one of your saved colors and accent. None of them is ever remembered as your theme. |
+| `/fisi-dock settings` → `colors` or `accent` | Switches between `Fisi-Dock` (`vivid`), `Fisi-Dock-Soft` (`soft`), `Fisi-Dock-Light` (`light`, every accent) and the accent themes (`Fisi-Dock-Teal`, `Fisi-Dock-Teal-Soft`, …) when the menu closes, while one of them is in use; on, the first start and `/fisi-dock on` set the one of your saved colors and accent. None of them is ever remembered as your theme. |
 | `/settings` → **Theme** → `Fisi-Dock` | Pi switches now and saves it as your theme setting. Nothing new is remembered, so a later `/fisi-dock off` gives back the theme remembered before, else Gentle Shell's `Gentleman-Cute`. |
 
 To keep your own theme after the first start, or to switch back:

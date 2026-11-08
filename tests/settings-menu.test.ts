@@ -68,7 +68,10 @@ test("S1 right and left cycle the row's options and wrap; Enter cycles forward; 
 	const colors = reduceSettings({ row: 2, look: { ...DEFAULT_LOOK } }, "enter");
 	assert.deepEqual(colors.state.look, { ...DEFAULT_LOOK, colors: "soft" });
 	assert.equal(colors.changed, true);
-	assert.equal(reduceSettings(colors.state, "enter").state.look.colors, "vivid", "two colors: Enter toggles back");
+	const light = reduceSettings(colors.state, "enter");
+	assert.equal(light.state.look.colors, "light", "look-more S5: Enter goes on to light");
+	assert.equal(reduceSettings(light.state, "enter").state.look.colors, "vivid", "past light wraps to vivid");
+	assert.equal(reduceSettings({ row: 2, look: { ...DEFAULT_LOOK } }, "prev").state.look.colors, "light", "before vivid wraps to light");
 	assert.equal(reduceSettings(colors.state, "next").state.row, 2, "changing keeps the row");
 });
 

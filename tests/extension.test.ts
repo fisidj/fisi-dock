@@ -2972,9 +2972,9 @@ test("S1 colors switch Pi's theme to Fisi-Dock-Soft and back while Fisi Dock's t
 	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Soft");
 	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "soft", accent: "pink", divider: "medium", motion: "on" } });
 	await changeColors(RIGHT);
-	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock"]);
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock-Light"], "look-more S5: soft, then light");
 	await changeColors(LEFT);
-	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock", "Fisi-Dock-Soft"]);
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Soft", "Fisi-Dock-Light", "Fisi-Dock-Soft"]);
 
 	// Off from Fisi-Dock-Soft puts the user's theme back; on remembers nothing of Fisi Dock's and takes the soft theme.
 	await fisiDockCommand(sim, "off");
@@ -3033,8 +3033,8 @@ test("S1 S4 L8 colors never switch Pi's theme inside the menu's key handler: the
 	};
 	press(DOWN);
 	press(DOWN);
-	// Held → (key repeat): vivid, soft, vivid, soft, vivid, soft.
-	for (let index = 0; index < 5; index++) press(RIGHT);
+	// Held → (key repeat): vivid, soft, light, vivid, soft (look-more S5 adds light).
+	for (let index = 0; index < 4; index++) press(RIGHT);
 	assert.deepEqual(duringKey, [], "no theme switch inside the key handler");
 	assert.deepEqual(sim.themes, [], "nor while the menu is open");
 	assert.equal(readState(path).look.colors, "soft", "each change is saved at once");
@@ -3379,6 +3379,79 @@ test("look-more S4 the accent row repaints at once and, once the menu closes, sw
 	assert.deepEqual(mine.themes, []);
 	assert.equal(readState(own).look.accent, "teal");
 	mine.emit("session_shutdown");
+});
+
+test("look-more S5 colors light: the menu cycles vivid, soft, light; everything Fisi Dock paints repaints light at once; Pi's theme becomes Fisi-Dock-Light once the menu closed, whatever the accent", async (t) => {
+	const { lightPalette, fgCode, palette } = await import("../lib/palette.ts");
+	const path = stateDir(t);
+	seedState(path, { enabled: true, theme: "dark", themeApplied: true, look: { accent: "teal" } });
+	class UserMessageComponent {
+		children: unknown[] = [];
+		render(width: number): string[] {
+			return [" hola".padEnd(width)];
+		}
+	}
+	const message = new UserMessageComponent();
+	const pi = (width: number) => [" hola".padEnd(width)];
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "Fisi-Dock-Teal" });
+	Object.assign(sim.tui, { children: [{ children: [message] }] });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rail = sim.parts.get("footer") as Rail;
+	const header = sim.parts.get("header") as { render(width: number): string[]; digest(): string };
+	const before = { rail: rail.render(57), digest: rail.digest(), header: header.digest(), card: sim.startHeader.current?.render(100) ?? [] };
+	assert.ok(before.rail.join("\n").includes(fgCode(palette.text)), "vivid paints today's text");
+
+	const settings = await openSettings(sim);
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(DOWN);
+	settings.view.handleInput?.(RIGHT);
+	settings.view.handleInput?.(RIGHT);
+	assert.match(plain(settings.view.render(60)[4]), /^ › colors +‹ light › *$/);
+	assert.equal(readState(path).look.colors, "light", "saved at once");
+	assert.notEqual(rail.digest(), before.digest, "Gentle Shell's rail memo sees the change");
+	const lightRail = rail.render(57).join("\n");
+	assert.ok(lightRail.includes(fgCode(lightPalette.text)) && !lightRail.includes(fgCode(palette.text)), "the rail repaints in the light palette");
+	assert.notEqual(header.digest(), before.header, "the top row's memo sees the colors");
+	assert.ok(header.render(60).join("").includes(fgCode(lightPalette.muted)), "the path in the light muted");
+	assert.deepEqual(message.render(30), frameUserLines(pi, 30, "light", "faded", "teal"), "the user frame in light, `you` in the light teal");
+	const card = sim.startHeader.current?.render(100) ?? [];
+	assert.ok(card.join("").includes(fgCode(lightPalette.text)) && !card.join("").includes(fgCode(palette.text)), "the welcome card in light");
+	assert.deepEqual(sim.themes, [], "no theme switch while the menu is open");
+	settings.view.handleInput?.("\x1b");
+	await settings.pending;
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Light"], "one switch, to the light theme, though the accent is teal");
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Light");
+	assert.deepEqual(readState(path), { enabled: true, theme: "dark", themeApplied: true, look: { logo: "braille", frames: "faded", colors: "light", accent: "teal", divider: "medium", motion: "on" } });
+
+	// The accent row still saves in light, and the panel follows it, but the theme stays Fisi-Dock-Light.
+	const accent = await openSettings(sim);
+	for (let index = 0; index < 3; index++) accent.view.handleInput?.(DOWN);
+	accent.view.handleInput?.(RIGHT);
+	const lilacRail = rail.render(57);
+	accent.view.handleInput?.("\x1b");
+	await accent.pending;
+	assert.equal(readState(path).look.accent, "lilac");
+	assert.notDeepEqual(lilacRail.join("\n"), lightRail, "the panel's pink family follows the accent");
+	assert.deepEqual(sim.themes, ["Fisi-Dock-Light"], "no switch: one light theme for every accent");
+
+	// Off from Fisi-Dock-Light puts the user's theme back; on takes the light theme again and remembers nothing of Fisi Dock's.
+	await fisiDockCommand(sim, "off");
+	assert.equal(sim.ctx.ui.theme.name, "dark");
+	await fisiDockCommand(sim, "on");
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Light");
+	assert.equal(readState(path).theme, "dark");
+
+	// Light back to vivid: Fisi Dock's theme for the accent.
+	const back = await openSettings(sim);
+	back.view.handleInput?.(DOWN);
+	back.view.handleInput?.(DOWN);
+	back.view.handleInput?.(RIGHT);
+	back.view.handleInput?.("\x1b");
+	await back.pending;
+	assert.equal(sim.ctx.ui.theme.name, "Fisi-Dock-Lilac");
+	assert.equal(readState(path).look.colors, "vivid");
+	sim.emit("session_shutdown");
 });
 
 test("look-more S4 every Fisi Dock theme counts as its own: on never remembers it, off restores the user's theme from it, and the first start applies the saved look's theme", async (t) => {

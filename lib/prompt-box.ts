@@ -12,10 +12,12 @@
 // look like its panel chrome come back unchanged. An ODD phase label gets `ODD `
 // before it (S96); with the clock the wave sweeps both and the petal turns by
 // the same clock (S97). The frame takes the look's `frames` (look-more S3): classic
-// flat gray, faded like the rail boxes, or none, the labels on a fading top rule alone.
+// flat gray, faded like the rail boxes, or none, the labels on a fading top rule alone. Light
+// colors paint what the box adds for a light background (look-more S5); Gentle Shell's petal,
+// label, hint and rows keep the colors it painted them in.
 import { waveLabel, wavePetal } from "./label-wave.ts";
 import type { Accent, ColorMode, FrameStyle } from "./look.ts";
-import { dim, fadeAmount, fadedEdge, fg, labelAccent, palette } from "./palette.ts";
+import { dim, fadeAmount, fadedEdge, fg, labelAccent, palette, tone } from "./palette.ts";
 import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
 
@@ -45,7 +47,7 @@ const ESCAPES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[
 
 const strip = (text: string) => text.replace(ESCAPES, "");
 const countEscapes = (text: string) => text.match(ESCAPES)?.length ?? 0;
-const frame = (text: string) => fg(palette.frame, text);
+const frame = (text: string, colors?: ColorMode) => fg(tone(palette.frame, colors), text);
 
 export interface PromptBox {
 	rows: string[];
@@ -78,7 +80,7 @@ function ownSegment(parts: PromptLinePart[], tight: boolean, colors?: ColorMode)
 	const dot = tight ? "·" : " · ";
 	const segments: Segment[] = [
 		...(mode ? [{ plain: `● ${mode.plain}`, styled: `${fg(labelAccent(palette.red, colors), "●")} ${mode.styled}` }] : []),
-		...(rest.length ? [join(rest, dot, fg(palette.faint, dot))] : []),
+		...(rest.length ? [join(rest, dot, fg(tone(palette.faint, colors), dot))] : []),
 	];
 	return join(segments, tight ? " " : "  ");
 }
@@ -161,9 +163,9 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	// Every petal frame is one column like Gentle Shell's, so the rule never shifts (S97).
 	const clockPetal = wave ? wavePetal(waveAt, colors, accent) : undefined;
 	const petal = clockPetal !== undefined && visibleWidth(clockPetal) === glyphWidth ? clockPetal : sliceColumns(rule, 2, 2 + glyphWidth);
-	const bare: Segment = { plain: label, styled: wave ? waveLabel(label, waveAt, accent) : gentleLabel };
+	const bare: Segment = { plain: label, styled: wave ? waveLabel(label, waveAt, accent, colors) : gentleLabel };
 	const prefixed: Segment | undefined = ODD_PHASE_LABEL.test(label)
-		? { plain: ODD_PREFIX + label, styled: wave ? waveLabel(ODD_PREFIX + label, waveAt, accent) : fg(palette.muted, ODD_PREFIX) + gentleLabel }
+		? { plain: ODD_PREFIX + label, styled: wave ? waveLabel(ODD_PREFIX + label, waveAt, accent, colors) : fg(tone(palette.muted, colors), ODD_PREFIX) + gentleLabel }
 		: undefined;
 	const tailStart = visibleWidth(plainRule) - visibleWidth(tail);
 	const tailMatch = GENTLE_TAIL.exec(tail);
@@ -212,7 +214,7 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 		else fit(head, right ? compact.flatMap(withHint) : compact);
 	}
 	// Frame glyphs from column `start`: flat gray in classic, faded by column otherwise; none's rule has no corners.
-	const edge = (text: string, start: number) => (frames === "classic" ? frame(text) : fadedEdge(text, start, columns));
+	const edge = (text: string, start: number) => (frames === "classic" ? frame(text, colors) : fadedEdge(text, start, columns, colors));
 	const corner = (glyph: string) => (frames === "none" ? "─" : glyph);
 	const fillStart = 3 + glyphWidth + 1 + (head.plain === "" ? 0 : visibleWidth(head.plain) + 1);
 	const end = edge(`─${corner("╮")}`, columns - 2);
@@ -222,15 +224,15 @@ export function boxPromptRows(rows: string[], width: number, topRowCount: number
 	const inner = columns - FRAME_COLUMNS;
 	const textRows = rows.slice(top + 1, bottom);
 	const height = textRows.length + 2;
-	const side = (index: number) => (frames === "classic" ? frame("│") : frames === "none" ? " " : fg(dim(palette.text, fadeAmount(index + 1, height)), "│"));
+	const side = (index: number) => (frames === "classic" ? frame("│", colors) : frames === "none" ? " " : fg(tone(dim(palette.text, fadeAmount(index + 1, height)), colors), "│"));
 	const content = textRows.map((row, index) => `${side(index)} ${padEnd(truncateToWidth(row, inner), inner)} ${side(index)}`);
 	const selection = strip(rows[bottom]).trim();
 	const cut = ellipsize(selection, columns - 6);
 	const bottomRows = selection === ""
 		? (frames === "none" ? [] : [edge(`╰${"─".repeat(columns - 2)}╯`, 0)])
 		: frames === "none"
-			? [`   ${fg(palette.muted, cut)}${" ".repeat(Math.max(0, columns - 3 - visibleWidth(cut)))}`]
-			: [`${edge("╰─ ", 0)}${fg(palette.muted, cut)} ${edge(`${"─".repeat(Math.max(0, columns - 5 - visibleWidth(cut)))}╯`, 4 + visibleWidth(cut))}`];
+			? [`   ${fg(tone(palette.muted, colors), cut)}${" ".repeat(Math.max(0, columns - 3 - visibleWidth(cut)))}`]
+			: [`${edge("╰─ ", 0)}${fg(tone(palette.muted, colors), cut)} ${edge(`${"─".repeat(Math.max(0, columns - 5 - visibleWidth(cut)))}╯`, 4 + visibleWidth(cut))}`];
 	const leftOut = bottomRows.length === 0 ? bottom : -1;
 	return { rows: [...rows.slice(0, top), ruleRow, ...content, ...bottomRows, ...rows.slice(bottom + 1)], boxed: true, ruleShift, buttonDropped, scanning, leftOut };
 }
