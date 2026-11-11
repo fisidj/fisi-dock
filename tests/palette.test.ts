@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { panelVivid, vivid, type Rgb } from "../lib/palette.ts";
+import { dim, fadeAmount, fadedEdge, fg, palette, panelVivid, tone, vivid, type Rgb } from "../lib/palette.ts";
 
 const rgb = (hex: string): Rgb => [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16)) as unknown as Rgb;
 
@@ -122,4 +122,31 @@ test("look-more S4 accentTone moves a pink-family color to the accent's hue, kee
 			}
 		}
 	}
+});
+
+test("a faded edge colors each glyph by its column of the edge's width, spaces plain, the same on every draw", () => {
+	const cell = (column: number, width: number, glyph: string, mode?: "light") => fg(tone(dim(palette.text, fadeAmount(column, width)), mode), glyph);
+	for (const mode of [undefined, "light"] as const) {
+		for (let draw = 0; draw < 2; draw++) {
+			assert.equal(fadedEdge("╭─ ─╮", 0, 10, mode), cell(0, 10, "╭", mode) + cell(1, 10, "─", mode) + " " + cell(3, 10, "─", mode) + cell(4, 10, "╮", mode), `from the first column, draw ${draw}`);
+			assert.equal(fadedEdge("─╮", 8, 10, mode), cell(8, 10, "─", mode) + cell(9, 10, "╮", mode), `the edge's last columns, draw ${draw}`);
+			assert.equal(fadedEdge("──", 9, 10, mode), cell(9, 10, "─", mode) + cell(10, 10, "─", mode), `a glyph past the width, draw ${draw}`);
+			assert.equal(fadedEdge("─", 0, 0, mode), cell(0, 0, "─", mode), `a zero-width edge, draw ${draw}`);
+		}
+	}
+	assert.notEqual(fadedEdge("─", 2, 10), fadedEdge("─", 2, 20), "another width, another fade");
+	assert.notEqual(fadedEdge("─", 2, 10), fadedEdge("─", 2, 10, "light"), "light fades toward the light background");
+	assert.equal(fadedEdge("", 0, 10), "");
+});
+
+test("vivid gives the same color on every call, and a channel past 255 is not taken for another color", () => {
+	const first = vivid([95, 212, 224]);
+	assert.deepEqual(vivid([95, 212, 224]), first);
+	assert.deepEqual(vivid([95, 212, 224]), first);
+	// Packed into 24 bits, [200, 40, 376] and [200, 41, 120] are the same number; their hues are far apart.
+	const pink = vivid([200, 41, 120]);
+	const outside = vivid([200, 40, 376]);
+	assert.notDeepEqual(outside, pink);
+	assert.deepEqual(vivid([200, 41, 120]), pink);
+	assert.deepEqual(vivid([200, 40, 376]), outside);
 });

@@ -52,7 +52,36 @@ export function fadeAmount(index: number, count: number, peak = FADE_PEAK): numb
 
 /** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. Light `mode` fades toward the light background (look-more S5). */
 export function fadedEdge(text: string, start: number, width: number, mode?: ColorMode): string {
-	return [...text].map((glyph, index) => (glyph === " " ? glyph : fg(tone(dim(palette.text, fadeAmount(start + index, width)), mode), glyph))).join("");
+	const codes = edgeCodes(width, mode);
+	let out = "";
+	let column = start;
+	for (const glyph of text) {
+		if (glyph === " ") out += glyph;
+		else out += `${codes && Number.isInteger(column) && column >= 0 && column < width ? (codes[column] ??= edgeCode(column, width, mode)) : edgeCode(column, width, mode)}${glyph}\x1b[39m`;
+		column++;
+	}
+	return out;
+}
+
+/** A faded edge's color code at `column` of `width`. */
+const edgeCode = (column: number, width: number, mode?: ColorMode) => fgCode(tone(dim(palette.text, fadeAmount(column, width)), mode));
+
+/** How many edge widths keep their codes, and the widest that does: a few rails, boxes and rules per look. */
+const EDGE_WIDTHS = 64;
+const EDGE_MAX_WIDTH = 1024;
+const EDGE_CODES = new Map<string, string[]>();
+
+/** The color codes of a `width`-wide faded edge by column, filled as they are drawn: an edge is redrawn on every frame and its fade depends only on its width and `mode`. Undefined for a width too odd to keep. */
+function edgeCodes(width: number, mode?: ColorMode): string[] | undefined {
+	if (!Number.isInteger(width) || width <= 0 || width > EDGE_MAX_WIDTH) return undefined;
+	const key = `${width}/${mode ?? ""}`;
+	let codes = EDGE_CODES.get(key);
+	if (!codes) {
+		if (EDGE_CODES.size >= EDGE_WIDTHS) EDGE_CODES.clear();
+		codes = [];
+		EDGE_CODES.set(key, codes);
+	}
+	return codes;
 }
 
 /** The WCAG relative luminance of `color`. */
@@ -102,12 +131,25 @@ function withLightness(color: Rgb, lightness: number): Rgb {
  * background gets lighter in steps of 0.01 until it does, at most 0.80.
  */
 export function vivid(color: Rgb): Rgb {
+	// Only whole 8-bit colors are kept and looked up: the palette and its accents, a handful.
+	const whole = color.every((channel) => Number.isInteger(channel) && channel >= 0 && channel <= 255);
+	const key = (color[0] << 16) | (color[1] << 8) | color[2];
+	const known = whole ? VIVID.get(key) : undefined;
+	if (known) return known;
+	let out = withLightness(color, 0.8);
 	for (let step = 59; step < 80; step++) {
-		const out = withLightness(color, step / 100);
-		if (contrast(out) >= 4.5) return out;
+		const lighter = withLightness(color, step / 100);
+		if (contrast(lighter) < 4.5) continue;
+		out = lighter;
+		break;
 	}
-	return withLightness(color, 0.8);
+	if (whole && VIVID.size < VIVID_CAP) VIVID.set(key, out);
+	return out;
 }
+
+/** vivid() by color: every title and counter asks for its own on each draw. */
+const VIVID = new Map<number, Rgb>();
+const VIVID_CAP = 512;
 
 /** How far the side panel's titles and counters go from their own color toward its vivid one: a little calmer than the prompt labels. */
 export const PANEL_VIVIDNESS = 0.75;

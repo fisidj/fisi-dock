@@ -7,7 +7,7 @@ import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
 import { FADE_PEAK, RESET, accentBase, bgCode, bold, dim, fadeAmount, fadedEdge, fg, paint, palette, panelAccent, type Rgb } from "./palette.ts";
-import { ellipsize, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
+import { ellipsize, fitWidth, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
 // Pure model-to-lines renderer for the rail (design 07, S2/S8/S9). Gentle Shell
 // hides the whole rail when one line is too wide, so every line is cut to fit.
@@ -687,7 +687,7 @@ function drawSection(section: Section, width: number, colors?: ColorMode, accent
 	const inner = width - 4;
 	const side = fg(frame, "│");
 	const body = section.rows.map((row) => {
-		const text = padEnd(ellipsize(row.text, inner), inner);
+		const text = fitWidth(row.text, inner);
 		if (!row.highlight) return `${side} ${text} ${side}`;
 		// Cut points end in a full reset; put the row background back after each.
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
@@ -725,7 +725,7 @@ function drawFaded(section: Section, width: number, colors?: ColorMode, accent?:
 	const height = section.rows.length + 2;
 	const body = section.rows.map((row, index) => {
 		const side = fg(dim(palette.text, fadeAmount(index + 1, height)), "│");
-		const text = padEnd(ellipsize(row.text, inner), inner);
+		const text = fitWidth(row.text, inner);
 		if (!row.highlight) return `${side} ${text} ${side}`;
 		// Cut points end in a full reset; put the row background back after each.
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);
@@ -758,7 +758,7 @@ function ruleHeader(section: Section, width: number, colors?: ColorMode): string
 function drawBare(section: Section, width: number, colors?: ColorMode, accent?: Accent): string[] {
 	const inner = width - 4;
 	const body = section.rows.map((row) => {
-		const text = padEnd(ellipsize(row.text, inner), inner);
+		const text = fitWidth(row.text, inner);
 		if (!row.highlight) return `  ${text}  `;
 		// Cut points end in a full reset; put the row background back after each.
 		const lit = text.replaceAll(RESET, RESET + HIGHLIGHT);

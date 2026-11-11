@@ -77,7 +77,11 @@ export function visibleWidth(text: string): number {
 
 /** Cut visible text to `width` columns, keeping escapes and resetting styles after a cut. */
 export function truncateToWidth(text: string, width: number): string {
-	if (visibleWidth(text) <= width) return text;
+	return visibleWidth(text) <= width ? text : cutToWidth(text, width);
+}
+
+/** truncateToWidth for a text already known to be wider than `width`. */
+function cutToWidth(text: string, width: number): string {
 	let out = "";
 	let used = 0;
 	let styled = false;
@@ -130,10 +134,16 @@ export function sliceColumns(text: string, from: number, to: number): string {
 export function ellipsize(text: string, width: number): string {
 	if (visibleWidth(text) <= width) return text;
 	if (width <= 0) return "";
-	return truncateToWidth(text, width - 1) + "…";
+	return cutToWidth(text, width - 1) + "…";
 }
 
 /** Pad with spaces on the right up to `width` visible columns. */
 export function padEnd(text: string, width: number): string {
 	return text + " ".repeat(Math.max(0, width - visibleWidth(text)));
+}
+
+/** Exactly `width` columns: `padEnd(ellipsize(text, width), width)`, measuring a text that fits only once. */
+export function fitWidth(text: string, width: number): string {
+	const used = visibleWidth(text);
+	return used <= width ? text + " ".repeat(width - used) : padEnd(ellipsize(text, width), width);
 }
