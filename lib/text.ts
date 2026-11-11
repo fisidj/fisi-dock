@@ -1,12 +1,11 @@
 // ANSI-aware width helpers. Gentle Shell hides the whole rail when any line is
 // wider than the width it asked for, so every rail line goes through these.
 
-// CSI sequences (colors, styles) and OSC sequences (hyperlinks) paint nothing.
-// CSI, OSC, and the APC, DCS, PM and SOS strings: Pi's editor marks its cursor with APC. None takes a column.
-const ESCAPE = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[_P^X][^\x07\x1b]*(?:\x07|\x1b\\)/y;
 const RESET = "\x1b[0m";
 
 function charWidth(codePoint: number): number {
+	// Printable ASCII, most of what the panel draws, skips the range checks below.
+	if (codePoint >= 0x20 && codePoint < 0x7f) return 1;
 	if (codePoint < 0x20 || (codePoint >= 0x7f && codePoint < 0xa0)) return 0;
 	// Combining marks, zero-width joiners and variation selectors.
 	if ((codePoint >= 0x300 && codePoint <= 0x36f) || (codePoint >= 0x200b && codePoint <= 0x200f) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) return 0;
@@ -24,17 +23,49 @@ function charWidth(codePoint: number): number {
 	return 1;
 }
 
-function escapeAt(text: string, index: number): string | undefined {
-	ESCAPE.lastIndex = index;
-	return ESCAPE.exec(text)?.[0];
+/**
+ * Where the escape sequence that starts at `index` ends, or -1 when none starts there.
+ * An escape paints nothing, so it takes no column. One that never ends is not an
+ * escape: its characters are drawn as text.
+ *
+ *   CSI (colors, styles)      ESC [   parameters 0-?   intermediates space-/   one final @-~
+ *   OSC (hyperlinks)          ESC ]   anything but BEL and ESC, then BEL or ESC \
+ *   APC, DCS, PM, SOS         ESC _ P ^ X, then the same as OSC (Pi's editor marks its cursor with APC)
+ *
+ * Scanned by hand, with no regex and no substring: frames are colored glyph by
+ * glyph, so a rail line holds about two escapes per column and this runs for each.
+ */
+function escapeEnd(text: string, index: number): number {
+	if (text.charCodeAt(index) !== 0x1b) return -1;
+	const kind = text.charCodeAt(index + 1);
+	if (kind === 0x5b) {
+		let at = index + 2;
+		let code = text.charCodeAt(at);
+		while (code >= 0x30 && code <= 0x3f) code = text.charCodeAt(++at);
+		while (code >= 0x20 && code <= 0x2f) code = text.charCodeAt(++at);
+		return code >= 0x40 && code <= 0x7e ? at + 1 : -1;
+	}
+	if (kind !== 0x5d && kind !== 0x5f && kind !== 0x50 && kind !== 0x5e && kind !== 0x58) return -1;
+	for (let at = index + 2; at < text.length; at++) {
+		const code = text.charCodeAt(at);
+		if (code === 0x07) return at + 1;
+		if (code === 0x1b) return text.charCodeAt(at + 1) === 0x5c ? at + 2 : -1;
+	}
+	return -1;
 }
 
 export function visibleWidth(text: string): number {
 	let width = 0;
 	for (let index = 0; index < text.length;) {
-		const escape = escapeAt(text, index);
-		if (escape) {
-			index += escape.length;
+		const unit = text.charCodeAt(index);
+		if (unit >= 0x20 && unit < 0x7f) {
+			width++;
+			index++;
+			continue;
+		}
+		const end = escapeEnd(text, index);
+		if (end >= 0) {
+			index = end;
 			continue;
 		}
 		const codePoint = text.codePointAt(index)!;
@@ -51,11 +82,11 @@ export function truncateToWidth(text: string, width: number): string {
 	let used = 0;
 	let styled = false;
 	for (let index = 0; index < text.length;) {
-		const escape = escapeAt(text, index);
-		if (escape) {
-			out += escape;
+		const end = escapeEnd(text, index);
+		if (end >= 0) {
+			out += text.slice(index, end);
 			styled = true;
-			index += escape.length;
+			index = end;
 			continue;
 		}
 		const codePoint = text.codePointAt(index)!;
@@ -78,11 +109,11 @@ export function sliceColumns(text: string, from: number, to: number): string {
 	let column = 0;
 	let styled = false;
 	for (let index = 0; index < text.length;) {
-		const escape = escapeAt(text, index);
-		if (escape) {
-			out += escape;
+		const end = escapeEnd(text, index);
+		if (end >= 0) {
+			out += text.slice(index, end);
 			styled = true;
-			index += escape.length;
+			index = end;
 			continue;
 		}
 		if (column >= to) break;
