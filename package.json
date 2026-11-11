@@ -50,7 +50,8 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.ts",
-    "build:themes": "node scripts/build-themes.mjs"
+    "build:themes": "node scripts/build-themes.mjs",
+    "bench": "node scripts/bench.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

@@ -276,6 +276,15 @@ node scripts/preview.ts 58 --rows 28
 
 `--strip` prints the narrow-screen strip, `--dock` the `/dock` box, `--header` the narrow top row, and `--rows <n>` the panel as it fits a terminal `<n>` rows tall. `tmp/` is git-ignored.
 
+Time what the panel costs while it runs (a rail draw, a `/dock` draw, a store update on a spinner tick), with no terminal and no Pi:
+
+```bash
+npm run bench
+npm run bench -- --save tmp/bench.json
+```
+
+It prints the median and p95 time per call for each case, in about ten seconds; `--save <file>` also writes the numbers as JSON, to compare a change against the run before it.
+
 The accent themes and `Fisi-Dock-Light` are generated from `themes/Fisi-Dock.json` and `themes/Fisi-Dock-Soft.json`, never edited by hand: after changing either source, run `npm run build:themes`. A test checks the shipped files are its output.
 
 ## Contributing
