@@ -1719,10 +1719,19 @@ test("agents card: width-safe at 64, 53, 40 and 20; long names and tasks are cut
 	console.log(`--- agents card, 40 and 20 columns\n${[...renderAgentsCard(long, 40, 2, NOW), ...renderAgentsCard(long, 20, 2, NOW)].map(plain).join("\n")}`);
 });
 
-test("the side panel's agents section is unchanged by start times (S35 keeps its own rules)", () => {
+test("the side panel's agents section shows each live agent's time at `now`, flush right like the card (S35)", () => {
 	const model: PanelModel = { session: { project: "app" }, agents: runningAgents };
 	const bare: PanelModel = { session: { project: "app" }, agents: runningAgents!.map(({ startedAt: _, ...agent }) => agent) };
-	assert.deepEqual(renderPanel(model, 47), renderPanel(bare, 47));
+	const row = (lines: string[], name: string) => lines.map(plain).find((line) => line.includes(` ${name} `)) ?? "";
+	const at = renderPanel(model, 47, { now: NOW });
+	assert.match(row(at, "worker"), /^│ ⠹ worker session rows +4:31 │$/);
+	assert.match(row(at, "verify"), /^│ ⠹ verify queued prompt +2:05 │$/);
+	assert.match(row(renderPanel(model, 47, { now: NOW + 1_000 }), "worker"), / 4:32 │$/, "the time follows now");
+	assert.doesNotMatch(row(at, "explore"), /\d:\d\d │$/, "a finished agent keeps no clock");
+	assert.doesNotMatch(row(renderPanel(bare, 47, { now: NOW }), "worker"), /\d:\d\d │$/, "no start time: no time, never invented");
+	assert.deepEqual(renderPanel(model, 47), renderPanel(bare, 47), "no now: no time");
+	for (const width of [58, 47, 30]) for (const line of renderPanel(model, width, { now: NOW })) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+	assert.ok(renderDock(model, 59, 200, 0, { now: NOW }).lines.map(plain).some((line) => / worker session rows +4:31 /.test(line)), "/dock shows it too");
 });
 
 test("/dock lists every agent and changed file; the side panel keeps its cap of 4 (S35)", () => {

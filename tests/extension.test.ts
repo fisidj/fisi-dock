@@ -17,6 +17,12 @@ const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
 /** The wide rail's first two columns (sidebar-chrome): the divider, a neutral gray `│` or a blank where it fades out, then a blank. */
 const RAIL_PREFIX = /^(?:\x1b\[38;2;(\d+);\1;\1m│\x1b\[39m| ) /;
 /** The panel inside a wide rail line, styles kept: the line less the divider column and the blank after it. */
+/** Each row matches its pattern, in order, and there are exactly as many rows. */
+function assertRows(rows: string[], patterns: RegExp[], message?: string): void {
+	assert.equal(rows.length, patterns.length, `${message ?? "rows"}: ${JSON.stringify(rows)}`);
+	rows.forEach((row, index) => assert.match(row, patterns[index], message));
+}
+
 function railPanelLine(line: string): string {
 	assert.match(line, RAIL_PREFIX, `the divider column and a blank: ${JSON.stringify(plain(line))}`);
 	return line.replace(RAIL_PREFIX, "");
@@ -588,7 +594,7 @@ test("review tool calls add a muted line under the review: its step while it run
 	const sim = simulate("E:\\DEV\\app");
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	const rows = () => rddRows(railOf(sim)(47))!.map((line) => line.replace(/^│▎. /, "").replace(/ \d+:\d\d │$/, "").replace(/ │$/, ""));
+	const rows = () => rddRows(railOf(sim)(47))!.map((line) => line.replace(/^│▎. /, "").replace(/ \d+(?::\d\d)+ │$/, "").replace(/ │$/, ""));
 	const tool = (name: string, event: Record<string, unknown>) => {
 		for (const handler of sim.handlers.get(name) ?? []) handler(event, sim.ctx);
 	};
@@ -618,7 +624,7 @@ test("the panel shows Gentle Shell's background jobs from gentle-ai:jobs-sidebar
 	sim.emitEvent("gentle-ai:jobs-sidebar", { sessionId: "s1", snapshot: { jobs: [{ id: "job-1", label: "npm test", startedAt: 1 }] } });
 	const lines = railOf(sim)(47);
 	assert.ok(!lines.some((line) => line.includes("profile")));
-	assert.ok(lines.some((line) => /^│ ⠹ job-1 npm test +│$/.test(line)));
+	assert.ok(lines.some((line) => /^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/.test(line)), "the job with its time (S35)");
 	sim.emit("session_shutdown");
 });
 
@@ -827,7 +833,7 @@ test("/dock is registered with a description and opens the live panel as an over
 	const lines = view.render(width).map(plain);
 	assert.equal(lines.length, 36, "the whole phone height (S59)");
 	assert.ok(lines.some((line) => line.startsWith(" ╭─ session")), "the full side panel, not the strip");
-	assert.ok(lines.some((line) => /^ │ ⠹ job-1 npm test +│ $/.test(line)), "live data");
+	assert.ok(lines.some((line) => /^ │ ⠹ job-1 npm test +\d+(?::\d\d)+ │ $/.test(line)), "live data");
 	assert.ok(!lines.some((line) => line.includes("fisi dock")), "no titled frame (S59)");
 	assert.match(lines.at(-1)!, /^ Esc to close/);
 	for (const line of view.render(width)) assert.equal(visibleWidth(line), width, "opaque: every row the full overlay width");
@@ -1030,9 +1036,11 @@ test("running spinners move with the wall clock in the strip and the rail, and s
 	assert.ok(renders > before, "the next frame repaints");
 	assert.notEqual(rail.digest(), digest, "the rail memo key follows the frame");
 	assertJobCard(strip.render(64), "⠙");
-	assert.ok(rail.render(47).some((line) => /^│ ⠙ job-1 npm test +│$/.test(plain(railPanelLine(line)))), "rail agent row");
+	assert.ok(rail.render(47).some((line) => /^│ ⠙ job-1 npm test +0:00 │$/.test(plain(railPanelLine(line)))), "rail agent row with its time");
 	t.mock.timers.tick(80);
 	assertJobCard(strip.render(64));
+	t.mock.timers.tick(920);
+	assert.ok(rail.render(47).some((line) => /^│ [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] job-1 npm test +0:01 │$/.test(plain(railPanelLine(line)))), "the rail's time ticks each second");
 
 	sim.emitEvent("gentle-ai:jobs-sidebar", { sessionId: "s1", snapshot: { jobs: [{ id: "job-1", label: "npm test", startedAt: 1, status: "exited" }] } });
 	const idle = rail.digest();
@@ -1777,22 +1785,22 @@ test("S87 a subagent_run in task mode shows in agents next to the job: its event
 	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
 	tool("tool_execution_start", { toolName: "subagent_run", toolCallId: "c1", args: { agent: "explore", task: "Map the footer sources", mode: "task" } });
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "queued", 1));
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │", "│ ○ explore Map the footer sources │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/, /^│ ○ explore Map the footer sources │$/]);
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 2));
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │", "│ ⠹ explore Map the footer sources │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/, /^│ ⠹ explore Map the footer sources +\d+(?::\d\d)+ │$/]);
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "waiting", 3));
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │", "│▎! explore Map the footer sources │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/, /^│▎! explore Map the footer sources +\d+(?::\d\d)+ │$/], "a waiting task keeps its time");
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 4));
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "completed", 5));
 	tool("tool_execution_end", { toolName: "subagent_run", toolCallId: "c1", isError: false, result: { content: [], details: { gentleAgents: { taskId: "t1", agent: "explore", status: "completed", mode: "task", cwd: "E:/DEV/app", label: "map footer", turns: 3, toolCalls: 4, lastStep: "done", model: "anthropic/claude-opus-5-5", thinking: "high" } } } });
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │", "│ ✓ explore map footer  opus · high │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/, /^│ ✓ explore map footer  opus · high │$/], "a finished task: no time");
 	// Another session's task and a stale sequence change nothing.
 	sim.emitEvent("gentle-pi:notification:source", { ...subagentEvent("t9", "running", 6), sessionId: "s2", parentSessionId: "s2" });
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 5));
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │", "│ ✓ explore map footer  opus · high │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/, /^│ ✓ explore map footer  opus · high │$/]);
 	// Finished tasks fold after the same tail as Gentle Shell's finished jobs, on the idle refresh.
 	t.mock.timers.tick(70_000);
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/]);
 	sim.emit("session_shutdown");
 });
 
@@ -1808,7 +1816,7 @@ test("S87 a background subagent_run: the result names the task first, the events
 	sim.emitEvent("gentle-ai:jobs-sidebar", JOB);
 	tool("tool_execution_start", { toolName: "subagent_run", toolCallId: "c1", args: { agent: "verify", task: "Check PR 265", label: "check PR", mode: "background" } });
 	tool("tool_execution_end", { toolName: "subagent_run", toolCallId: "c1", isError: false, result: { content: [], details: { gentleAgents: { taskId: "t1", agent: "verify", status: "queued", mode: "background", cwd: "E:/DEV/app", label: "check PR", turns: 0, toolCalls: 0, lastStep: "starting", model: "anthropic/claude-sonnet-4-5" } } } });
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ job-1 npm test │", "│ ○ verify check PR  sonnet │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/, /^│ ○ verify check PR  sonnet │$/]);
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 1));
 	t.mock.timers.tick(5_000);
 	const card = strip.render(53).map((line) => plain(line).replace(/ {2,}/g, "  ").replace(/─+/g, "─"));
@@ -1891,7 +1899,7 @@ test("S87 after a reload, unfinished tasks are seeded once from this session pre
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	// The seed is an async disk read: wait for it, not for a fixed time, so a loaded suite does not race it.
 	for (const deadline = Date.now() + 5_000; agentRows(railOf(sim)(47)).length === 0 && Date.now() < deadline;) await settle();
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ writer label t1  opus │", "│ ○ writer label t2  opus │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ writer label t1 +\d+(?::\d\d)+ opus │$/, /^│ ○ writer label t2  opus │$/], "the running seed with its time, the queued one without");
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "completed", 1));
 	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ✓ writer label t1  opus │", "│ ○ writer label t2  opus │"], "events move a seeded task");
 	sim.emit("session_shutdown");
@@ -1935,7 +1943,7 @@ test("T102 the screenshot's sequence with status events flowing: after the refus
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("tD", "queued", 6));
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("tC", "running", 7));
 	sim.emitEvent("gentle-pi:notification:source", subagentEvent("tD", "running", 8));
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ gentle-ai-worker Agent one says hello │", "│ ⠹ gentle-ai-worker Agent two says hello │"]);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ gentle-ai-worker Agent one says h… \d+(?::\d\d)+ │$/, /^│ ⠹ gentle-ai-worker Agent two says h… \d+(?::\d\d)+ │$/]);
 	sim.emit("session_shutdown");
 });
 
@@ -1952,11 +1960,11 @@ test("T102 the same sequence when the workers' status events never arrive: both 
 	assert.deepEqual(agentRows(railOf(sim)(47)), [], "explorers folded, no row for a refused launch");
 	tool("tool_execution_start", { toolName: "subagent_run", toolCallId: "w1", args: { agent: "gentle-ai-worker", task: "Agent one says hello", mode: "task" } });
 	tool("tool_execution_start", { toolName: "subagent_run", toolCallId: "w2", args: { agent: "gentle-ai-worker", task: "Agent two says hello", mode: "task" } });
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ gentle-ai-worker Agent one says hello │", "│ ⠹ gentle-ai-worker Agent two says hello │"], "both live from their calls alone");
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ gentle-ai-worker Agent one says h… \d+(?::\d\d)+ │$/, /^│ ⠹ gentle-ai-worker Agent two says h… \d+(?::\d\d)+ │$/], "both live from their calls alone");
 	const end = (id: string, taskId: string, label: string) => tool("tool_execution_end", { toolName: "subagent_run", toolCallId: id, isError: false, result: { content: [{ type: "text", text: `Task ${taskId} completed` }], details: { gentleAgents: { taskId, agent: "gentle-ai-worker", status: "completed", mode: "task", cwd: "E:/DEV/app", label, turns: 2, toolCalls: 3, lastStep: "done", model: "anthropic/claude-opus-5-5", thinking: "high" } } } });
 	t.mock.timers.tick(5_000);
 	end("w2", "tD", "agent two");
-	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ⠹ gentle-ai-worker Agent one says hello │", "│ ✓ gentle-ai-worker agent two  opus · high │"], "the second worker's result closes its row; the first stays live");
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ gentle-ai-worker Agent one says h… 0:05 │$/, /^│ ✓ gentle-ai-worker agent two  opus · high │$/], "the second worker\'s result closes its row; the first stays live, its time ticking");
 	end("w1", "tC", "agent one");
 	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ✓ gentle-ai-worker agent one  opus · high │", "│ ✓ gentle-ai-worker agent two  opus · high │"]);
 	// A call whose end was lost goes when the run settles.
@@ -3277,7 +3285,7 @@ test("look-more S2 a saved motion off: a running job schedules no animation repa
 	assert.equal(renders, before, "no spinner timer: no repaints");
 	assert.equal(rail.digest(), digest);
 	assertJobCard(strip.render(64), "⠹");
-	assert.ok(rail.render(47).some((line) => /^│ ⠹ job-1 npm test +│$/.test(plain(railPanelLine(line)))), "rail agent row, still");
+	assert.ok(rail.render(47).some((line) => /^│ ⠹ job-1 npm test +\d+(?::\d\d)+ │$/.test(plain(railPanelLine(line)))), "rail agent row, still");
 	sim.emit("session_shutdown");
 });
 

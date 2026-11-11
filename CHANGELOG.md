@@ -5,6 +5,7 @@
 ### Changed
 
 - Tested with Gentle Shell 4.7.0.
+- The side panel's `agents` section and `/dock` show each running or waiting agent's time, `m:ss`, before its model label, ticking each second like the narrow-screen agents card (`0:42 opus · high`). Before, only the card showed it.
 
 ## 0.4.0
 

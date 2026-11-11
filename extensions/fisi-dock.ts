@@ -26,7 +26,7 @@ import { memoryCallEnd, memoryInfo, NO_MEMORY_CALLS } from "../lib/memory.ts";
 import { readSessionProfile } from "../lib/profile.ts";
 import { createOddTracker, type OddTracker } from "../lib/odd-timeline.ts";
 import { readOrbMotion } from "../lib/orbs.ts";
-import { renderAgentsCard, renderDock, renderRail, renderTodoCard } from "../lib/panel.ts";
+import { agentLive, renderAgentsCard, renderDock, renderRail, renderTodoCard } from "../lib/panel.ts";
 import type { PanelModel } from "../lib/panel-model.ts";
 import { estimateSessionCost, registryPrices, type ModelFinder } from "../lib/pricing.ts";
 import { createWaveClock, type WaveClock } from "../lib/label-wave.ts";
@@ -130,7 +130,7 @@ function dockOverlay(session: LiveSession, tui: Host, keys: Keys, look: () => Lo
 	};
 	return {
 		render: (width: number) => {
-			const view = renderDock(session.store.model(), width, rows(), offset, look());
+			const view = renderDock(session.store.model(), width, rows(), offset, { ...look(), now: Date.now() });
 			offset = view.offset;
 			return view.lines;
 		},
@@ -859,12 +859,15 @@ export default function fisiDock(pi: ExtensionAPI): void {
 				const rows = terminalRows(tui);
 				return rows === undefined ? undefined : Math.max(0, rows - RAIL_TOP_ROWS);
 			};
+			// While an agent runs or waits, its time ticks (S35): the second is part of both keys.
+			const second = (now: number) => (session.store.model().agents?.some(agentLive) ? Math.floor(now / 1000) : "");
 			const rail = {
-				digest: () => `${session.store.digest()}:${maxRows() ?? ""}:${lookKey(look)}`,
+				digest: () => `${session.store.digest()}:${maxRows() ?? ""}:${lookKey(look)}:${second(Date.now())}`,
 				render: (width: number) => {
 					const rows = maxRows();
-					const key = `${width}:${rows ?? ""}:${lookKey(look)}:${session.store.digest()}`;
-					if (drawn?.key !== key) drawn = { key, lines: renderRail(session.store.model(), width, { maxRows: rows, ...look }) };
+					const now = Date.now();
+					const key = `${width}:${rows ?? ""}:${lookKey(look)}:${session.store.digest()}:${second(now)}`;
+					if (drawn?.key !== key) drawn = { key, lines: renderRail(session.store.model(), width, { maxRows: rows, ...look, now }) };
 					return drawn.lines;
 				},
 				// Gentle Shell main wraps rail parts in its own card on a transparent surface:

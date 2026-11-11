@@ -600,10 +600,15 @@ function agentRow(agent: AgentInfo, left: string, time: string, width: number): 
 	return spread(left, fits ?? time, width);
 }
 
-function agentsSection(agents: AgentInfo[], width: number, spinner?: number, cap = LIST_CAP): Section | undefined {
+/** A live agent's time since `startedAt` at `now` (S35); "" for a finished agent, an unknown start or no `now`. */
+function agentTime(agent: AgentInfo, now?: number): string {
+	return now !== undefined && agentLive(agent) && agent.startedAt !== undefined && Number.isFinite(agent.startedAt) ? plainText(formatElapsed(now - agent.startedAt)) : "";
+}
+
+function agentsSection(agents: AgentInfo[], width: number, spinner?: number, cap = LIST_CAP, now?: number): Section | undefined {
 	if (agents.length === 0) return undefined;
 	const rows = agents.slice(0, cap).map((agent) => ({
-		text: item(agentGlyph(agent.state, spinner, agent.entrance), (rest) => agentRow(agent, agentText(agent.name, agent.task, agent.entrance), "", rest), width),
+		text: item(agentGlyph(agent.state, spinner, agent.entrance), (rest) => agentRow(agent, agentText(agent.name, agent.task, agent.entrance), agentTime(agent, now), rest), width),
 		// A task waiting for the user stands out like a review that needs an OK (S87).
 		...(agent.state === "waiting" ? { highlight: true } : {}),
 	}));
@@ -800,6 +805,8 @@ export interface PanelOptions {
 	motion?: MotionMode;
 	/** The sections after session, in this order, a hidden one never drawn (look-more S6); today's order, all shown, when absent. */
 	sections?: readonly SectionSetting[];
+	/** The wall clock: each running or waiting agent shows its time since `startedAt` (S35); no times when absent. */
+	now?: number;
 }
 
 /**
@@ -875,7 +882,7 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 			odd: () => oddSection(model.odd, inner, shape.spacers, options.oddExpanded, !shape.rdd, shape.oddDetails),
 			rdd: () => (shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails, colors) : undefined),
 			ci: () => ((ciUrgent ? shape.ci : shape.settledCi) ? ciSection(model.ci, inner, shape.ciDetails, model.spinner) : undefined),
-			agents: () => model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP),
+			agents: () => model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP, options.now),
 			todo: () => (model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors, accent)) || emptyTodoSection(inner),
 			changes: () => (shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined),
 		};
@@ -960,7 +967,7 @@ export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number,
 	const nameWidth = Math.min(AGENT_NAME_CAP, Math.max(...shown.map((agent) => visibleWidth(agent.name))));
 	const rows: Row[] = shown.map((agent) => {
 		const name = padEnd(ellipsize(agent.name, nameWidth), nameWidth);
-		const time = agent.startedAt !== undefined && Number.isFinite(agent.startedAt) ? plainText(formatElapsed(now - agent.startedAt)) : "";
+		const time = agentTime(agent, now);
 		return { text: item(agentGlyph(agent.state, spinner, agent.entrance), (rest) => agentRow(agent, agentText(name, agent.task, agent.entrance), time, rest), inner) };
 	});
 	const hidden = running.length - shown.length;
@@ -983,7 +990,7 @@ function boxed(text: string, width: number): string {
 }
 
 /** How /dock draws its panel: the rail's look (S3). */
-export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "accent" | "logo" | "motion" | "sections">;
+export type DockOptions = Pick<PanelOptions, "frames" | "colors" | "accent" | "logo" | "motion" | "sections" | "now">;
 
 export interface DockView {
 	lines: string[];
@@ -1006,7 +1013,7 @@ export function renderDock(model: PanelModel, width: number, height: number, off
 	const inner = Math.max(0, Math.min(DOCK_MAX_WIDTH, columns - 2));
 	const left = " ".repeat(Math.floor((columns - inner) / 2));
 	const right = " ".repeat(columns - inner - left.length);
-	const panel = inner > 0 ? panelLines(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion, sections: options.sections }) : [];
+	const panel = inner > 0 ? panelLines(model, inner, { todoExpanded: true, listsExpanded: true, oddExpanded: true, frames: options.frames, colors: options.colors, accent: options.accent, logo: options.logo, motion: options.motion, sections: options.sections, now: options.now }) : [];
 	const body = panel.map((line) => left + padEnd(truncateToWidth(line, inner), inner) + right);
 	// The top margin gives way first on a screen too short for it and two rows.
 	const topRows = Math.min(DOCK_TOP_ROWS, Math.max(0, rows - 3));
