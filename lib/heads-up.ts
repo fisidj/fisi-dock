@@ -170,6 +170,29 @@ async function gitOutput(exec: GitExec, args: string[]): Promise<string | undefi
 	}
 }
 
+const MAX_SQUASH_CHECKS = 20;
+
+const firstLine = (stdout: string | undefined) => stdout?.split(/\r?\n/, 1)[0].trim() || undefined;
+
+/**
+ * The branches whose changes are not in `target` yet. A branch merged by squash
+ * or rebase is not an ancestor of `target`, so `--no-merged` still lists it;
+ * merging it into `target` leaves `target`'s tree unchanged, which is how it is
+ * recognized. A conflict, a failed merge-tree (git before 2.38) or an
+ * unreadable target tree keeps the branch listed; at most 20 are checked.
+ */
+async function withoutSquashMerged(exec: GitExec, target: string, branches: string[]): Promise<string[]> {
+	if (branches.length === 0) return branches;
+	const targetTree = firstLine(await gitOutput(exec, ["rev-parse", `${target}^{tree}`]));
+	if (targetTree === undefined) return branches;
+	const kept: string[] = [];
+	for (const [index, name] of branches.entries()) {
+		if (index < MAX_SQUASH_CHECKS && firstLine(await gitOutput(exec, ["merge-tree", "--write-tree", target, name])) === targetTree) continue;
+		kept.push(name);
+	}
+	return kept;
+}
+
 /** Other worktrees and local branches not merged into the default branch; each omitted when unreadable. */
 export async function readHeadsUpGit(exec: GitExec, cwd: string, branch: string | undefined): Promise<{ worktrees?: string[]; unmerged?: string[] }> {
 	const porcelain = await gitOutput(exec, ["worktree", "list", "--porcelain"]);
@@ -184,7 +207,8 @@ export async function readHeadsUpGit(exec: GitExec, cwd: string, branch: string 
 		target = defaultBranchFrom(undefined, hasMain, !hasMain && (await exists("refs/heads/master")));
 	}
 	const list = target === undefined ? undefined : await gitOutput(exec, ["branch", "--format=%(refname:short)", "--no-merged", target]);
-	return { worktrees, unmerged: list === undefined ? undefined : parseBranchList(list, branch) };
+	if (target === undefined || list === undefined) return { worktrees, unmerged: undefined };
+	return { worktrees, unmerged: await withoutSquashMerged(exec, target, parseBranchList(list, branch)) };
 }
 
 // --- warnings ----------------------------------------------------------------

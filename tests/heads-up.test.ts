@@ -159,6 +159,7 @@ test("readHeadsUpGit reads worktrees and branches not merged into the default br
 		if (args[0] === "worktree") return ok(`${MAIN}\nworktree E:/DEV/app-x\nHEAD 2\nbranch refs/heads/x\n`);
 		if (args[0] === "symbolic-ref") return fail();
 		if (args[0] === "rev-parse") return args.at(-1) === "refs/heads/main" ? fail() : ok("abc\n");
+		if (args[0] === "merge-tree") return ok("def\n");
 		return ok("feat-x\nfeat/fisi-dock\n");
 	};
 	assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "feat/fisi-dock"), { worktrees: ["E:/DEV/app-x"], unmerged: ["feat-x"] });
@@ -168,7 +169,69 @@ test("readHeadsUpGit reads worktrees and branches not merged into the default br
 		["rev-parse", "--verify", "--quiet", "refs/heads/main"],
 		["rev-parse", "--verify", "--quiet", "refs/heads/master"],
 		["branch", "--format=%(refname:short)", "--no-merged", "master"],
+		["rev-parse", "master^{tree}"],
+		["merge-tree", "--write-tree", "master", "feat-x"],
 	]);
+});
+
+/** A repo whose default branch is main (tree `T0`), with `branches` not merged by ancestry and one merge-tree answer per branch. */
+function squashRepo(branches: string[], mergeTree: (branch: string) => Promise<{ stdout: string; code: number }>, tree: () => Promise<{ stdout: string; code: number }> = () => ok("T0\n")) {
+	const calls: string[][] = [];
+	const exec: GitExec = (args) => {
+		calls.push(args);
+		if (args[0] === "worktree") return ok(MAIN);
+		if (args[0] === "symbolic-ref") return ok("refs/remotes/origin/main\n");
+		if (args[0] === "branch") return ok(branches.map((name) => `${name}\n`).join(""));
+		if (args[0] === "rev-parse" && args[1] === "main^{tree}") return tree();
+		if (args[0] === "merge-tree") return mergeTree(args[3]);
+		return fail();
+	};
+	return { exec, calls };
+}
+
+test("readHeadsUpGit drops branches merged by squash or rebase and keeps the rest (S1)", async () => {
+	const answers: Record<string, () => Promise<{ stdout: string; code: number }>> = {
+		squashed: () => ok("T0\n"),
+		"squashed-crlf": () => ok("T0\r\n"),
+		changes: () => ok("T1\n"),
+		conflict: () => Promise.resolve({ stdout: "T2\nCONFLICT (content): Merge conflict in a.ts\n", code: 1 }),
+		"conflict-same-tree": () => Promise.resolve({ stdout: "T0\n", code: 1 }),
+		"old-git": () => Promise.resolve({ stdout: "", code: 129 }),
+		throws: () => Promise.reject(new Error("spawn failed")),
+		empty: () => ok(""),
+	};
+	const { exec, calls } = squashRepo(Object.keys(answers), (branch) => answers[branch]());
+	assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), {
+		worktrees: [],
+		unmerged: ["changes", "conflict", "conflict-same-tree", "old-git", "throws", "empty"],
+	});
+	assert.deepEqual(calls.filter((args) => args[0] === "rev-parse"), [["rev-parse", "main^{tree}"]], "the target tree is read once");
+	assert.deepEqual(
+		calls.filter((args) => args[0] === "merge-tree"),
+		Object.keys(answers).map((branch) => ["merge-tree", "--write-tree", "main", branch]),
+	);
+	assert.deepEqual(headsUpWarnings({ unmerged: ["changes"] }).map((warning) => warning.text), ["branch not merged: changes"]);
+});
+
+test("readHeadsUpGit keeps the list as it is when the target tree cannot be read (S1)", async () => {
+	for (const tree of [() => fail(), () => Promise.reject(new Error("boom")), () => ok("\n")]) {
+		const { exec, calls } = squashRepo(["squashed", "changes"], () => ok("T0\n"), tree);
+		assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: ["squashed", "changes"] });
+		assert.ok(!calls.some((args) => args[0] === "merge-tree"), "no merge-tree without a target tree");
+	}
+});
+
+test("readHeadsUpGit checks at most 20 branches per read; the rest stay listed (S1)", async () => {
+	const branches = Array.from({ length: 23 }, (_, index) => `b${String(index + 1).padStart(2, "0")}`);
+	const { exec, calls } = squashRepo(branches, () => ok("T0\n"));
+	assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: ["b21", "b22", "b23"] });
+	assert.equal(calls.filter((args) => args[0] === "merge-tree").length, 20);
+});
+
+test("readHeadsUpGit with no unmerged branches reads no tree (S1)", async () => {
+	const { exec, calls } = squashRepo(["main"], () => ok("T0\n"));
+	assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: [] });
+	assert.ok(!calls.some((args) => args[0] === "merge-tree" || args[1] === "main^{tree}"));
 });
 
 test("readHeadsUpGit outside a repository or without a default branch reports nothing", async () => {
