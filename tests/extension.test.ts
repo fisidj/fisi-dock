@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import fisiDock from "../extensions/fisi-dock.ts";
 import { DEFAULT_SECTIONS } from "../lib/look.ts";
+import { fgCode, palette } from "../lib/palette.ts";
 import { renderPromptLine } from "../lib/prompt-line.ts";
 import { SIDEBAR_CACHE, SIDEBAR_STATE } from "../lib/slot.ts";
 import { visibleWidth } from "../lib/text.ts";
@@ -971,13 +972,13 @@ test("the skills row follows Pi's list on the next cheap read (turn end), so /re
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const row = () => sessionRows(railOf(sim)(58)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
-	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package");
+	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package  ctrl+s");
 	commands = [];
 	sim.emit("turn_end");
 	assert.equal(row(), "│ skills   none loaded", "Pi loaded none");
 	commands = [skillCommand("btw", "package"), skillCommand("go-testing", "top-level", "temporary")];
 	sim.emit("model_select");
-	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user", "a temporary skill counts as user");
+	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user  ctrl+s", "a temporary skill counts as user");
 	sim.emit("session_shutdown");
 
 	// Pi without getCommands: no skills row; the no-MCP test above pins the other session rows.
@@ -1061,6 +1062,33 @@ test("a Pi without registerShortcut still loads Fisi Dock, and /skills still unf
 	await sim.commands.get("skills")!.handler("", sim.ctx);
 	assert.ok(sessionRows(railOf(sim)(58)).some((line) => line.startsWith("│ skills   ▾")), "unfolded");
 	sim.emit("session_shutdown");
+});
+
+test("the skills row ends with a muted ctrl+s hint, the first thing dropped when the row does not fit; no shortcut or no skills, no hint (skills-view S7)", async () => {
+	const sim = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const rowAt = (width: number) => sessionRows(railOf(sim)(width)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
+	assert.equal(rowAt(70), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project  ctrl+s", "room for all of it");
+	assert.equal(rowAt(58), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "the hint drops before any scope count");
+	assert.equal(rowAt(52), "│ skills   ▸ 4 loaded · 2 package · 1 user", "then the counts drop as before");
+	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(70).find((line) => line.includes("ctrl+s"))!;
+	assert.ok(raw.includes(`${fgCode(palette.muted)}  ctrl+s`), "the hint is muted");
+	await sim.shortcuts.get("ctrl+s")!.handler(sim.ctx);
+	assert.equal(rowAt(70), "│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project  ctrl+s", "unfolded keeps it");
+	sim.emit("session_shutdown");
+
+	const none = simulate("E:\\DEV\\app", { commands: () => [] });
+	none.emit("session_start");
+	none.widgets.get("fisi-dock")!(none.tui);
+	assert.equal(sessionRows(railOf(none)(70)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, ""), "│ skills   none loaded", "nothing to unfold, no hint");
+	none.emit("session_shutdown");
+
+	const old = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS, shortcuts: false });
+	old.emit("session_start");
+	old.widgets.get("fisi-dock")!(old.tui);
+	assert.equal(sessionRows(railOf(old)(70)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, ""), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "a Pi without registerShortcut gets no hint");
+	old.emit("session_shutdown");
 });
 
 test("the fisi-dock marker is set at load and session_start, and cleared on session_shutdown (S24)", () => {

@@ -284,6 +284,8 @@ export interface LiveParts {
 	skills?: SkillInfo[];
 	/** /skills unfolded the skills row (S2). */
 	skillsOpen?: boolean;
+	/** The shortcut that toggles the skills row (S7); undefined when Pi has no registerShortcut. */
+	skillsKey?: string;
 	/** The running spinner's frame from the wall clock (S31); drawn only while something runs. */
 	spinner?: number;
 }
@@ -404,7 +406,7 @@ function snapshotOf(parts: LiveParts, now: number): PanelModel {
 		...(parts.profile ? { profile: parts.profile } : {}),
 		...(parts.mcp ? { mcp: parts.mcp } : {}),
 		...(parts.memory ? { memory: parts.memory } : {}),
-		...(parts.skills ? { skills: { list: parts.skills, ...(parts.skillsOpen ? { open: true } : {}) } } : {}),
+		...(parts.skills ? { skills: { list: parts.skills, ...(parts.skillsOpen ? { open: true } : {}), ...(parts.skillsKey ? { key: parts.skillsKey } : {}) } } : {}),
 	};
 	const todo = parts.todo;
 	const openTodo = todo ? todo.more + (todo.active !== undefined ? 1 : 0) + (todo.next !== undefined ? 1 : 0) : 0;

@@ -70,7 +70,7 @@ So "connected" means the tools are loaded and the last call did not fail, not th
 
 ### Skills
 
-The `skills` row, last in the session section, counts the skills Pi loaded: `skills   ▸ 25 loaded · 16 package · 9 user`, the total in bold and one count per scope in its color, package lilac, user blue, project green, in that order and only the scopes that have skills. When the row does not fit the counts drop from the right, then the row is cut. With no skill loaded the row is a muted `skills   none loaded`.
+The `skills` row, last in the session section, counts the skills Pi loaded: `skills   ▸ 25 loaded · 16 package · 9 user  ctrl+s`, the total in bold and one count per scope in its color, package lilac, user blue, project green, in that order and only the scopes that have skills, then the key that unfolds the row, muted. When the row does not fit the key drops first, then the counts from the right, then the row is cut. A Pi without `registerShortcut` gets no key on the row. With no skill loaded the row is a muted `skills   none loaded`.
 
 The list is Pi's: the entries of `pi.getCommands()` with source `skill` (named `skill:<name>`), in Pi's order, read with every Pi read (session start, each turn, a model change), so `/reload` updates it. It is not Gentle Shell's registry notice (`Skill registry refreshed (29 skills)`), which counts its own merged registry, so the two numbers can differ. A skill's scope is `package` when it came with a Pi package (its `sourceInfo.origin` is `package`), else `project` for `sourceInfo.scope` `project`, else `user` (temporary ones included). Descriptions are made one line: control characters and runs of white space become one space. No row when Pi's command list cannot be read.
 

@@ -37,6 +37,8 @@ export interface SkillsInfo {
 	list: SkillInfo[];
 	/** Unfolded by /skills (S2): the names by scope in the rail, one row per skill with its description in /dock (S3). */
 	open?: boolean;
+	/** The shortcut that toggles the row (S7), shown muted at its end; absent when Pi could not register one. */
+	key?: string;
 }
 
 export interface MemoryInfo {

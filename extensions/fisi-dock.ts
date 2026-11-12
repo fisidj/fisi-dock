@@ -250,7 +250,7 @@ interface LiveSession {
  * Live data for one session. Every source is optional: a failing read leaves
  * its field out. Reads happen on triggers, never per frame; a change repaints.
  */
-function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): LiveSession {
+function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, skillsKey?: string): LiveSession {
 	const sessionId = attempt(() => ctx.sessionManager.getSessionId()) ?? "";
 	const cwd = attempt(() => ctx.sessionManager.getCwd()) ?? attempt(() => ctx.cwd) ?? "";
 	// Motion off in the look (look-more S2) counts as Gentle Shell's potato: no spinner
@@ -470,7 +470,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 	// Skills (skills-view S4): the ones Pi loaded, from its command list, re-read
 	// with the other cheap Pi reads (session start, turn end, model change), so
 	// /reload updates them. No getCommands: no row. /skills unfolds the row (S2).
-	const skillsState = () => apply({ skills: skillsFromCommands(attempt(() => pi.getCommands())) });
+	const skillsState = () => apply({ skills: skillsFromCommands(attempt(() => pi.getCommands())), skillsKey });
 	let skillsOpen = false;
 	// User message box (S45): Pi's class is patched as soon as one user message
 	// is in the tree (a new session has none until the first prompt), retried on
@@ -808,19 +808,21 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => toggleSkills(ctx),
 	});
 	// ctrl+s (S6): Pi binds it only inside its pickers, and it is not reserved for
-	// the editor. Older hosts without registerShortcut keep /skills alone.
-	attempt(() =>
+	// the editor. Older hosts without registerShortcut keep /skills alone, and the
+	// skills row names the key only when it was registered (S7).
+	const skillsKey = attempt(() => {
 		pi.registerShortcut("ctrl+s", {
 			description: "Unfold or fold the skills list in the Fisi Dock side panel (same as /skills)",
 			handler: (ctx) => toggleSkills(ctx),
-		}),
-	);
+		});
+		return "ctrl+s";
+	});
 
 	// Fisi Dock's whole session: live data, the prompt box and its widgets, which
 	// take Gentle Shell's rail parts and top row over. Run at session_start and
 	// by `/fisi-dock on`; stop() undoes all of it.
 	const start = (ctx: ExtensionContext) => {
-		const session = startLive(pi, ctx, currentLook);
+		const session = startLive(pi, ctx, currentLook, skillsKey);
 		live = session;
 		dropWelcome = installWelcome(ctx, session);
 		// Pi's patched user message render asks this hook; without it, Pi's own lines.

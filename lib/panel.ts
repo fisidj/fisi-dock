@@ -264,11 +264,19 @@ function skillGroups(list: SkillInfo[]): { scope: SkillScope; skills: SkillInfo[
 	return SKILL_SCOPES.map((scope) => ({ scope, skills: list.filter((skill) => skill.scope === scope) })).filter((group) => group.skills.length > 0);
 }
 
-/** `skills ▸ 25 loaded · 16 package · 9 user` (S1), `▾` unfolded (S2): the scope counts drop from the right until it fits, then the row is cut. */
+/**
+ * `skills ▸ 25 loaded · 16 package · 9 user  ctrl+s` (S1, S7), `▾` unfolded (S2):
+ * the muted shortcut hint drops first, then the scope counts from the right
+ * until it fits, then the row is cut.
+ */
 function skillsHeadRow(skills: SkillsInfo, width: number): Row {
 	if (skills.list.length === 0) return { text: ellipsize(sessionKey("skills") + muted("none loaded"), width) };
 	const lead = sessionKey("skills") + fg(palette.teal, skills.open ? "▾" : "▸") + " " + bold(plainText(String(skills.list.length))) + muted(" loaded");
 	const counts = skillGroups(skills.list).map((group) => muted(" · ") + fg(SKILL_COLOR[group.scope], `${group.skills.length} ${group.scope}`));
+	if (skills.key) {
+		const hinted = lead + counts.join("") + muted(`  ${skills.key}`);
+		if (visibleWidth(hinted) <= width) return { text: hinted };
+	}
 	for (let kept = counts.length; kept > 0; kept--) {
 		const text = lead + counts.slice(0, kept).join("");
 		if (visibleWidth(text) <= width) return { text };
