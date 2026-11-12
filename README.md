@@ -98,7 +98,7 @@ gentle-shell install git:github.com/fisidj/fisi-dock
 
 Without a tag you follow the `main` branch. Releases are tagged `vX.Y.Z` and listed on the [Releases page](https://github.com/fisidj/fisi-dock/releases); the latest is `v0.4.0`. To pin one, add `@<tag>` to the source: `gentle-shell install git:github.com/fisidj/fisi-dock@v0.4.0`. Pi keeps a pinned tag: updates do not move it.
 
-Fisi Dock is also on npm: `gentle-shell install npm:fisi-dock`, pinned with `npm:fisi-dock@0.4.0`.
+Fisi Dock is also on npm: `gentle-shell install npm:fisi-dock`, pinned with `npm:fisi-dock@0.4.1`.
 
 If you run Gentle Shell with `--link` (Pi's own home instead of the launcher's isolated one), install it there instead: `gentle-shell --link install git:github.com/fisidj/fisi-dock`.
 
