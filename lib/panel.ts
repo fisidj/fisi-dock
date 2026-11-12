@@ -4,8 +4,9 @@ import { type Accent, type ColorMode, DEFAULT_SECTIONS, type DividerLevel, type 
 import { renderLogo } from "./logo.ts";
 import { fitDetail } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
-import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
+import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, SkillInfo, SkillScope, SkillsInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
+import { SKILL_SCOPES } from "./skills.ts";
 import { FADE_PEAK, RESET, accentBase, bgCode, bold, dim, fadeAmount, fadedEdge, fg, paint, palette, panelAccent, type Rgb } from "./palette.ts";
 import { ellipsize, fitWidth, padEnd, truncateToWidth, visibleWidth } from "./text.ts";
 
@@ -251,16 +252,80 @@ function connectionRows(session: SessionInfo, width: number, mcpCap = MCP_ROWS):
 	return rows;
 }
 
+/** Each skill scope's color (skills-view S1): package lilac, user blue, project green. */
+const SKILL_COLOR: Record<SkillScope, Rgb> = { package: palette.lilac, user: palette.blue, project: palette.green };
+/** The scope word's column in the unfolded rail rows (S2): the longest word and one space. */
+const SKILL_SCOPE_CELLS = 8;
+/** The unfolded /dock rows' names start this many columns in (S3), under the scope header. */
+const SKILL_INDENT = KEY_CELLS + 2;
+
+/** The skills by scope, package then user then project, each in Pi's order; empty scopes left out. */
+function skillGroups(list: SkillInfo[]): { scope: SkillScope; skills: SkillInfo[] }[] {
+	return SKILL_SCOPES.map((scope) => ({ scope, skills: list.filter((skill) => skill.scope === scope) })).filter((group) => group.skills.length > 0);
+}
+
+/** `skills ▸ 25 loaded · 16 package · 9 user` (S1), `▾` unfolded (S2): the scope counts drop from the right until it fits, then the row is cut. */
+function skillsHeadRow(skills: SkillsInfo, width: number): Row {
+	if (skills.list.length === 0) return { text: ellipsize(sessionKey("skills") + muted("none loaded"), width) };
+	const lead = sessionKey("skills") + fg(palette.teal, skills.open ? "▾" : "▸") + " " + bold(plainText(String(skills.list.length))) + muted(" loaded");
+	const counts = skillGroups(skills.list).map((group) => muted(" · ") + fg(SKILL_COLOR[group.scope], `${group.skills.length} ${group.scope}`));
+	for (let kept = counts.length; kept > 0; kept--) {
+		const text = lead + counts.slice(0, kept).join("");
+		if (visibleWidth(text) <= width) return { text };
+	}
+	return { text: ellipsize(lead, width) };
+}
+
+/** The rail's unfolded rows of one scope (S2): the scope word, then its names comma-separated, wrapped onto rows aligned under the first name. */
+function skillNameRows(scope: SkillScope, skills: SkillInfo[], width: number): Row[] {
+	const lead = KEY_CELLS + SKILL_SCOPE_CELLS;
+	const room = Math.max(1, width - lead);
+	const lines: string[] = [];
+	skills.forEach((skill, index) => {
+		const token = ellipsize(index < skills.length - 1 ? `${skill.name},` : skill.name, room);
+		const last = lines.length - 1;
+		if (last >= 0 && visibleWidth(lines[last]) + 1 + visibleWidth(token) <= room) lines[last] += ` ${token}`;
+		else lines.push(token);
+	});
+	return lines.map((line, index) => ({
+		text: ellipsize((index === 0 ? sessionKey("") + fg(SKILL_COLOR[scope], scope.padEnd(SKILL_SCOPE_CELLS)) : " ".repeat(lead)) + plainText(line), width),
+	}));
+}
+
+/** /dock's unfolded rows (S3): each scope's header with its count, then one row per skill, the name and its description muted, cut to the width. */
+function skillDescriptionRows(list: SkillInfo[], width: number): Row[] {
+	const nameCap = Math.max(8, Math.floor((width - SKILL_INDENT) / 2));
+	const nameWidth = Math.min(nameCap, Math.max(0, ...list.map((skill) => visibleWidth(skill.name))));
+	return skillGroups(list).flatMap(({ scope, skills }) => [
+		{ text: ellipsize(sessionKey("") + fg(SKILL_COLOR[scope], scope) + muted(`  ${skills.length}`), width) },
+		...skills.map((skill) => {
+			const name = plainText(padEnd(ellipsize(skill.name, nameWidth), nameWidth));
+			return { text: ellipsize(" ".repeat(SKILL_INDENT) + name + (skill.description ? `  ${muted(skill.description)}` : ""), width) };
+		}),
+	]);
+}
+
+/** The skills rows (S1-S3): none while unreadable; the head row; unfolded, the names by scope, or with `details` (/dock) one row per skill with its description. */
+function skillsRows(session: SessionInfo, width: number, details: boolean): Row[] {
+	const skills = session.skills;
+	if (!skills) return [];
+	const head = skillsHeadRow(skills, width);
+	if (!skills.open || skills.list.length === 0) return [head];
+	if (details) return [head, ...skillDescriptionRows(skills.list, width)];
+	return [head, ...skillGroups(skills.list).flatMap((group) => skillNameRows(group.scope, group.skills, width))];
+}
+
 /**
  * `unpushed`: the heads-up already says how many commits are ahead, so ↑N is
- * left out (S8). `mcpCap`: the mcp rows at most (S5).
+ * left out (S8). `mcpCap`: the mcp rows at most (S5). `skillDetails`: unfolded
+ * skills get a row each with their description (/dock, skills-view S3).
  */
-function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, mcpCap = MCP_ROWS): Section {
+function sessionSection(session: SessionInfo, width: number, unpushed = false, footer?: FooterInfo, mcpCap = MCP_ROWS, skillDetails = false): Section {
 	const ahead = session.ahead && !unpushed ? ` ↑${session.ahead}` : "";
 	const branch = session.branch ? `  ${fg(palette.green, session.branch + ahead)}` : "";
 	const where: Row = { text: ellipsize(sessionKey("project") + bold(plainText(session.project)) + branch, width) };
 	const usage = [...(session.contextPercent !== undefined ? contextRows(session, width) : []), ...profileRows(session, width, footer)];
-	return { title: "session", color: palette.teal, rows: [where, ...usage, ...connectionRows(session, width, mcpCap)] };
+	return { title: "session", color: palette.teal, rows: [where, ...usage, ...connectionRows(session, width, mcpCap), ...skillsRows(session, width, skillDetails)] };
 }
 
 // `!` is one column in every terminal; `⚠` is ambiguous-width and could push a line past the rail.
@@ -785,7 +850,7 @@ function logoLines(width: number, style?: LogoStyle, accent?: Accent): string[] 
 export interface PanelOptions {
 	/** Every todo task instead of the fixed-height summary (S26); /dock only, the rail stays compact (S7). */
 	todoExpanded?: boolean;
-	/** /dock only (S35, S5): every agent, changed file and MCP server instead of the first 4. */
+	/** /dock only (S35, S5): every agent, changed file and MCP server instead of the first 4, and unfolded skills with their descriptions (skills-view S3). */
 	listsExpanded?: boolean;
 	/** /dock only (S52): every kept ODD step after the request settled, instead of the summary row. */
 	oddExpanded?: boolean;
@@ -886,7 +951,7 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 			todo: () => (model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors, accent)) || emptyTodoSection(inner),
 			changes: () => (shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined),
 		};
-		const sections = [sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS), ...order.map((id) => (Object.hasOwn(parts, id) ? parts[id]() : undefined))].filter((section): section is Section => section !== undefined);
+		const sections = [sessionSection(model.session, inner, unpushed, model.footer, options.listsExpanded ? Infinity : MCP_ROWS, options.listsExpanded), ...order.map((id) => (Object.hasOwn(parts, id) ? parts[id]() : undefined))].filter((section): section is Section => section !== undefined);
 		return [...logoLines(columns, options.logo, accent), ...drawSections(sections, columns, frames, gaps, colors, accent)];
 	};
 	const limit = options.maxRows !== undefined && Number.isFinite(options.maxRows) ? Math.max(0, Math.floor(options.maxRows)) : Infinity;

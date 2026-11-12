@@ -2,7 +2,7 @@ import { ciRunning, ciView, type CiRuns } from "./ci.ts";
 import { entranceSteps } from "./entrance.ts";
 import { headsUpWarnings, type PlanInfo } from "./heads-up.ts";
 import { SHIMMER_STEP_MS } from "./orbs.ts";
-import type { AgentInfo, ChangeInfo, McpServerInfo, MemoryInfo, OddInfo, PanelModel, SessionInfo, TodoInfo, TodoTask } from "./panel-model.ts";
+import type { AgentInfo, ChangeInfo, McpServerInfo, MemoryInfo, OddInfo, PanelModel, SessionInfo, SkillInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { rddLabel } from "./panel.ts";
 import { rddLive, rddView, type RddRow } from "./rdd.ts";
 
@@ -280,6 +280,10 @@ export interface LiveParts {
 	mcp?: McpServerInfo[];
 	/** Engram from gentle-engram's mem_* tools and calls (lib/memory.ts); undefined while Pi's tool list cannot be read. */
 	memory?: MemoryInfo;
+	/** The skills Pi loaded (skills-view S4, lib/skills.ts); undefined while Pi's command list cannot be read. */
+	skills?: SkillInfo[];
+	/** /skills unfolded the skills row (S2). */
+	skillsOpen?: boolean;
 	/** The running spinner's frame from the wall clock (S31); drawn only while something runs. */
 	spinner?: number;
 }
@@ -400,6 +404,7 @@ function snapshotOf(parts: LiveParts, now: number): PanelModel {
 		...(parts.profile ? { profile: parts.profile } : {}),
 		...(parts.mcp ? { mcp: parts.mcp } : {}),
 		...(parts.memory ? { memory: parts.memory } : {}),
+		...(parts.skills ? { skills: { list: parts.skills, ...(parts.skillsOpen ? { open: true } : {}) } } : {}),
 	};
 	const todo = parts.todo;
 	const openTodo = todo ? todo.more + (todo.active !== undefined ? 1 : 0) + (todo.next !== undefined ? 1 : 0) : 0;

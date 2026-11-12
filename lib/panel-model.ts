@@ -18,6 +18,25 @@ export interface SessionInfo {
 	mcp?: McpServerInfo[];
 	/** Engram, the memory row of the connections group (lib/memory.ts); no row while absent (Pi's tool list unreadable). */
 	memory?: MemoryInfo;
+	/** The skills Pi loaded (skills-view S1, lib/skills.ts), the last session row; no row while absent (Pi's command list unreadable). */
+	skills?: SkillsInfo;
+}
+
+/** Where a loaded skill came from (skills-view S4): a Pi package, the user's own skills, or this project's. */
+export type SkillScope = "package" | "user" | "project";
+
+export interface SkillInfo {
+	/** Its name without Pi's `skill:` command prefix. */
+	name: string;
+	scope: SkillScope;
+	description?: string;
+}
+
+export interface SkillsInfo {
+	/** In Pi's order; [] is none loaded (a muted `none loaded` row). */
+	list: SkillInfo[];
+	/** Unfolded by /skills (S2): the names by scope in the rail, one row per skill with its description in /dock (S3). */
+	open?: boolean;
 }
 
 export interface MemoryInfo {

@@ -36,6 +36,7 @@ import { reduceReviews, reviewSnapshot, withTrail, type RddRow } from "../lib/rd
 import { createReviewModeReader, gentleAiBinary, REVIEW_MODE_TIMEOUT_MS } from "../lib/rdd-mode.ts";
 import { trailEnd, trailStart, type ReviewTrail } from "../lib/rdd-detail.ts";
 import { reduceSettings, renderSettings, settingsAction, type SettingsAction, type SettingsState } from "../lib/settings-menu.ts";
+import { skillsFromCommands } from "../lib/skills.ts";
 import { createSlotTakeover, EMPTIED_PARTS, emptyPart, railOwnsHost, SIDEBAR_STATE } from "../lib/slot.ts";
 import { renderStrip } from "../lib/strip.ts";
 import { agentHomeDir, createSubagentTracker, NOTIFICATION_SOURCE_EVENT, readPresenceTasks, SUBAGENT_DETAILS_DELAY_MS } from "../lib/subagents.ts";
@@ -218,8 +219,10 @@ interface LiveSession {
 	frameUsers(): void;
 	/** Pi's user message, boxed only while Gentle Shell's sidebar state is on the host (S45). */
 	frameUser(render: (width: number) => string[], width: number): string[];
-	/** Context usage, cost, tokens and the ≈ estimate: cheap reads of Pi state. */
+	/** Context usage, cost, tokens, the ≈ estimate and the loaded skills: cheap reads of Pi state. */
 	readPi(): void;
+	/** /skills (skills-view S2): unfolds or folds the skills row; returns whether it is now unfolded. */
+	toggleSkills(): boolean;
 	/** The todo snapshot replayed from the session branch. */
 	readTodo(): void;
 	readGit(): void;
@@ -464,6 +467,11 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 	// mem_* call did not fail: nothing is spawned and no server is asked.
 	let memoryCalls = NO_MEMORY_CALLS;
 	const memoryState = () => apply({ memory: memoryInfo(attempt(() => pi.getAllTools()), memoryCalls) });
+	// Skills (skills-view S4): the ones Pi loaded, from its command list, re-read
+	// with the other cheap Pi reads (session start, turn end, model change), so
+	// /reload updates them. No getCommands: no row. /skills unfolds the row (S2).
+	const skillsState = () => apply({ skills: skillsFromCommands(attempt(() => pi.getCommands())) });
+	let skillsOpen = false;
 	// User message box (S45): Pi's class is patched as soon as one user message
 	// is in the tree (a new session has none until the first prompt), retried on
 	// setHost, agent_start, turn_start and message_end. The patch is per class,
@@ -566,6 +574,12 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 			readProfile();
 			mcpState();
 			memoryState();
+			skillsState();
+		},
+		toggleSkills: () => {
+			skillsOpen = !skillsOpen;
+			apply({ skillsOpen });
+			return skillsOpen;
 		},
 		readTodo: () => {
 			const manager = ctx.sessionManager as { getBranch?(): unknown[]; getEntries(): unknown[] };
@@ -771,6 +785,24 @@ export default function fisiDock(pi: ExtensionAPI): void {
 				},
 				{ overlay: true, overlayOptions: { width: "100%", maxHeight: "100%", anchor: "center" } },
 			);
+		},
+	});
+
+	// The skills row (skills-view S2): /skills unfolds the names by scope in the
+	// side panel's session section, and folds them again; /dock adds descriptions.
+	pi.registerCommand("skills", {
+		description: "Unfold or fold the skills Pi loaded in the Fisi Dock side panel's session section: names by scope (package, user, project); /dock adds what each does",
+		handler: async (_args, ctx) => {
+			if (!enabled) {
+				attempt(() => ctx.ui.notify(OFF_NOTICE, "info"));
+				return;
+			}
+			const session = live;
+			if (!session) {
+				attempt(() => ctx.ui.notify("Fisi Dock: no live session to show yet", "info"));
+				return;
+			}
+			session.toggleSkills();
 		},
 	});
 

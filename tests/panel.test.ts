@@ -2976,3 +2976,120 @@ test("look-more S6 short screens drop by section, not by place: changes moved fi
 	assert.equal(hidden.length, full.length - 3, "the changes box (title, one file, bottom) is gone");
 	assert.deepEqual(renderPanel(model, 58, { sections: await sectionsOf("!changes"), maxRows: hidden.length }), hidden, "it fits as it is, spacers and all");
 });
+
+// --- skills (skills-view S1-S3) ---------------------------------------------------
+
+type Skill = NonNullable<PanelModel["session"]["skills"]>["list"][number];
+const skill = (name: string, scope: Skill["scope"], description?: string): Skill => ({ name, scope, ...(description !== undefined ? { description } : {}) });
+/** The user's 25: 16 from Pi packages, 9 from ~/.agents/skills. */
+const TWENTY_FIVE: Skill[] = [...Array.from({ length: 16 }, (_, index) => skill(`p${index}`, "package")), ...Array.from({ length: 9 }, (_, index) => skill(`u${index}`, "user"))];
+const RAIL_SKILLS: Skill[] = [
+	skill("gentle-ai", "package", "Gentle AI harness discipline."),
+	skill("branch-pr", "package", "Prepare pull requests."),
+	skill("chained-pr", "package"),
+	skill("judgment-day", "package"),
+	skill("tui-design", "package"),
+	skill("btw", "user", "Side conversations with /btw."),
+	skill("go-testing", "user"),
+];
+/** The plain session rows from the skills row on, trailing padding cut. */
+const skillRows = (lines: string[]) => {
+	const body = sectionBody(lines, "session");
+	return body.slice(body.findIndex((line) => line.startsWith("│ skills"))).map((line) => line.replace(/ +│$/, ""));
+};
+const withSkills = (skills: PanelModel["session"]["skills"], session: PanelModel["session"] = { project: "p" }): PanelModel => ({ session: { ...session, skills } });
+
+test("skills row, folded: `skills ▸ N loaded · N package · N user` last in session, each count in its scope color (S1)", () => {
+	const lines = renderPanel(withSkills({ list: TWENTY_FIVE }, ART_SESSION), 47);
+	const body = sectionBody(lines, "session");
+	assert.match(body.at(-1)!, /^│ skills   ▸ 25 loaded · 16 package · 9 user +│$/, "the last session row");
+	const raw = lines.find((line) => plain(line).startsWith("│ skills"))!;
+	assert.ok(raw.includes(`${fgCode(palette.muted)}skills   `), "muted key");
+	assert.ok(raw.includes(`${fgCode(palette.teal)}▸`), "▸ in the session teal");
+	assert.ok(raw.includes(`${fgCode(palette.lilac)}16 package`), "package lilac");
+	assert.ok(raw.includes(`${fgCode(palette.blue)}9 user`), "user blue");
+	assert.ok(raw.includes(`${fgCode(palette.muted)} loaded`), "muted loaded");
+	const mixed = renderPanel(withSkills({ list: [skill("local", "project"), skill("btw", "user"), skill("gd", "package")] }), 56);
+	assert.deepEqual(skillRows(mixed), ["│ skills   ▸ 3 loaded · 1 package · 1 user · 1 project"], "package, user, project order");
+	assert.ok(mixed.find((line) => plain(line).startsWith("│ skills"))!.includes(`${fgCode(palette.green)}1 project`), "project green");
+	assert.deepEqual(skillRows(renderPanel(withSkills({ list: [skill("a", "user"), skill("b", "user")] }), 47)), ["│ skills   ▸ 2 loaded · 2 user"], "an empty scope has no count");
+});
+
+test("skills row: the scope counts drop from the right when the row does not fit, then the row is cut (S1)", () => {
+	assert.deepEqual(skillRows(renderPanel(withSkills({ list: TWENTY_FIVE }), 40)), ["│ skills   ▸ 25 loaded · 16 package"], "40: the user count drops");
+	assert.deepEqual(skillRows(renderPanel(withSkills({ list: TWENTY_FIVE }), 34)), ["│ skills   ▸ 25 loaded"], "34: every count drops");
+	assert.deepEqual(skillRows(renderPanel(withSkills({ list: TWENTY_FIVE }), 20)), ["│ skills   ▸ 25 l…"], "20: cut");
+});
+
+test("skills row: none loaded is a muted `skills none loaded`, unfolded or not; unreadable skills draw no row (S1)", () => {
+	for (const open of [false, true]) {
+		const lines = renderPanel(withSkills({ list: [], open }), 47);
+		assert.deepEqual(skillRows(lines), ["│ skills   none loaded"], `open ${open}`);
+		assert.ok(lines.find((line) => plain(line).startsWith("│ skills"))!.includes(`${fgCode(palette.muted)}none loaded`), "muted");
+	}
+	assert.ok(!renderPanel({ session: { project: "p" } }, 47).map(plain).some((line) => line.includes("skills")), "no skills: no row");
+	assert.ok(!renderDock({ session: { project: "p" } }, 62, 40).lines.map(plain).some((line) => line.includes("skills")), "nor in /dock");
+});
+
+test("skills absent: the session rows are exactly today's; present: one row more at the end, the rest unchanged (S1 preserve)", () => {
+	for (const width of [55, 47, 34]) {
+		const before = sectionBody(renderPanel({ session: ART_SESSION, footer: { cost: 0.127 } }, width), "session");
+		if (width > 34) assert.deepEqual(before.map((line) => line.trim().split(/ +/)[1]), ["project", "context", "profile", "memory", "mcp"], `${width}: today's rows`);
+		const after = sectionBody(renderPanel({ session: { ...ART_SESSION, skills: { list: TWENTY_FIVE } }, footer: { cost: 0.127 } }, width), "session");
+		assert.deepEqual(after.slice(0, -1), before, `${width}: the rows above the skills row unchanged`);
+		assert.ok(after.at(-1)!.startsWith("│ skills"));
+	}
+});
+
+test("skills unfolded in the rail: ▾, then one row per scope in package, user, project order with its names comma-separated, wrapped under the first name; empty scopes left out (S2)", () => {
+	const lines = renderPanel(withSkills({ list: RAIL_SKILLS, open: true }), 47);
+	assert.deepEqual(skillRows(lines), [
+		"│ skills   ▾ 7 loaded · 5 package · 2 user",
+		"│          package gentle-ai, branch-pr,",
+		"│                  chained-pr, judgment-day,",
+		"│                  tui-design",
+		"│          user    btw, go-testing",
+	]);
+	const raw = lines.filter((line) => /^│ (skills| {9}\S)/.test(plain(line)));
+	assert.ok(raw[0].includes(`${fgCode(palette.teal)}▾`), "▾ in the session teal");
+	assert.ok(raw[1].includes(`${fgCode(palette.lilac)}package`), "package word lilac");
+	assert.ok(raw[1].includes(`${fgCode(palette.text)}gentle-ai`), "names in the text color");
+	assert.ok(raw[2].includes(`${fgCode(palette.blue)}user`), "user word blue");
+	assert.ok(!lines.map(plain).some((line) => line.includes("harness")), "the rail shows no descriptions");
+	const mixed = renderPanel(withSkills({ list: [skill("local", "project"), skill("btw", "user"), skill("gd", "package"), skill("zz", "project")], open: true }), 47);
+	assert.deepEqual(skillRows(mixed).slice(1), ["│          package gd", "│          user    btw", "│          project local, zz"], "Pi's order inside a scope, scopes in their order");
+	assert.ok(mixed.some((line) => line.includes(`${fgCode(palette.green)}project`)), "project word green");
+});
+
+test("skills unfolded: every row fits every rail width, a name too long for the row is cut (S2)", () => {
+	const list = [...RAIL_SKILLS, skill("a-skill-name-far-too-long-for-any-rail-row-at-all", "project", "x")];
+	const rows = skillRows(renderPanel(withSkills({ list, open: true }), 47));
+	assert.equal(rows.at(-1), "│          project a-skill-name-far-too-long…", "cut with an ellipsis");
+	for (const width of [58, 55, 47, 40, 34, 30, 20, 14, 12, 5, 1]) {
+		for (const open of [false, true]) {
+			for (const line of renderPanel(withSkills({ list, open }), width)) assert.ok(visibleWidth(line) <= width, `${width} open ${open}: ${plain(line)}`);
+			for (const line of renderDock(withSkills({ list, open }), width, 40).lines) assert.ok(visibleWidth(line) <= width, `/dock ${width} open ${open}: ${plain(line)}`);
+		}
+	}
+});
+
+test("/dock unfolded: one row per skill under its scope's header, the name then its description muted, cut to the width; folded only the ▸ row (S3)", () => {
+	const list = [skill("gentle-design", "package", "Design a screen, mockup, landing page or UI directions as HTML artboards."), skill("btw", "user", "Side conversations."), skill("go-testing", "user")];
+	const open = renderDock(withSkills({ list, open: true }), 62, 60).lines;
+	const rows = skillRows(open.map((line) => line.trim()));
+	assert.deepEqual(rows, [
+		"│ skills   ▾ 3 loaded · 1 package · 2 user",
+		"│          package  1",
+		"│            gentle-design  Design a screen, mockup, land…",
+		"│          user  2",
+		"│            btw            Side conversations.",
+		"│            go-testing",
+	]);
+	const raw = open.find((line) => plain(line).includes("gentle-design"))!;
+	assert.ok(raw.includes(`${fgCode(palette.text)}gentle-design`), "name in the text color");
+	assert.ok(raw.includes(`${fgCode(palette.muted)}Design a screen`), "description muted");
+	assert.ok(open.some((line) => line.includes(`${fgCode(palette.lilac)}package`)), "scope header in its color");
+	const folded = skillRows(renderDock(withSkills({ list }), 62, 60).lines.map((line) => line.trim()));
+	assert.deepEqual(folded, ["│ skills   ▸ 3 loaded · 1 package · 2 user"], "folded: no names nor descriptions");
+});
+

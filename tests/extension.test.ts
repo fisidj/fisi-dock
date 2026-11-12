@@ -919,6 +919,87 @@ test("/dock without a live session only says so", async () => {
 	assert.equal(sim.notices.length, 1);
 });
 
+// --- skills-view S1-S4: the skills row and /skills ----------------------------------
+
+/** Pi's pi.getCommands() entries for one skill (SlashCommandInfo). */
+const skillCommand = (name: string, origin: string, scope = "user", description = `${name} does things`) => ({ name: `skill:${name}`, description, source: "skill", sourceInfo: { path: `/s/${name}/SKILL.md`, source: "local", scope, origin } });
+const SKILL_COMMANDS = [
+	{ name: "gentle:banner", source: "extension", sourceInfo: { path: "/e", source: "local", scope: "user", origin: "package" } },
+	skillCommand("gentle-design", "package"),
+	skillCommand("btw", "package"),
+	skillCommand("go-testing", "top-level"),
+	skillCommand("local-skill", "top-level", "project"),
+];
+
+test("the session section ends with the skills Pi loaded, read from getCommands; /skills unfolds the names in the rail and folds them again, repainting each time (skills-view S1, S2, S4)", async () => {
+	const sim = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
+	const command = sim.commands.get("skills");
+	assert.ok(command, "/skills registered");
+	assert.match(command.description ?? "", /skills/i);
+	assert.match(command.description ?? "", /side panel/i);
+	assert.match(command.description ?? "", /fold/i);
+	sim.emit("session_start");
+	let renders = 0;
+	sim.widgets.get("fisi-dock")!({ ...sim.tui, requestRender: () => void renders++ });
+	const skillRowsOf = () => sessionRows(railOf(sim)(58)).map((line) => line.replace(/ +│$/, "")).filter((line, index, rows) => index >= rows.findIndex((row) => row.startsWith("│ skills")));
+	assert.deepEqual(skillRowsOf(), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project"], "folded by default");
+
+	const before = renders;
+	await command.handler("", sim.ctx);
+	assert.ok(renders > before, "unfolding repaints");
+	assert.deepEqual(skillRowsOf(), [
+		"│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project",
+		"│          package gentle-design, btw",
+		"│          user    go-testing",
+		"│          project local-skill",
+	]);
+	const unfolded = renders;
+	await command.handler("", sim.ctx);
+	assert.ok(renders > unfolded, "folding repaints");
+	assert.deepEqual(skillRowsOf(), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project"], "/skills again folds it");
+	assert.deepEqual(sim.notices, [], "no notice");
+	sim.emit("session_shutdown");
+});
+
+test("the skills row follows Pi's list on the next cheap read (turn end), so /reload and new skills show; no getCommands keeps the session rows as before (skills-view S4, S1)", async () => {
+	let commands: unknown[] = [skillCommand("btw", "package")];
+	const sim = simulate("E:\\DEV\\app", { commands: () => commands });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const row = () => sessionRows(railOf(sim)(58)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
+	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package");
+	commands = [];
+	sim.emit("turn_end");
+	assert.equal(row(), "│ skills   none loaded", "Pi loaded none");
+	commands = [skillCommand("btw", "package"), skillCommand("go-testing", "top-level", "temporary")];
+	sim.emit("model_select");
+	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user", "a temporary skill counts as user");
+	sim.emit("session_shutdown");
+
+	// Pi without getCommands: no skills row; the no-MCP test above pins the other session rows.
+	const bare = simulate("E:\\DEV\\app");
+	bare.emit("session_start");
+	bare.widgets.get("fisi-dock")!(bare.tui);
+	assert.ok(!railOf(bare)(58).some((line) => line.includes("skills")), "no row");
+	await bare.commands.get("skills")!.handler("", bare.ctx);
+	assert.ok(!railOf(bare)(58).some((line) => line.includes("skills")), "/skills with nothing to unfold changes nothing");
+	bare.emit("session_shutdown");
+});
+
+test("/skills with Fisi Dock off or no live session only says so (skills-view S2)", async (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
+	await sim.commands.get("skills")!.handler("", sim.ctx);
+	assert.deepEqual(sim.notices, ["Fisi Dock: no live session to show yet"]);
+
+	stateDir(t, false);
+	const off = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
+	off.emit("session_start");
+	await off.commands.get("skills")!.handler("", off.ctx);
+	assert.deepEqual(off.notices, ["Fisi Dock is off · /fisi-dock on turns it back on"]);
+	off.emit("session_shutdown");
+});
+
 test("the fisi-dock marker is set at load and session_start, and cleared on session_shutdown (S24)", () => {
 	const marker = Symbol.for("fisi-dock");
 	const global = globalThis as Record<symbol, unknown>;

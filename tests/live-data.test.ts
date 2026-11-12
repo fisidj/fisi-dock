@@ -295,6 +295,14 @@ test("session snapshot carries the memory (Engram) state in session, none while 
 	assert.equal("memory" in sessionSnapshot({ project: "app" }).session, false);
 });
 
+test("session snapshot carries the loaded skills and whether /skills unfolded them; none while unreadable (skills-view S1, S2)", () => {
+	const skills = [{ name: "btw", scope: "package" as const }];
+	assert.deepEqual(sessionSnapshot({ project: "app", skills }).session.skills, { list: skills });
+	assert.deepEqual(sessionSnapshot({ project: "app", skills, skillsOpen: true }).session.skills, { list: skills, open: true });
+	assert.deepEqual(sessionSnapshot({ project: "app", skills: [], skillsOpen: false }).session.skills, { list: [] }, "none loaded: the muted row");
+	assert.equal("skills" in sessionSnapshot({ project: "app", skillsOpen: true }).session, false, "unreadable: no row, open or not");
+});
+
 test("session snapshot carries the RDD switch from gentle-ai in the footer (S19, S85)", () => {
 	assert.deepEqual(sessionSnapshot({ project: "app", cost: 0, rdd: "on" }).footer, { cost: 0, rdd: "on" });
 	assert.deepEqual(sessionSnapshot({ project: "app", cost: 0, rdd: "off", review: "✓ Approved" }).footer, { cost: 0, review: "✓ Approved", rdd: "off" });
