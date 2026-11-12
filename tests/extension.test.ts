@@ -49,6 +49,7 @@ type Factory = (tui: unknown) => { render(width: number): string[]; dispose?(): 
 
 type Exec = (command: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Command = { description?: string; handler(args: string, ctx: unknown): Promise<void> | void };
+type Shortcut = { description?: string; handler(ctx: unknown): Promise<void> | void };
 type Overlay = { render(width: number): string[]; handleInput?(data: string): void; dispose?(): void };
 type Keys = { matches(data: string, id: string): boolean };
 /** One ctx.ui.custom() call: the factory gets (tui, theme, keybindings, done). */
@@ -61,7 +62,7 @@ type Custom = {
 // In-memory Pi, session and terminal with Gentle Shell's rail parts registered.
 function simulate(
 	cwd: string,
-	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; commands?: () => unknown[]; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[]; failingThemes?: string[] } = {},
+	options: { ownsHost?: () => boolean; exec?: Exec; branch?: () => unknown[]; tools?: () => unknown[]; commands?: () => unknown[]; shortcuts?: boolean; editor?: unknown; theme?: string; knownThemes?: string[]; throwingThemes?: string[]; failingThemes?: string[] } = {},
 ) {
 	const { ownsHost } = options;
 	// Pi's editor factory slot (setEditorComponent / getEditorComponent): Gentle Shell's marked factory when a test seeds one (S88).
@@ -70,8 +71,11 @@ function simulate(
 	const handlers = new Map<string, Handler[]>();
 	const channels = new Map<string, ((data: unknown) => void)[]>();
 	const commands = new Map<string, Command>();
+	const shortcuts = new Map<string, Shortcut>();
 	const pi = {
 		registerCommand: (name: string, command: Command) => commands.set(name, command),
+		// Pi's pi.registerShortcut, recorded by key; `shortcuts: false` leaves it out, like older hosts.
+		...(options.shortcuts === false ? {} : { registerShortcut: (key: string, shortcut: Shortcut) => void shortcuts.set(key, shortcut) }),
 		on: (name: string, handler: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		events: {
 			on: (channel: string, handler: (data: unknown) => void) => {
@@ -162,7 +166,7 @@ function simulate(
 	(pi.events as { emit?: (channel: string, data: unknown) => void }).emit = emitEvent;
 	fisiDock(pi as never);
 	const setEditor = (factory: unknown) => void (editorFactory = factory);
-	return { startHeader, parts, gentleHeader, gentleFooter, gentleParts, widgets, placements, commands, customs, notices, themes, selects, picks, ctx, tui, emit, emitEvent, handlers, channels, editorSets, setEditor };
+	return { startHeader, parts, gentleHeader, gentleFooter, gentleParts, widgets, placements, commands, shortcuts, customs, notices, themes, selects, picks, ctx, tui, emit, emitEvent, handlers, channels, editorSets, setEditor };
 }
 
 test("the extension takes over the header and Status slots and restores both on shutdown", () => {
@@ -998,6 +1002,65 @@ test("/skills with Fisi Dock off or no live session only says so (skills-view S2
 	await off.commands.get("skills")!.handler("", off.ctx);
 	assert.deepEqual(off.notices, ["Fisi Dock is off · /fisi-dock on turns it back on"]);
 	off.emit("session_shutdown");
+});
+
+test("ctrl+s unfolds and folds the skills row like /skills, repainting each time (skills-view S6)", async () => {
+	const sim = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
+	const shortcut = sim.shortcuts.get("ctrl+s");
+	assert.ok(shortcut, "ctrl+s registered");
+	assert.match(shortcut.description ?? "", /skills/i);
+	assert.match(sim.commands.get("skills")!.description ?? "", /ctrl\+s/, "/skills names its shortcut");
+	sim.emit("session_start");
+	let renders = 0;
+	sim.widgets.get("fisi-dock")!({ ...sim.tui, requestRender: () => void renders++ });
+	const skillRowsOf = () => sessionRows(railOf(sim)(58)).map((line) => line.replace(/ +│$/, "")).filter((line, index, rows) => index >= rows.findIndex((row) => row.startsWith("│ skills")));
+	const folded = ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project"];
+	assert.deepEqual(skillRowsOf(), folded, "folded by default");
+	const noticesBefore = [...sim.notices];
+
+	const before = renders;
+	await shortcut.handler(sim.ctx);
+	assert.ok(renders > before, "unfolding repaints");
+	assert.deepEqual(skillRowsOf(), [
+		"│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project",
+		"│          package gentle-design, btw",
+		"│          user    go-testing",
+		"│          project local-skill",
+	]);
+	const unfolded = renders;
+	await shortcut.handler(sim.ctx);
+	assert.ok(renders > unfolded, "folding repaints");
+	assert.deepEqual(skillRowsOf(), folded, "ctrl+s again folds it");
+	// The command and the shortcut share one toggle.
+	await shortcut.handler(sim.ctx);
+	await sim.commands.get("skills")!.handler("", sim.ctx);
+	assert.deepEqual(skillRowsOf(), folded, "/skills folds what ctrl+s unfolded");
+	assert.deepEqual(sim.notices, noticesBefore, "the toggle adds no notice");
+	sim.emit("session_shutdown");
+});
+
+test("ctrl+s with Fisi Dock off or no live session says what /skills says (skills-view S6)", async (t) => {
+	stateDir(t, true);
+	const sim = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
+	await sim.shortcuts.get("ctrl+s")!.handler(sim.ctx);
+	assert.deepEqual(sim.notices, ["Fisi Dock: no live session to show yet"]);
+
+	stateDir(t, false);
+	const off = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
+	off.emit("session_start");
+	await off.shortcuts.get("ctrl+s")!.handler(off.ctx);
+	assert.deepEqual(off.notices, ["Fisi Dock is off · /fisi-dock on turns it back on"]);
+	off.emit("session_shutdown");
+});
+
+test("a Pi without registerShortcut still loads Fisi Dock, and /skills still unfolds the row (skills-view S6)", async () => {
+	const sim = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS, shortcuts: false });
+	assert.equal(sim.shortcuts.size, 0);
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	await sim.commands.get("skills")!.handler("", sim.ctx);
+	assert.ok(sessionRows(railOf(sim)(58)).some((line) => line.startsWith("│ skills   ▾")), "unfolded");
+	sim.emit("session_shutdown");
 });
 
 test("the fisi-dock marker is set at load and session_start, and cleared on session_shutdown (S24)", () => {

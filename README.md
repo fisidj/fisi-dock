@@ -55,12 +55,12 @@ It is a Pi package (an extension and its themes) that paints its own panel in Ge
 
 ## What you get
 
-- **Side panel** in the fullscreen rail, one framed section each, under the GENTLESHELL logo, with a fading divider line between the chat and the panel: `session` (project and branch, context meter, model profile and cost, Engram memory and MCP servers, and the skills Pi loaded, in that order), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent rows and sections step aside first.
+- **Side panel** in the fullscreen rail, one framed section each, under the GENTLESHELL logo, with a fading divider line between the chat and the panel: `session` (project and branch, context meter, model profile and cost, Engram memory and MCP servers, and the skills Pi loaded, in that order; `/skills` or `ctrl+s` unfolds their names), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent rows and sections step aside first.
 - **Your own look**: `/fisi-dock settings` picks the rail logo, the section frames, the colors (`vivid`, `soft` or `light`), the accent, the divider, the motion and the sections shown and their order, with a live preview ([Look](#look)).
 - **Start screen**: a welcome card in place of Gentle Shell's rose banner (Gentle Shell's version, the project and branch, the commands to begin with), and Pi's list of loaded skills, prompts and extensions folded into one `loaded` box under it. Your expand key (`ctrl+o` by default) shows Pi's full listing; Pi's warnings always show.
 - **Prompt box**: Gentle Shell's prompt framed like the panel's sections, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border. Your messages get the same frame.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.
-- **`/dock`**, **`/skills`** and **`/fisi-dock`**: the whole panel over the screen, the loaded skills unfolded in the panel, and an on/off switch that needs no uninstall ([Commands](#commands)).
+- **`/dock`**, **`/skills`** (or `ctrl+s`) and **`/fisi-dock`**: the whole panel over the screen, the loaded skills unfolded in the panel, and an on/off switch that needs no uninstall ([Commands](#commands)).
 - **Eleven themes**: `Fisi-Dock` and its soft, light and accent variants carry the panel's hues to the whole of Pi. The one for your look is applied once on the first start, with your own theme remembered for `/fisi-dock off` ([Theme](#theme)).
 
 Every section, row and data source is described in [docs/reference.md](docs/reference.md).
@@ -119,7 +119,7 @@ Fisi Dock adds three commands:
 | Command | What it does |
 |---|---|
 | `/dock` | Shows the full panel over the whole screen, live. Made for narrow screens without the side rail; works on wide ones too. While Fisi Dock is off it only says so. |
-| `/skills` | Unfolds the `skills` row at the end of the panel's session section: the names of the skills Pi loaded, grouped by where they come from (package, user, project). `/dock` adds one row per skill with what it does. `/skills` again folds it. While Fisi Dock is off it only says so. |
+| `/skills` or `ctrl+s` | Unfolds the `skills` row at the end of the panel's session section: the names of the skills Pi loaded, grouped by where they come from (package, user, project). `/dock` adds one row per skill with what it does. `/skills` or `ctrl+s` again folds it. While Fisi Dock is off it only says so. |
 | `/fisi-dock on` | Turns Fisi Dock back on, as at the start of a session, and switches Pi to Fisi Dock's theme for your colors and accent (`Fisi-Dock` by default, see [Theme](#theme)), remembering the theme you had. Already on: it says so and changes nothing. |
 | `/fisi-dock off` | Puts Fisi Dock to sleep without uninstalling it: Gentle Shell gets its own panel back, and your theme comes back (see [Theme](#theme)). New sessions start asleep until `/fisi-dock on`. |
 | `/fisi-dock settings` | Opens the look menu, with the rail drawn under it as a live preview: see [Look](#look) for its settings and keys. Works while Fisi Dock is off too. |

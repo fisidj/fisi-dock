@@ -788,23 +788,33 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		},
 	});
 
-	// The skills row (skills-view S2): /skills unfolds the names by scope in the
-	// side panel's session section, and folds them again; /dock adds descriptions.
+	// The skills row (skills-view S2, S6): /skills and ctrl+s unfold the names by
+	// scope in the side panel's session section, and fold them again; /dock adds
+	// descriptions. One toggle for both.
+	const toggleSkills = (ctx: ExtensionContext) => {
+		if (!enabled) {
+			attempt(() => ctx.ui.notify(OFF_NOTICE, "info"));
+			return;
+		}
+		const session = live;
+		if (!session) {
+			attempt(() => ctx.ui.notify("Fisi Dock: no live session to show yet", "info"));
+			return;
+		}
+		session.toggleSkills();
+	};
 	pi.registerCommand("skills", {
-		description: "Unfold or fold the skills Pi loaded in the Fisi Dock side panel's session section: names by scope (package, user, project); /dock adds what each does",
-		handler: async (_args, ctx) => {
-			if (!enabled) {
-				attempt(() => ctx.ui.notify(OFF_NOTICE, "info"));
-				return;
-			}
-			const session = live;
-			if (!session) {
-				attempt(() => ctx.ui.notify("Fisi Dock: no live session to show yet", "info"));
-				return;
-			}
-			session.toggleSkills();
-		},
+		description: "Unfold or fold the skills Pi loaded in the Fisi Dock side panel's session section (or ctrl+s): names by scope (package, user, project); /dock adds what each does",
+		handler: async (_args, ctx) => toggleSkills(ctx),
 	});
+	// ctrl+s (S6): Pi binds it only inside its pickers, and it is not reserved for
+	// the editor. Older hosts without registerShortcut keep /skills alone.
+	attempt(() =>
+		pi.registerShortcut("ctrl+s", {
+			description: "Unfold or fold the skills list in the Fisi Dock side panel (same as /skills)",
+			handler: (ctx) => toggleSkills(ctx),
+		}),
+	);
 
 	// Fisi Dock's whole session: live data, the prompt box and its widgets, which
 	// take Gentle Shell's rail parts and top row over. Run at session_start and
