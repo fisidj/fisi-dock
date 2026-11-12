@@ -695,6 +695,12 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		if (!gentleShellLoaded()) return () => {};
 		const home = agentHomeDir(process.env, attempt(() => homedir()) ?? "");
 		const version = shellVersion(attempt(() => readFileSync(join(dirname(home), "config.json"), "utf8")), home);
+		// Fisi Dock's own version, from the package.json beside this extension's folder;
+		// unreadable, the card names the brand alone.
+		const dockVersion = attempt(() => {
+			const parsed = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version?: unknown };
+			return typeof parsed.version === "string" ? parsed.version : undefined;
+		});
 		let card: object | undefined;
 		let reclaims = 0;
 		let tries = 0;
@@ -720,7 +726,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						render: (width: number) => {
 							findLoaded(tui, component);
 							const { project, branch } = session.store.model().session;
-							return renderWelcomeCard({ version, project, branch }, width, look.colors);
+							return renderWelcomeCard({ version, dockVersion, project, branch }, width, look.colors);
 						},
 						invalidate() {},
 						dispose: () => {

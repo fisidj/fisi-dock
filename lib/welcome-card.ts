@@ -23,19 +23,25 @@ const COMMANDS: [string, string][] = [
 const BRAND = "with Fisi Dock";
 const TIP = "Tip: alt+k opens the command palette.";
 
-export type WelcomeInfo = { version?: string; project: string; branch?: string };
+/** `version` is Gentle Shell's, `dockVersion` Fisi Dock's own. */
+export type WelcomeInfo = { version?: string; dockVersion?: string; project: string; branch?: string };
 
 const text = (value: string) => fg(palette.text, value);
 const muted = (value: string) => fg(palette.muted, value);
 const frame = (value: string) => fg(palette.frame, value);
 
-/** `Gentle Shell <version>`, and `with Fisi Dock` on the right when both fit. */
-function titleRow(version: string | undefined, width: number): string {
+/**
+ * `Gentle Shell <version>`, and `with Fisi Dock <dockVersion>` on the right:
+ * when they do not both fit, Fisi Dock's version goes first, then the brand.
+ */
+function titleRow({ version, dockVersion }: WelcomeInfo, width: number): string {
 	const title = version ? `Gentle Shell ${version}` : "Gentle Shell";
 	if (visibleWidth(title) > width) return bold(text(ellipsize(title, width)));
 	const styled = bold(text("Gentle Shell")) + (version ? muted(` ${version}`) : "");
-	const gap = width - visibleWidth(title) - BRAND.length;
-	return gap < 2 ? styled : styled + " ".repeat(gap) + fg(palette.pink, BRAND);
+	const room = width - visibleWidth(title) - 2;
+	const versioned = dockVersion ? `${BRAND} ${dockVersion}` : BRAND;
+	if (visibleWidth(versioned) <= room) return styled + " ".repeat(room + 2 - visibleWidth(versioned)) + fg(palette.pink, BRAND) + (dockVersion ? muted(` ${dockVersion}`) : "");
+	return BRAND.length <= room ? styled + " ".repeat(room + 2 - BRAND.length) + fg(palette.pink, BRAND) : styled;
 }
 
 /** `Ready in <project> on <branch>.`; cut whole when it does not fit. */
@@ -53,7 +59,7 @@ export function renderWelcomeCard(info: WelcomeInfo, width: number, colors?: Col
 function cardLines(info: WelcomeInfo, width: number): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	if (columns < 1) return [];
-	if (columns < MIN_CARD_WIDTH) return [titleRow(info.version, columns), readyRow(info, columns)];
+	if (columns < MIN_CARD_WIDTH) return [titleRow(info, columns), readyRow(info, columns)];
 
 	const cardWidth = Math.min(WELCOME_CARD_WIDTH, columns);
 	const inner = cardWidth - 2 * SIDE;
@@ -65,7 +71,7 @@ function cardLines(info: WelcomeInfo, width: number): string[] {
 		"",
 		`${indent}${frame(`╭${"─".repeat(cardWidth - 2)}╮`)}`,
 		row(),
-		row(titleRow(info.version, inner)),
+		row(titleRow(info, inner)),
 		row(),
 		row(readyRow(info, inner)),
 		row(),

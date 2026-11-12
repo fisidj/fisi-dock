@@ -2839,6 +2839,8 @@ test("S1 the startup header is the welcome card, and it takes the slot back when
 	const sim = simulate("E:\\DEV\\projects\\my-app");
 	sim.emit("session_start");
 	assert.match(startCard(sim), /Gentle Shell[\s\S]*with Fisi Dock[\s\S]*Ready in my-app[\s\S]*Resume session +\/resume/);
+	const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+	assert.ok(startCard(sim).includes(`with Fisi Dock ${version}`), "Fisi Dock's own version, from its package.json");
 
 	sim.ctx.ui.setHeader(roseHeader);
 	assert.equal(startCard(sim), "rose", "Gentle Shell's banner lands later");

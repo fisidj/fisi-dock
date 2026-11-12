@@ -57,7 +57,7 @@ It is a Pi package (an extension and its themes) that paints its own panel in Ge
 
 - **Side panel** in the fullscreen rail, one framed section each, under the GENTLESHELL logo, with a fading divider line between the chat and the panel: `session` (project and branch, context meter, model profile and cost, Engram memory and MCP servers, and the skills Pi loaded, in that order; `/skills` or `ctrl+alt+s`, named on a muted line under the row, unfolds their names), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent rows and sections step aside first.
 - **Your own look**: `/fisi-dock settings` picks the rail logo, the section frames, the colors (`vivid`, `soft` or `light`), the accent, the divider, the motion and the sections shown and their order, with a live preview ([Look](#look)).
-- **Start screen**: a welcome card in place of Gentle Shell's rose banner (Gentle Shell's version, the project and branch, the commands to begin with), and Pi's list of loaded skills, prompts and extensions folded into one `loaded` box under it. Your expand key (`ctrl+o` by default) shows Pi's full listing; Pi's warnings always show.
+- **Start screen**: a welcome card in place of Gentle Shell's rose banner (Gentle Shell's and Fisi Dock's versions, the project and branch, the commands to begin with), and Pi's list of loaded skills, prompts and extensions folded into one `loaded` box under it. Your expand key (`ctrl+o` by default) shows Pi's full listing; Pi's warnings always show.
 - **Prompt box**: Gentle Shell's prompt framed like the panel's sections, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border. Your messages get the same frame.
 - **Narrow screens and phones**: a one-line top row, a strip above the prompt, and compact agents and todo cards.
 - **`/dock`**, **`/skills`** (or `ctrl+alt+s`) and **`/fisi-dock`**: the whole panel over the screen, the loaded skills unfolded in the panel, and an on/off switch that needs no uninstall ([Commands](#commands)).
@@ -246,7 +246,8 @@ It reads the rest from Gentle Shell's events, its ODD phase and profile registri
 |---|---|
 | Pi's `mcp.json` (global and the project's `.pi/mcp.json`) | the `mcp` rows; only server names and their on/off switch |
 | Pi's `keybindings.json` | the expand key on the `loaded` box |
-| Gentle Shell's `config.json` beside its agent home (`~/.gentle-shell/config.json` by default) | the version on the welcome card |
+| Gentle Shell's `config.json` beside its agent home (`~/.gentle-shell/config.json` by default) | Gentle Shell's version on the welcome card |
+| Fisi Dock's own `package.json` | Fisi Dock's version on the welcome card |
 | Gentle Shell's `animations.json` | the animation level |
 | Gentle Shell's subagent presence file | subagents already running after a `/reload` |
 | The project's `odd/tasks/*.md` | open ODD plans in `heads-up` |
