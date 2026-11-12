@@ -1,6 +1,7 @@
 // Times what the panel costs while it runs, in isolation (no terminal, no Pi).
 //   node scripts/bench.ts                 a table: median and p95 per call, calls per second
-//   node scripts/bench.ts --save <file>   the table, and the same numbers as JSON in <file>, for comparing two runs
+//   node scripts/bench.ts --save <file>   the table, and the same numbers as JSON in <file>, for comparing two runs;
+//                                         --save needs a file name: without one it measures nothing and exits 2
 //
 // Each case runs for about a second (at most 2000 calls) after a short warm-up,
 // so the whole run stays near ten seconds however slow a case is.
@@ -13,6 +14,14 @@ import { performance } from "node:perf_hooks";
 import { createLiveStore } from "../lib/live-store.ts";
 import { samplePanelModel, type PanelModel } from "../lib/panel-model.ts";
 import { panelDigest, renderDock, renderRail } from "../lib/panel.ts";
+
+/** Where --save writes the JSON, checked before anything is measured; undefined without --save. */
+const saveIndex = process.argv.indexOf("--save");
+const saveFile = saveIndex >= 0 ? process.argv[saveIndex + 1] : undefined;
+if (saveIndex >= 0 && (saveFile === undefined || saveFile.startsWith("--"))) {
+	console.error("bench: --save needs a file name, as in --save tmp/bench.json");
+	process.exit(2);
+}
 
 /** A busy session: every list at or past its cap, long names that must be cut. */
 const busyModel: PanelModel = {
@@ -80,5 +89,4 @@ for (const result of results) {
 }
 console.log(`\nnode ${process.version}; times are per call, after a warm-up.`);
 
-const save = process.argv.indexOf("--save");
-if (save >= 0 && process.argv[save + 1]) writeFileSync(process.argv[save + 1], `${JSON.stringify({ node: process.version, results }, null, 2)}\n`);
+if (saveFile) writeFileSync(saveFile, `${JSON.stringify({ node: process.version, results }, null, 2)}\n`);

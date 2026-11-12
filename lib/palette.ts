@@ -50,19 +50,6 @@ export function fadeAmount(index: number, count: number, peak = FADE_PEAK): numb
 	return peak * middle * middle * (3 - 2 * middle);
 }
 
-/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. Light `mode` fades toward the light background (look-more S5). */
-export function fadedEdge(text: string, start: number, width: number, mode?: ColorMode): string {
-	const codes = edgeCodes(width, mode);
-	let out = "";
-	let column = start;
-	for (const glyph of text) {
-		if (glyph === " ") out += glyph;
-		else out += `${codes && Number.isInteger(column) && column >= 0 && column < width ? (codes[column] ??= edgeCode(column, width, mode)) : edgeCode(column, width, mode)}${glyph}\x1b[39m`;
-		column++;
-	}
-	return out;
-}
-
 /** A faded edge's color code at `column` of `width`. */
 const edgeCode = (column: number, width: number, mode?: ColorMode) => fgCode(tone(dim(palette.text, fadeAmount(column, width)), mode));
 
@@ -82,6 +69,23 @@ function edgeCodes(width: number, mode?: ColorMode): string[] | undefined {
 		EDGE_CODES.set(key, codes);
 	}
 	return codes;
+}
+
+/** Frame glyphs `text` starting at column `start` of a `width`-wide edge, each faded by its column (sidebar-chrome); spaces stay plain. Light `mode` fades toward the light background (look-more S5). */
+export function fadedEdge(text: string, start: number, width: number, mode?: ColorMode): string {
+	const codes = edgeCodes(width, mode);
+	let out = "";
+	let column = start;
+	for (const glyph of text) {
+		if (glyph === " ") out += glyph;
+		else {
+			const kept = codes !== undefined && Number.isInteger(column) && column >= 0 && column < width;
+			const code = kept ? (codes[column] ??= edgeCode(column, width, mode)) : edgeCode(column, width, mode);
+			out += code + glyph + "\x1b[39m";
+		}
+		column++;
+	}
+	return out;
 }
 
 /** The WCAG relative luminance of `color`. */
@@ -125,10 +129,15 @@ function withLightness(color: Rgb, lightness: number): Rgb {
 	return fromHsl(toHsl(color)[0], 0.9, lightness);
 }
 
+/** vivid() by color: every title and counter asks for its own on each draw. */
+const VIVID = new Map<number, Rgb>();
+const VIVID_CAP = 512;
+
 /**
  * The vividness of the cover title #f43888 on `color`'s own hue (vivid labels S1):
  * HSL saturation 90%, lightness 59%; a hue that then reads under 4.5:1 on the
  * background gets lighter in steps of 0.01 until it does, at most 0.80.
+ * The color is frozen: the cache hands the same one to every caller.
  */
 export function vivid(color: Rgb): Rgb {
 	// Only whole 8-bit colors are kept and looked up: the palette and its accents, a handful.
@@ -143,13 +152,10 @@ export function vivid(color: Rgb): Rgb {
 		out = lighter;
 		break;
 	}
+	Object.freeze(out);
 	if (whole && VIVID.size < VIVID_CAP) VIVID.set(key, out);
 	return out;
 }
-
-/** vivid() by color: every title and counter asks for its own on each draw. */
-const VIVID = new Map<number, Rgb>();
-const VIVID_CAP = 512;
 
 /** How far the side panel's titles and counters go from their own color toward its vivid one: a little calmer than the prompt labels. */
 export const PANEL_VIVIDNESS = 0.75;

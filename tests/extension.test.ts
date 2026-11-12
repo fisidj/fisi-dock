@@ -17,15 +17,15 @@ const plain = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "");
 /** The wide rail's first two columns (sidebar-chrome): the divider, a neutral gray `│` or a blank where it fades out, then a blank. */
 const RAIL_PREFIX = /^(?:\x1b\[38;2;(\d+);\1;\1m│\x1b\[39m| ) /;
 /** The panel inside a wide rail line, styles kept: the line less the divider column and the blank after it. */
+function railPanelLine(line: string): string {
+	assert.match(line, RAIL_PREFIX, `the divider column and a blank: ${JSON.stringify(plain(line))}`);
+	return line.replace(RAIL_PREFIX, "");
+}
+
 /** Each row matches its pattern, in order, and there are exactly as many rows. */
 function assertRows(rows: string[], patterns: RegExp[], message?: string): void {
 	assert.equal(rows.length, patterns.length, `${message ?? "rows"}: ${JSON.stringify(rows)}`);
 	rows.forEach((row, index) => assert.match(row, patterns[index], message));
-}
-
-function railPanelLine(line: string): string {
-	assert.match(line, RAIL_PREFIX, `the divider column and a blank: ${JSON.stringify(plain(line))}`);
-	return line.replace(RAIL_PREFIX, "");
 }
 
 // Spinners move with the wall clock unless motion is potato (S31); the still ⠹
