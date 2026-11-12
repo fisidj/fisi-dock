@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -44,7 +44,8 @@ function recordingExec(cwd: string) {
 
 test("readHeadsUpGit on a real repository: squash, cherry-pick, real changes, conflict, current branch (S4, S3)", async (t) => {
 	if (run(tmpdir(), ["--version"]).status !== 0) return t.skip("git is not installed");
-	const repo = mkdtempSync(join(tmpdir(), "fisi-dock-heads-up-"));
+	// The real path: git reports worktrees by it (macOS /var is /private/var, Windows runners use 8.3 short names).
+	const repo = realpathSync.native(mkdtempSync(join(tmpdir(), "fisi-dock-heads-up-")));
 	t.after(() => rmSync(repo, { recursive: true, force: true }));
 
 	git(repo, "init", "-q", "-b", "main");
