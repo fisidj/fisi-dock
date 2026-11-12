@@ -7,6 +7,7 @@
 - Tested with Gentle Shell 4.7.0.
 - Drawing the side panel takes less than half the time, which matters while a request runs and the rail repaints about 25 times a second: a rail draw of a busy session went from 2.9 ms to 1.1 ms, a short-screen one from 5.5 ms to 1.8 ms and `/dock` from 3.7 ms to 1.5 ms (`npm run bench`, best of three runs, Node 24 on Windows). What the panel draws is unchanged.
 - The side panel's `agents` section and `/dock` show each running or waiting agent's time, `m:ss`, before its model label, ticking each second like the narrow-screen agents card (`0:42 opus · high`). Before, only the card showed it.
+- A running subagent's row in `agents`, `/dock` and the agents card shows its model while it runs (`opus`), read from Gentle Shell's presence activity file about a second after the task starts; its effort joins once the task's result arrives (`opus · high`). Before, a task-mode subagent showed neither until it finished. The reload seed now also reads that file in the shape Gentle Shell 4.7.0 writes it.
 
 ## 0.4.0
 

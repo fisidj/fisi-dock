@@ -38,7 +38,7 @@ import { trailEnd, trailStart, type ReviewTrail } from "../lib/rdd-detail.ts";
 import { reduceSettings, renderSettings, settingsAction, type SettingsAction, type SettingsState } from "../lib/settings-menu.ts";
 import { createSlotTakeover, EMPTIED_PARTS, emptyPart, railOwnsHost, SIDEBAR_STATE } from "../lib/slot.ts";
 import { renderStrip } from "../lib/strip.ts";
-import { agentHomeDir, createSubagentTracker, NOTIFICATION_SOURCE_EVENT, readPresenceTasks } from "../lib/subagents.ts";
+import { agentHomeDir, createSubagentTracker, NOTIFICATION_SOURCE_EVENT, readPresenceTasks, SUBAGENT_DETAILS_DELAY_MS } from "../lib/subagents.ts";
 import { frameUserLines, installUserFrame, USER_FRAME_HOOK } from "../lib/user-frame.ts";
 import { renderWelcomeCard, shellVersion } from "../lib/welcome-card.ts";
 
@@ -301,9 +301,10 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 	// Agents (S35, S87): Gentle Shell's background jobs from its jobs snapshot,
 	// then this session's subagent tasks, tracked from its status events, the
 	// subagent_run/subagent_continue calls and results, and the presence file at
-	// start. Finished tasks fold after the jobs' tail, on the next event, tool
+	// start and for a live task's model. Finished tasks fold after the jobs' tail, on the next event, tool
 	// end, turn end or idle tick; no timer of their own.
 	const subagents = createSubagentTracker(sessionId, Date.now);
+	const presenceHome = () => agentHomeDir(process.env, attempt(() => homedir()) ?? "");
 	let jobs: LiveParts["agents"];
 	/** The ODD tracker's hook, set once it exists: a step held past agent_end closes when no subagent runs (S91). */
 	let agentsChanged = () => {};
@@ -325,7 +326,9 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 			syncAgents();
 		}),
 		on(NOTIFICATION_SOURCE_EVENT, (data) => {
-			if (subagents.status(data)) syncAgents();
+			if (!subagents.status(data)) return;
+			syncAgents();
+			askDetails();
 		}),
 		// One RDD row per review of this session (S50).
 		on(REVIEW_SIDEBAR_EVENT, (data) => {
@@ -352,6 +355,27 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 		onChange: (view) => apply({ odd: view && still() ? { ...view, steps: view.steps.map(({ frame: _frame, scan: _scan, ...step }) => step) } : view }),
 	});
 	agentsChanged = () => odd.busyChanged();
+	// A live task's model before its result (S87): a task-mode run's result comes
+	// when it ends, but Gentle Shell's presence activity file names the model while
+	// it runs. One delay after a status event of a task with no model, and again
+	// after each read that left one without, a serial read (never two at once);
+	// each task gets a few reads at most, so no timer runs once none waits.
+	let detailsTimer: ReturnType<typeof setTimeout> | undefined;
+	const readDetails = createSerialRefresh(async () => {
+		if (disposed) return;
+		const tasks = await readPresenceTasks(presenceHome(), sessionId);
+		if (disposed) return;
+		if (subagents.details(tasks)) syncAgents();
+		askDetails();
+	});
+	function askDetails(): void {
+		if (disposed || detailsTimer !== undefined || !subagents.needsDetails()) return;
+		detailsTimer = setTimeout(() => {
+			detailsTimer = undefined;
+			readDetails();
+		}, SUBAGENT_DETAILS_DELAY_MS);
+		detailsTimer.unref?.();
+	}
 	// CI (S64): gh for the branch of the last git read, serialized like git. A
 	// failed or timed-out read keeps what is shown; a read with no runs, or no
 	// branch, removes the section. A known branch different from the last one
@@ -556,8 +580,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 		// still running when Fisi Dock loaded (a /reload) show from it; events
 		// that arrived first win, and a missing or unreadable file changes nothing.
 		readSubagents: () => {
-			const home = agentHomeDir(process.env, attempt(() => homedir()) ?? "");
-			void readPresenceTasks(home, sessionId).then((tasks) => {
+			void readPresenceTasks(presenceHome(), sessionId).then((tasks) => {
 				if (!disposed && subagents.seed(tasks)) syncAgents();
 			}).catch(() => {});
 		},
@@ -599,6 +622,8 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look): L
 			clearInterval(ciTimer);
 			for (const timer of pushTimers) clearTimeout(timer);
 			pushTimers.clear();
+			if (detailsTimer !== undefined) clearTimeout(detailsTimer);
+			detailsTimer = undefined;
 			pushCalls.clear();
 			odd.dispose();
 			spinner.dispose();

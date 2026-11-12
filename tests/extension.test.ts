@@ -1905,6 +1905,89 @@ test("S87 after a reload, unfinished tasks are seeded once from this session pre
 	sim.emit("session_shutdown");
 });
 
+/** Real time spent on I/O while the test's timers are mocked: setImmediate turns, never a mocked timer. */
+const ioPause = async (ms: number) => {
+	for (const end = performance.now() + ms; performance.now() < end;) await new Promise((resolve) => setImmediate(resolve));
+};
+
+/** A fresh GENTLE_PI_AGENT_HOME for the test, and the writer of this session's presence activity file as Gentle Shell writes it (schema 1). */
+function presenceHome(t: TestContext) {
+	const scratch = mkdtempSync(join(tmpdir(), "fisi-dock-presence-"));
+	console.log(`--- presence scratch: ${scratch}`);
+	const saved = process.env.GENTLE_PI_AGENT_HOME;
+	process.env.GENTLE_PI_AGENT_HOME = join(scratch, "agent");
+	t.after(() => {
+		if (saved === undefined) delete process.env.GENTLE_PI_AGENT_HOME;
+		else process.env.GENTLE_PI_AGENT_HOME = saved;
+		rmSync(scratch, { recursive: true, force: true });
+	});
+	const presence = join(scratch, "agent", "gentle-agents", "presence");
+	const hash = createHash("sha256").update("s1").digest("hex");
+	return (tasks: { id: string; label: string; model: string }[]) => {
+		mkdirSync(presence, { recursive: true });
+		const entries = tasks.map(({ id, label, model }) => ({ summary: { id, agent: "gentle-ai-worker", label, status: "running", model, createdAt: 1_000, startedAt: 1_500, endedAt: null, lastActivityAt: 2_000 }, thread: { version: 1, dropped: 0, items: [] } }));
+		writeFileSync(join(presence, `${hash}.11111111-1111-4111-8111-111111111111.activity.json`), JSON.stringify({ schema: 1, sessionHash: hash, incarnation: "11111111-1111-4111-8111-111111111111", generation: 1, activity: { tasks: entries } }));
+	};
+}
+
+test("S87 a task-mode subagent_run shows its model while it runs: read from the presence activity file after its status event; the result then wins", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+	const write = presenceHome(t);
+	const sim = simulate("E:\\DEV\\app");
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const tool = (name: string, event: Record<string, unknown>) => {
+		for (const handler of sim.handlers.get(name) ?? []) handler(event, sim.ctx);
+	};
+	// The session-start seed reads a presence dir that is not there yet.
+	await ioPause(100);
+	tool("tool_execution_start", { toolName: "subagent_run", toolCallId: "w1", args: { agent: "gentle-ai-worker", task: "Say hello", label: "hello", mode: "task" } });
+	write([{ id: "t1", label: "file label", model: "claude-bridge/claude-opus-5-5" }]);
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "queued", 1));
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 2));
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ gentle-ai-worker hello +\d+(?::\d\d)+ │$/], "no model before the read");
+	t.mock.timers.tick(1_000);
+	for (const end = performance.now() + 5_000; !agentRows(railOf(sim)(47))[0]?.includes("opus") && performance.now() < end;) await ioPause(10);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ gentle-ai-worker hello +\d+(?::\d\d)+ opus │$/], "the model while it runs, the call's label kept");
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "completed", 3));
+	tool("tool_execution_end", { toolName: "subagent_run", toolCallId: "w1", isError: false, result: { content: [], details: { gentleAgents: { taskId: "t1", agent: "gentle-ai-worker", status: "completed", mode: "task", cwd: "E:/DEV/app", label: "said hi", turns: 1, toolCalls: 1, lastStep: "done", model: "anthropic/claude-sonnet-4-5", thinking: "high" } } } });
+	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ✓ gentle-ai-worker said hi  sonnet · high │"], "the result's label, model and effort");
+	// A finished task is never changed by the file.
+	t.mock.timers.tick(5_000);
+	await ioPause(100);
+	assert.deepEqual(agentRows(railOf(sim)(47)), ["│ ✓ gentle-ai-worker said hi  sonnet · high │"]);
+	sim.emit("session_shutdown");
+});
+
+test("S87 the presence file is read a few times at most for a task whose entry names no model; then the task is left alone", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 100_000 });
+	const write = presenceHome(t);
+	const sim = simulate("E:\\DEV\\app");
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	await ioPause(100);
+	write([{ id: "t1", label: "from the file", model: "" }]);
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 1));
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ subagent task t1 +\d+(?::\d\d)+ │$/]);
+	t.mock.timers.tick(1_000);
+	for (const end = performance.now() + 5_000; !agentRows(railOf(sim)(47))[0]?.includes("from the file") && performance.now() < end;) await ioPause(10);
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ subagent from the file +\d+(?::\d\d)+ │$/], "the first read gave the label, no model");
+	// The second and third reads, one delay after each.
+	for (let read = 2; read <= 3; read++) {
+		await ioPause(100);
+		t.mock.timers.tick(1_000);
+	}
+	await ioPause(100);
+	// The model shows up too late: no read is left for this task.
+	write([{ id: "t1", label: "from the file", model: "claude-bridge/claude-opus-5-5" }]);
+	for (let tick = 0; tick < 5; tick++) {
+		t.mock.timers.tick(1_000);
+		await ioPause(50);
+	}
+	assertRows(agentRows(railOf(sim)(47)), [/^│ ⠹ subagent from the file +\d+(?::\d\d)+ │$/], "left alone after the bounded reads");
+	sim.emit("session_shutdown");
+});
+
 
 /** Two explorers run and finish with their events, then five delegations are refused: Pi ends each call at once with the reason as text and empty details. */
 function explorersThenRefusals(sim: ReturnType<typeof simulate>, tool: (name: string, event: Record<string, unknown>) => void) {

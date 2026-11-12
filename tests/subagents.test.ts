@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,6 +9,8 @@ import {
 	createSubagentTracker,
 	NOTIFICATION_SOURCE_EVENT,
 	readPresenceTasks,
+	SUBAGENT_DETAILS_ATTEMPTS,
+	SUBAGENT_DETAILS_DELAY_MS,
 	SUBAGENT_FINISHED_TTL_MS,
 	subagentCall,
 	subagentResult,
@@ -223,6 +225,97 @@ test("S87 agentHomeDir: GENTLE_PI_AGENT_HOME, then PI_CODING_AGENT_DIR, then ~/.
 	assert.equal(agentHomeDir({ GENTLE_PI_AGENT_HOME: "E:/g", PI_CODING_AGENT_DIR: "E:/p" }, "E:/home"), "E:/g");
 	assert.equal(agentHomeDir({ PI_CODING_AGENT_DIR: "E:/p" }, "E:/home"), "E:/p");
 	assert.equal(agentHomeDir({ GENTLE_PI_AGENT_HOME: "" }, "E:/home"), join("E:/home", ".pi", "agent"));
+});
+
+// --- a running task's model from the presence activity file -------------------------
+
+test("S87 presence file as Gentle Shell writes it (schema 1): the tasks under `activity` are read, a running task with its model", async () => {
+	const scratch = mkdtempSync(join(tmpdir(), "fisi-dock-subagents-"));
+	console.log(`--- presence scratch: ${scratch}`);
+	const presence = join(scratch, "agent", "gentle-agents", "presence");
+	mkdirSync(presence, { recursive: true });
+	const hash = createHash("sha256").update("s1").digest("hex");
+	const task = (id: string, status: string) => ({ summary: { id, agent: "gentle-ai-worker", label: `label ${id}`, status, model: "claude-bridge/claude-opus-5-5", createdAt: 1_000, startedAt: 1_500, endedAt: null, lastActivityAt: 2_000 }, thread: { version: 1, dropped: 0, items: [] } });
+	writeFileSync(join(presence, `${hash}.11111111-1111-4111-8111-111111111111.activity.json`), JSON.stringify({ schema: 1, sessionHash: hash, incarnation: "11111111-1111-4111-8111-111111111111", generation: 4, activity: { tasks: [task("t1", "running"), task("t2", "completed")] } }));
+	try {
+		assert.deepEqual(await readPresenceTasks(join(scratch, "agent"), "s1"), [{ id: "t1", agent: "gentle-ai-worker", label: "label t1", status: "running", model: "claude-bridge/claude-opus-5-5", startedAt: 1_500 }]);
+	} finally {
+		rmSync(scratch, { recursive: true, force: true });
+	}
+});
+
+const presenceTask = (id: string, extra: Partial<{ agent: string; label: string; model: string; status: "queued" | "running" | "waiting" }> = {}) => ({ id, agent: "gentle-ai-worker", label: `file label ${id}`, status: "running" as const, model: "claude-bridge/claude-opus-5-5", startedAt: 1, ...extra });
+
+test("S87 details: a queued, running or waiting task with no model takes the file's model, and its label when it has none, before its result", () => {
+	let now = 1_000;
+	const tracker = createSubagentTracker("s1", () => now);
+	assert.equal(tracker.needsDetails(), false, "no task: nothing to look up");
+	tracker.call("subagent_run", { agent: "gentle-ai-worker", task: "Say hello", label: "hello", mode: "task" }, "w1");
+	assert.equal(tracker.needsDetails(), false, "a call alone names no task to look up");
+	tracker.status(statusEvent("t1", "queued", 1));
+	now = 1_500;
+	tracker.status(statusEvent("t1", "running", 2));
+	tracker.status(statusEvent("t2", "waiting", 3));
+	tracker.status(statusEvent("t3", "queued", 4));
+	assert.equal(tracker.needsDetails(), true);
+	assert.equal(tracker.details([presenceTask("t1"), presenceTask("t2", { status: "waiting" }), presenceTask("t3", { status: "queued" })]), true);
+	assert.deepEqual(tracker.agents(now), [
+		{ id: "call:w1", name: "gentle-ai-worker", task: "hello", state: "running", startedAt: 1_500, model: "claude-bridge/claude-opus-5-5" },
+		{ id: "task:t2", name: "subagent", task: "file label t2", state: "waiting", model: "claude-bridge/claude-opus-5-5" },
+		{ id: "task:t3", name: "subagent", task: "file label t3", state: "queued", model: "claude-bridge/claude-opus-5-5" },
+	], "the call's label stays; a task with none takes the file's; the state stays the events'");
+	assert.equal(tracker.needsDetails(), false, "every live task has its model");
+	assert.equal(tracker.details([presenceTask("t1", { model: "anthropic/claude-sonnet-4-5" })]), false, "a task with a model is left alone");
+});
+
+test("S87 details: the result still wins, a finished task is never changed, and a file that does not list the task changes nothing", () => {
+	const now = 1_000;
+	const tracker = createSubagentTracker("s1", () => now);
+	tracker.call("subagent_run", { agent: "gentle-ai-worker", task: "Say hello", label: "hello", mode: "task" }, "w1");
+	tracker.status(statusEvent("t1", "running", 1));
+	const before = tracker.agents(now);
+	assert.equal(tracker.details([]), false, "a missing or malformed file reads as no task");
+	assert.equal(tracker.details([presenceTask("other"), presenceTask("t1", { model: "" })]), false, "a file that does not list the task, or whose entry names no model");
+	assert.deepEqual(tracker.agents(now), before);
+	assert.equal(tracker.details([presenceTask("t1")]), true);
+	assert.equal(tracker.agents(now)[0].model, "claude-bridge/claude-opus-5-5");
+	tracker.result("subagent_run", taskResult("t1", { status: "completed", label: "say hello", model: "anthropic/claude-opus-4-1", thinking: "high" }), false, "w1");
+	assert.deepEqual(tracker.agents(now)[0], { id: "call:w1", name: "explore", task: "say hello", state: "running", startedAt: 1_000, model: "anthropic/claude-opus-4-1", effort: "high" }, "the result's label, model and effort replace the file's");
+	// A finished task, even one that never got a model, is never changed by a read.
+	tracker.status(statusEvent("t2", "running", 2));
+	tracker.status(statusEvent("t2", "completed", 3));
+	assert.equal(tracker.needsDetails(), false, "a finished task is not looked up");
+	assert.equal(tracker.details([presenceTask("t2")]), false);
+	assert.equal(tracker.agents(now)[1].model, undefined);
+});
+
+test("S87 details: bounded; a task still without a model after the fixed number of reads is left alone", () => {
+	assert.equal(SUBAGENT_DETAILS_ATTEMPTS, 3);
+	assert.equal(SUBAGENT_DETAILS_DELAY_MS, 1_000);
+	const tracker = createSubagentTracker("s1", () => 1);
+	tracker.status(statusEvent("t1", "running", 1));
+	for (let read = 1; read <= SUBAGENT_DETAILS_ATTEMPTS; read++) {
+		assert.equal(tracker.needsDetails(), true, `read ${read} is due`);
+		assert.equal(tracker.details([presenceTask("t1", { model: "" })]), read === 1, "the first read gives the label, none gives a model");
+	}
+	assert.equal(tracker.needsDetails(), false, "no read left");
+	assert.equal(tracker.details([presenceTask("t1")]), false, "a later read changes nothing");
+	assert.equal(tracker.agents(1)[0].model, undefined);
+	// Another task keeps its own count.
+	tracker.status(statusEvent("t2", "running", 2));
+	assert.equal(tracker.needsDetails(), true);
+	assert.equal(tracker.details([presenceTask("t2")]), true);
+});
+
+test("S87 details: the file's text is printable and bounded like the seed's", () => {
+	const tracker = createSubagentTracker("s1", () => 1);
+	tracker.status(statusEvent("t1", "running", 1));
+	tracker.details([presenceTask("t1", { label: "\x1b[31mSay\thello\u202e\x07 ".repeat(20), model: "claude\x1b]0;evil\x07-opus-\u200e5-5" + "x".repeat(100) })]);
+	const [row] = tracker.agents(1);
+	assert.ok(row.task.startsWith("Say hello Say hello"), row.task);
+	assert.equal(row.task.length, 120, "bounded");
+	assert.ok(row.model!.startsWith("claude-opus-5-5x"), row.model);
+	assert.equal(row.model!.length, 64, "bounded");
 });
 
 // --- regression: refused delegations before parallel task-mode workers (T102) ----------

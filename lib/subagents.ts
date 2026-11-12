@@ -7,14 +7,23 @@ import type { AgentInfo } from "./panel-model.ts";
 // Gentle Shell 4.6.0's subagent tasks (its `subagent_*` tools, extensions/
 // gentle-agents.ts) as agent rows (S87). The task store is private to that
 // extension, so Fisi Dock reads what reaches it: the status events it
-// publishes on pi.events, the arguments and results of the tool calls, and,
-// once at session start, the presence activity file it writes for the
-// session. Its shapes are restated here, never imported.
+// publishes on pi.events, the arguments and results of the tool calls, and
+// the presence activity file it writes for the session: once at session start,
+// and a few times for a live task with no model yet. Its shapes are restated
+// here, never imported.
 
 /** `gentle-pi:notification:source` (lib/notification-events.ts): `{ source: "subagent", sessionId, parentSessionId, taskId, status, sequence, … }`. */
 export const NOTIFICATION_SOURCE_EVENT = "gentle-pi:notification:source";
 /** Finished tasks stay this long, the tail of Gentle Shell's finished jobs (lib/jobs-widget.ts JOBS_FINISHED_TTL_MS). */
 export const SUBAGENT_FINISHED_TTL_MS = 60_000;
+/**
+ * A queued, running or waiting task with no model yet is looked up in the presence
+ * activity file this long after its status event, and again this long after each read
+ * that left it without one; no timer runs while no task waits for its model.
+ */
+export const SUBAGENT_DETAILS_DELAY_MS = 1_000;
+/** Reads of the presence activity file a task gets for its model at most: one whose entry never names a model is then left alone. */
+export const SUBAGENT_DETAILS_ATTEMPTS = 3;
 
 const RUN_TOOL = "subagent_run";
 const CONTINUE_TOOL = "subagent_continue";
@@ -162,8 +171,9 @@ function seedTask(row: unknown): SeedTask | undefined {
 /**
  * The unfinished tasks of `sessionId` in its newest presence activity file,
  * `<agentHome>/gentle-agents/presence/<sha256(sessionId)>.<incarnation>.activity.json`,
- * written by Gentle Shell while tasks run. One bounded read; a missing
- * directory or file, an oversized file or unreadable JSON give [].
+ * written by Gentle Shell while tasks run: `{ schema: 1, …, activity: { tasks } }`,
+ * or a bare `{ tasks }`. One bounded read; a missing directory or file, an
+ * oversized file or unreadable JSON give [].
  */
 export async function readPresenceTasks(agentHome: string, sessionId: string): Promise<SeedTask[]> {
 	try {
@@ -178,7 +188,8 @@ export async function readPresenceTasks(agentHome: string, sessionId: string): P
 			if (!newest || stat.mtimeMs > newest.mtime) newest = { path, mtime: stat.mtimeMs };
 		}
 		if (!newest) return [];
-		const tasks = record(JSON.parse(await fs.readFile(newest.path, "utf8")))?.tasks;
+		const file = record(JSON.parse(await fs.readFile(newest.path, "utf8")));
+		const tasks = record(file?.activity)?.tasks ?? file?.tasks;
 		return Array.isArray(tasks) ? tasks.map(seedTask).filter((task): task is SeedTask => task !== undefined) : [];
 	} catch {
 		return [];
@@ -210,6 +221,8 @@ interface Task {
 	resumed?: { callId?: string; status: TaskStatus; endedAt?: number; label?: string; text?: string };
 	startedAt?: number;
 	endedAt?: number;
+	/** Presence file reads that looked for its model: at most SUBAGENT_DETAILS_ATTEMPTS. */
+	lookups: number;
 }
 
 /** A subagent_run or subagent_continue call in flight, not yet matched to a task: a running row of its own. */
@@ -229,6 +242,14 @@ export interface SubagentTracker {
 	result(toolName: unknown, result: unknown, isError?: boolean, callId?: string): boolean;
 	/** Tasks from the presence file, added only when unknown; true when any was. */
 	seed(tasks: SeedTask[]): boolean;
+	/** A queued, running or waiting task has no model and reads of the presence file left for it. */
+	needsDetails(): boolean;
+	/**
+	 * One read of the presence file for those tasks: each counts it; one the file
+	 * lists takes its model, and its label when it has none. Finished
+	 * tasks and tasks with a model are left alone; true when a row changed.
+	 */
+	details(tasks: SeedTask[]): boolean;
 	/** The run settled: no call is in flight, so calls still unmatched go; true when any went. */
 	settle(): boolean;
 	/** Drops finished tasks older than the tail at `at`; true when any went. */
@@ -248,7 +269,9 @@ const LIVE = new Set<TaskStatus>(["running", "waiting"]);
  * keeps its row. Events carry the state and are ordered by sequence per task;
  * the result reconciles by task id with agent, label, model and effort and
  * sets the state while no event has, so a running subagent shows even when its
- * events never arrive. A call whose end names no task (a refused or unknown
+ * events never arrive. Until the result comes, a live task with no model takes
+ * the one the presence file lists for it, a bounded number of reads; the result's
+ * then replaces it (and a label from the file, when the call named none). A call whose end names no task (a refused or unknown
  * launch) goes with that end, a refused continue puts its task's row back, and
  * whatever is left goes when the run settles. The running time counts from the
  * first running event, until then from the call.
@@ -288,6 +311,7 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			order: taken?.order ?? ++order,
 			status: taken ? "running" : "queued",
 			sequence: 0,
+			lookups: 0,
 			provisional: taken !== undefined,
 			...(taken ? { calledAt: taken.at } : {}),
 		};
@@ -330,6 +354,8 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			...(clean(known.effort, NAME_CAP) !== undefined ? { effort: clean(known.effort, NAME_CAP) } : {}),
 		};
 	};
+	/** Live (queued, running or waiting), no model yet, and reads of the presence file left for it. */
+	const wantsModel = (known: Task): boolean => !FINISHED.has(known.status) && known.model === undefined && known.lookups < SUBAGENT_DETAILS_ATTEMPTS;
 	const pendingRow = (entry: Pending): AgentInfo => ({
 		id: `call:${entry.callId ?? `#${entry.order}`}`,
 		name: clean(entry.call.agent, NAME_CAP) ?? "subagent",
@@ -413,6 +439,28 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 				added = true;
 			}
 			return added;
+		},
+		needsDetails() {
+			for (const known of tasks.values()) if (wantsModel(known)) return true;
+			return false;
+		},
+		details(seeds) {
+			let changed = false;
+			for (const known of tasks.values()) {
+				if (!wantsModel(known)) continue;
+				known.lookups++;
+				const seed = seeds.find((entry) => entry.id === known.id);
+				if (!seed) continue;
+				if (seed.model) {
+					known.model = seed.model;
+					changed = true;
+				}
+				if (known.label === undefined && seed.label) {
+					known.label = seed.label;
+					changed = true;
+				}
+			}
+			return changed;
 		},
 		settle() {
 			let any = pending.length > 0;
