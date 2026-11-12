@@ -947,13 +947,14 @@ test("the session section ends with the skills Pi loaded, read from getCommands;
 	let renders = 0;
 	sim.widgets.get("fisi-dock")!({ ...sim.tui, requestRender: () => void renders++ });
 	const skillRowsOf = () => sessionRows(railOf(sim)(58)).map((line) => line.replace(/ +│$/, "")).filter((line, index, rows) => index >= rows.findIndex((row) => row.startsWith("│ skills")));
-	assert.deepEqual(skillRowsOf(), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project"], "folded by default");
+	assert.deepEqual(skillRowsOf(), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "│          ctrl+alt+s or /skills to unfold"], "folded by default");
 
 	const before = renders;
 	await command.handler("", sim.ctx);
 	assert.ok(renders > before, "unfolding repaints");
 	assert.deepEqual(skillRowsOf(), [
 		"│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project",
+		"│          ctrl+alt+s or /skills to fold",
 		"│          package gentle-design, btw",
 		"│          user    go-testing",
 		"│          project local-skill",
@@ -961,7 +962,7 @@ test("the session section ends with the skills Pi loaded, read from getCommands;
 	const unfolded = renders;
 	await command.handler("", sim.ctx);
 	assert.ok(renders > unfolded, "folding repaints");
-	assert.deepEqual(skillRowsOf(), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project"], "/skills again folds it");
+	assert.deepEqual(skillRowsOf(), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "│          ctrl+alt+s or /skills to unfold"], "/skills again folds it");
 	assert.deepEqual(sim.notices, [], "no notice");
 	sim.emit("session_shutdown");
 });
@@ -972,13 +973,13 @@ test("the skills row follows Pi's list on the next cheap read (turn end), so /re
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const row = () => sessionRows(railOf(sim)(58)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
-	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package  ctrl+alt+s");
+	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package");
 	commands = [];
 	sim.emit("turn_end");
 	assert.equal(row(), "│ skills   none loaded", "Pi loaded none");
 	commands = [skillCommand("btw", "package"), skillCommand("go-testing", "top-level", "temporary")];
 	sim.emit("model_select");
-	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user  ctrl+alt+s", "a temporary skill counts as user");
+	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user", "a temporary skill counts as user");
 	sim.emit("session_shutdown");
 
 	// Pi without getCommands: no skills row; the no-MCP test above pins the other session rows.
@@ -1015,7 +1016,7 @@ test("ctrl+alt+s unfolds and folds the skills row like /skills, repainting each 
 	let renders = 0;
 	sim.widgets.get("fisi-dock")!({ ...sim.tui, requestRender: () => void renders++ });
 	const skillRowsOf = () => sessionRows(railOf(sim)(58)).map((line) => line.replace(/ +│$/, "")).filter((line, index, rows) => index >= rows.findIndex((row) => row.startsWith("│ skills")));
-	const folded = ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project"];
+	const folded = ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "│          ctrl+alt+s or /skills to unfold"];
 	assert.deepEqual(skillRowsOf(), folded, "folded by default");
 	const noticesBefore = [...sim.notices];
 
@@ -1024,6 +1025,7 @@ test("ctrl+alt+s unfolds and folds the skills row like /skills, repainting each 
 	assert.ok(renders > before, "unfolding repaints");
 	assert.deepEqual(skillRowsOf(), [
 		"│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project",
+		"│          ctrl+alt+s or /skills to fold",
 		"│          package gentle-design, btw",
 		"│          user    go-testing",
 		"│          project local-skill",
@@ -1075,30 +1077,35 @@ test("a Pi without registerShortcut still loads Fisi Dock, and /skills still unf
 	sim.emit("session_shutdown");
 });
 
-test("the skills row ends with a muted ctrl+alt+s hint, the first thing dropped when the row does not fit; no shortcut or no skills, no hint (skills-view S7)", async () => {
-	const sim = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
+test("under the skills row a muted line names how to unfold it, and how to fold it when open, at every width; no shortcut or no skills, no line (skills-view S7)", async () => {
+	const sim = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
-	const rowAt = (width: number) => sessionRows(railOf(sim)(width)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
-	assert.equal(rowAt(70), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project  ctrl+alt+s", "room for all of it");
-	assert.equal(rowAt(58), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "the hint drops before any scope count");
-	assert.equal(rowAt(52), "│ skills   ▸ 4 loaded · 2 package · 1 user", "then the counts drop as before");
-	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(70).find((line) => line.includes("ctrl+alt+s"))!;
-	assert.ok(raw.includes(`${fgCode(palette.muted)}  ctrl+alt+s`), "the hint is muted");
+	const rowsAt = (width: number) => {
+		const rows = sessionRows(railOf(sim)(width)).map((line) => line.replace(/ +│$/, ""));
+		const at = rows.findIndex((line) => line.startsWith("│ skills"));
+		return rows.slice(at, at + 2);
+	};
+	assert.deepEqual(rowsAt(58), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "│          ctrl+alt+s or /skills to unfold"], "the rail's width");
+	assert.deepEqual(rowsAt(52), ["│ skills   ▸ 4 loaded · 2 package · 1 user", "│          ctrl+alt+s or /skills to unfold"], "narrower: counts drop, the line stays");
+	assert.deepEqual(rowsAt(70), ["│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "│          ctrl+alt+s or /skills to unfold"], "wide: still on its own line");
+	assert.equal(rowsAt(30)[1], "│          ctrl+alt+s or …", "too narrow: cut");
+	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(58).find((line) => line.includes("to unfold"))!;
+	assert.ok(raw.includes(`${fgCode(palette.muted)}ctrl+alt+s or /skills to unfold`), "the line is muted");
 	await sim.shortcuts.get("ctrl+alt+s")!.handler(sim.ctx);
-	assert.equal(rowAt(70), "│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project  ctrl+alt+s", "unfolded keeps it");
+	assert.deepEqual(rowsAt(58), ["│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project", "│          ctrl+alt+s or /skills to fold"], "unfolded: how to fold it, above the names");
 	sim.emit("session_shutdown");
 
-	const none = simulate("E:\\DEV\\app", { commands: () => [] });
+	const none = simulate("E:\DEV\app", { commands: () => [] });
 	none.emit("session_start");
 	none.widgets.get("fisi-dock")!(none.tui);
-	assert.equal(sessionRows(railOf(none)(70)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, ""), "│ skills   none loaded", "nothing to unfold, no hint");
+	assert.ok(!sessionRows(railOf(none)(70)).some((line) => line.includes("to unfold")), "nothing to unfold, no line");
 	none.emit("session_shutdown");
 
-	const old = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS, shortcuts: false });
+	const old = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS, shortcuts: false });
 	old.emit("session_start");
 	old.widgets.get("fisi-dock")!(old.tui);
-	assert.equal(sessionRows(railOf(old)(70)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, ""), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "a Pi without registerShortcut gets no hint");
+	assert.ok(!sessionRows(railOf(old)(70)).some((line) => line.includes("to unfold")), "a Pi without registerShortcut gets no line");
 	old.emit("session_shutdown");
 });
 

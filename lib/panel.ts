@@ -265,18 +265,13 @@ function skillGroups(list: SkillInfo[]): { scope: SkillScope; skills: SkillInfo[
 }
 
 /**
- * `skills ▸ 25 loaded · 16 package · 9 user  ctrl+alt+s` (S1, S7), `▾` unfolded (S2):
- * the muted shortcut hint drops first, then the scope counts from the right
- * until it fits, then the row is cut.
+ * `skills ▸ 25 loaded · 16 package · 9 user` (S1), `▾` unfolded (S2): the scope
+ * counts drop from the right until it fits, then the row is cut.
  */
 function skillsHeadRow(skills: SkillsInfo, width: number): Row {
 	if (skills.list.length === 0) return { text: ellipsize(sessionKey("skills") + muted("none loaded"), width) };
 	const lead = sessionKey("skills") + fg(palette.teal, skills.open ? "▾" : "▸") + " " + bold(plainText(String(skills.list.length))) + muted(" loaded");
 	const counts = skillGroups(skills.list).map((group) => muted(" · ") + fg(SKILL_COLOR[group.scope], `${group.skills.length} ${group.scope}`));
-	if (skills.key) {
-		const hinted = lead + counts.join("") + muted(`  ${skills.key}`);
-		if (visibleWidth(hinted) <= width) return { text: hinted };
-	}
 	for (let kept = counts.length; kept > 0; kept--) {
 		const text = lead + counts.slice(0, kept).join("");
 		if (visibleWidth(text) <= width) return { text };
@@ -317,10 +312,13 @@ function skillDescriptionRows(list: SkillInfo[], width: number): Row[] {
 function skillsRows(session: SessionInfo, width: number, details: boolean): Row[] {
 	const skills = session.skills;
 	if (!skills) return [];
-	const head = skillsHeadRow(skills, width);
-	if (!skills.open || skills.list.length === 0) return [head];
-	if (details) return [head, ...skillDescriptionRows(skills.list, width)];
-	return [head, ...skillGroups(skills.list).flatMap((group) => skillNameRows(group.scope, group.skills, width))];
+	if (skills.list.length === 0) return [skillsHeadRow(skills, width)];
+	// S7: the key on a muted line of its own under the head row, so it never drops.
+	const hint: Row[] = skills.key ? [{ text: ellipsize(sessionKey("") + muted(`${skills.key} or /skills to ${skills.open ? "fold" : "unfold"}`), width) }] : [];
+	const head = [skillsHeadRow(skills, width), ...hint];
+	if (!skills.open) return head;
+	if (details) return [...head, ...skillDescriptionRows(skills.list, width)];
+	return [...head, ...skillGroups(skills.list).flatMap((group) => skillNameRows(group.scope, group.skills, width))];
 }
 
 /**

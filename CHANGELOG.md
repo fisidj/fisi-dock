@@ -6,7 +6,7 @@
 
 - The side panel's session section ends with a `skills` row: how many skills Pi loaded and how many per scope, `skills   ▸ 25 loaded · 16 package · 9 user`, each count in its scope's color (package lilac, user blue, project green); a muted `skills   none loaded` when there are none. The counts are Pi's own (`pi.getCommands()`), re-read at session start, after each turn and on a model change, so they can differ from Gentle Shell's `Skill registry refreshed` notice.
 - `/skills`, or `ctrl+alt+s`, unfolds that row in the rail: the skill names grouped by scope, wrapped under each other; `/dock` shows one row per skill with what it does, so a skill can be found by its description. `/skills` or `ctrl+alt+s` again folds it.
-- The `skills` row ends with a muted `ctrl+alt+s`, so the shortcut can be found where it is used; it is the first thing to drop when the row does not fit.
+- Under the `skills` row a muted line says how to unfold it, `ctrl+alt+s or /skills to unfold` (`to fold` while unfolded), so the shortcut can be found where it is used, at any panel width.
 
 ## 0.4.1
 
