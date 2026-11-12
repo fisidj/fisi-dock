@@ -788,7 +788,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		},
 	});
 
-	// The skills row (skills-view S2, S6): /skills and ctrl+s unfold the names by
+	// The skills row (skills-view S2, S6): /skills and ctrl+alt+s unfold the names by
 	// scope in the side panel's session section, and fold them again; /dock adds
 	// descriptions. One toggle for both.
 	const toggleSkills = (ctx: ExtensionContext) => {
@@ -804,18 +804,19 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		session.toggleSkills();
 	};
 	pi.registerCommand("skills", {
-		description: "Unfold or fold the skills Pi loaded in the Fisi Dock side panel's session section (or ctrl+s): names by scope (package, user, project); /dock adds what each does",
+		description: "Unfold or fold the skills Pi loaded in the Fisi Dock side panel's session section (or ctrl+alt+s): names by scope (package, user, project); /dock adds what each does",
 		handler: async (_args, ctx) => toggleSkills(ctx),
 	});
-	// ctrl+s (S6): Pi binds it only inside its pickers, and it is not reserved for
-	// the editor. Older hosts without registerShortcut keep /skills alone, and the
-	// skills row names the key only when it was registered (S7).
+	// ctrl+alt+s (S6): no Pi built-in uses it, so Pi reports no conflict at startup
+	// (ctrl+s is app.models.save, alt+s Gentle Shell's stop-subagents key,
+	// ctrl+shift+s pi-web-access's). Older hosts without registerShortcut keep
+	// /skills alone, and the skills row names the key only when it was registered (S7).
 	const skillsKey = attempt(() => {
-		pi.registerShortcut("ctrl+s", {
+		pi.registerShortcut("ctrl+alt+s", {
 			description: "Unfold or fold the skills list in the Fisi Dock side panel (same as /skills)",
 			handler: (ctx) => toggleSkills(ctx),
 		});
-		return "ctrl+s";
+		return "ctrl+alt+s";
 	});
 
 	// Fisi Dock's whole session: live data, the prompt box and its widgets, which

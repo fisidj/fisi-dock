@@ -265,7 +265,7 @@ function skillGroups(list: SkillInfo[]): { scope: SkillScope; skills: SkillInfo[
 }
 
 /**
- * `skills ▸ 25 loaded · 16 package · 9 user  ctrl+s` (S1, S7), `▾` unfolded (S2):
+ * `skills ▸ 25 loaded · 16 package · 9 user  ctrl+alt+s` (S1, S7), `▾` unfolded (S2):
  * the muted shortcut hint drops first, then the scope counts from the right
  * until it fits, then the row is cut.
  */

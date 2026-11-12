@@ -972,13 +972,13 @@ test("the skills row follows Pi's list on the next cheap read (turn end), so /re
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const row = () => sessionRows(railOf(sim)(58)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
-	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package  ctrl+s");
+	assert.equal(row(), "│ skills   ▸ 1 loaded · 1 package  ctrl+alt+s");
 	commands = [];
 	sim.emit("turn_end");
 	assert.equal(row(), "│ skills   none loaded", "Pi loaded none");
 	commands = [skillCommand("btw", "package"), skillCommand("go-testing", "top-level", "temporary")];
 	sim.emit("model_select");
-	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user  ctrl+s", "a temporary skill counts as user");
+	assert.equal(row(), "│ skills   ▸ 2 loaded · 1 package · 1 user  ctrl+alt+s", "a temporary skill counts as user");
 	sim.emit("session_shutdown");
 
 	// Pi without getCommands: no skills row; the no-MCP test above pins the other session rows.
@@ -1005,12 +1005,12 @@ test("/skills with Fisi Dock off or no live session only says so (skills-view S2
 	off.emit("session_shutdown");
 });
 
-test("ctrl+s unfolds and folds the skills row like /skills, repainting each time (skills-view S6)", async () => {
+test("ctrl+alt+s unfolds and folds the skills row like /skills, repainting each time (skills-view S6)", async () => {
 	const sim = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
-	const shortcut = sim.shortcuts.get("ctrl+s");
-	assert.ok(shortcut, "ctrl+s registered");
+	const shortcut = sim.shortcuts.get("ctrl+alt+s");
+	assert.ok(shortcut, "ctrl+alt+s registered");
 	assert.match(shortcut.description ?? "", /skills/i);
-	assert.match(sim.commands.get("skills")!.description ?? "", /ctrl\+s/, "/skills names its shortcut");
+	assert.match(sim.commands.get("skills")!.description ?? "", /ctrl\+alt\+s/, "/skills names its shortcut");
 	sim.emit("session_start");
 	let renders = 0;
 	sim.widgets.get("fisi-dock")!({ ...sim.tui, requestRender: () => void renders++ });
@@ -1031,25 +1031,36 @@ test("ctrl+s unfolds and folds the skills row like /skills, repainting each time
 	const unfolded = renders;
 	await shortcut.handler(sim.ctx);
 	assert.ok(renders > unfolded, "folding repaints");
-	assert.deepEqual(skillRowsOf(), folded, "ctrl+s again folds it");
+	assert.deepEqual(skillRowsOf(), folded, "ctrl+alt+s again folds it");
 	// The command and the shortcut share one toggle.
 	await shortcut.handler(sim.ctx);
 	await sim.commands.get("skills")!.handler("", sim.ctx);
-	assert.deepEqual(skillRowsOf(), folded, "/skills folds what ctrl+s unfolded");
+	assert.deepEqual(skillRowsOf(), folded, "/skills folds what ctrl+alt+s unfolded");
 	assert.deepEqual(sim.notices, noticesBefore, "the toggle adds no notice");
 	sim.emit("session_shutdown");
 });
 
-test("ctrl+s with Fisi Dock off or no live session says what /skills says (skills-view S6)", async (t) => {
+test("no Fisi Dock shortcut is a Pi built-in key, so Pi reports no shortcut conflict at startup (skills-view S6)", async () => {
+	// Pi warns about any extension key that equals a built-in default key, even one
+	// bound only inside a picker (ctrl+s is app.models.save). Read Pi's own table.
+	const { KEYBINDINGS } = await import(new URL("../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js", import.meta.url).href) as { KEYBINDINGS: Record<string, { defaultKeys?: string | string[] }> };
+	const builtIn = new Set(Object.values(KEYBINDINGS).flatMap((binding) => [binding.defaultKeys ?? []].flat()));
+	assert.ok(builtIn.has("ctrl+s"), "the table is Pi's: ctrl+s saves the model selection");
+	const sim = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
+	assert.deepEqual([...sim.shortcuts.keys()], ["ctrl+alt+s"]);
+	for (const key of sim.shortcuts.keys()) assert.ok(!builtIn.has(key), `${key} is not a Pi built-in key`);
+});
+
+test("ctrl+alt+s with Fisi Dock off or no live session says what /skills says (skills-view S6)", async (t) => {
 	stateDir(t, true);
 	const sim = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
-	await sim.shortcuts.get("ctrl+s")!.handler(sim.ctx);
+	await sim.shortcuts.get("ctrl+alt+s")!.handler(sim.ctx);
 	assert.deepEqual(sim.notices, ["Fisi Dock: no live session to show yet"]);
 
 	stateDir(t, false);
 	const off = simulate("E:\DEV\app", { commands: () => SKILL_COMMANDS });
 	off.emit("session_start");
-	await off.shortcuts.get("ctrl+s")!.handler(off.ctx);
+	await off.shortcuts.get("ctrl+alt+s")!.handler(off.ctx);
 	assert.deepEqual(off.notices, ["Fisi Dock is off · /fisi-dock on turns it back on"]);
 	off.emit("session_shutdown");
 });
@@ -1064,18 +1075,18 @@ test("a Pi without registerShortcut still loads Fisi Dock, and /skills still unf
 	sim.emit("session_shutdown");
 });
 
-test("the skills row ends with a muted ctrl+s hint, the first thing dropped when the row does not fit; no shortcut or no skills, no hint (skills-view S7)", async () => {
+test("the skills row ends with a muted ctrl+alt+s hint, the first thing dropped when the row does not fit; no shortcut or no skills, no hint (skills-view S7)", async () => {
 	const sim = simulate("E:\\DEV\\app", { commands: () => SKILL_COMMANDS });
 	sim.emit("session_start");
 	sim.widgets.get("fisi-dock")!(sim.tui);
 	const rowAt = (width: number) => sessionRows(railOf(sim)(width)).find((line) => line.startsWith("│ skills"))?.replace(/ +│$/, "");
-	assert.equal(rowAt(70), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project  ctrl+s", "room for all of it");
+	assert.equal(rowAt(70), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project  ctrl+alt+s", "room for all of it");
 	assert.equal(rowAt(58), "│ skills   ▸ 4 loaded · 2 package · 1 user · 1 project", "the hint drops before any scope count");
 	assert.equal(rowAt(52), "│ skills   ▸ 4 loaded · 2 package · 1 user", "then the counts drop as before");
-	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(70).find((line) => line.includes("ctrl+s"))!;
-	assert.ok(raw.includes(`${fgCode(palette.muted)}  ctrl+s`), "the hint is muted");
-	await sim.shortcuts.get("ctrl+s")!.handler(sim.ctx);
-	assert.equal(rowAt(70), "│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project  ctrl+s", "unfolded keeps it");
+	const raw = (sim.parts.get("footer") as { render(width: number): string[] }).render(70).find((line) => line.includes("ctrl+alt+s"))!;
+	assert.ok(raw.includes(`${fgCode(palette.muted)}  ctrl+alt+s`), "the hint is muted");
+	await sim.shortcuts.get("ctrl+alt+s")!.handler(sim.ctx);
+	assert.equal(rowAt(70), "│ skills   ▾ 4 loaded · 2 package · 1 user · 1 project  ctrl+alt+s", "unfolded keeps it");
 	sim.emit("session_shutdown");
 
 	const none = simulate("E:\\DEV\\app", { commands: () => [] });
