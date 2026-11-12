@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- The heads-up no longer counts a local branch already merged by squash or rebase as `branch not merged`: `git branch --no-merged` still lists it, so Fisi Dock now drops each listed branch whose merge into the default branch would leave it unchanged (`git merge-tree --write-tree`, git 2.38+; at most 20 branches per read). A branch with real changes, a conflicting one, or one git cannot check stays listed.
+- The heads-up no longer counts a local branch already merged by squash or rebase as `branch not merged`: `git branch --no-merged` still lists it, so Fisi Dock now drops each listed branch whose merge into the default branch would leave it unchanged (`git merge-tree --write-tree`, git 2.38+; at most 20 branches per read). A branch with real changes, a conflicting one, or one git cannot check stays listed. Each answer is remembered per branch tip until that branch or the default branch changes, so the idle re-reads every 10 s do not run `git merge-tree` again.
 
 ## 0.5.0
 

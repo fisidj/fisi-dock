@@ -4,6 +4,7 @@ import {
 	classifyTaskLine,
 	countOpenTasks,
 	defaultBranchFrom,
+	forgetSquashVerdicts,
 	headsUpWarnings,
 	otherWorktrees,
 	parseBranchList,
@@ -152,6 +153,9 @@ test("odd plans: one entry per plan with open tasks, sorted, big and non-md file
 const ok = (stdout: string) => Promise.resolve({ stdout, code: 0 });
 const fail = () => Promise.resolve({ stdout: "", code: 1 });
 
+// Remembered merge-tree verdicts live in the module; every test starts with none.
+test.beforeEach(() => forgetSquashVerdicts());
+
 test("readHeadsUpGit reads worktrees and branches not merged into the default branch", async () => {
 	const calls: string[][] = [];
 	const exec: GitExec = (args) => {
@@ -170,12 +174,19 @@ test("readHeadsUpGit reads worktrees and branches not merged into the default br
 		["rev-parse", "--verify", "--quiet", "refs/heads/master"],
 		["branch", "--format=%(refname:short)", "--no-merged", "master"],
 		["rev-parse", "master^{tree}"],
+		["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"],
 		["merge-tree", "--write-tree", "master", "feat-x"],
 	]);
 });
 
-/** A repo whose default branch is main (tree `T0`), with `branches` not merged by ancestry and one merge-tree answer per branch. */
-function squashRepo(branches: string[], mergeTree: (branch: string) => Promise<{ stdout: string; code: number }>, tree: () => Promise<{ stdout: string; code: number }> = () => ok("T0\n")) {
+type GitAnswer = Promise<{ stdout: string; code: number }>;
+
+/**
+ * A repo whose default branch is main (tree `T0`), with `branches` not merged by
+ * ancestry and one merge-tree answer per branch. Without `tips`, the branch tips
+ * cannot be read (`for-each-ref` fails), so nothing is remembered.
+ */
+function squashRepo(branches: string[], mergeTree: (branch: string) => GitAnswer, tree: () => GitAnswer = () => ok("T0\n"), tips?: () => GitAnswer) {
 	const calls: string[][] = [];
 	const exec: GitExec = (args) => {
 		calls.push(args);
@@ -183,11 +194,15 @@ function squashRepo(branches: string[], mergeTree: (branch: string) => Promise<{
 		if (args[0] === "symbolic-ref") return ok("refs/remotes/origin/main\n");
 		if (args[0] === "branch") return ok(branches.map((name) => `${name}\n`).join(""));
 		if (args[0] === "rev-parse" && args[1] === "main^{tree}") return tree();
+		if (args[0] === "for-each-ref" && tips) return tips();
 		if (args[0] === "merge-tree") return mergeTree(args[3]);
 		return fail();
 	};
 	return { exec, calls };
 }
+
+const mergeTrees = (calls: string[][]) => calls.filter((args) => args[0] === "merge-tree").map((args) => args[3]);
+const tipList = (tips: Record<string, string>) => () => ok(Object.entries(tips).map(([name, tip]) => `${name} ${tip}\n`).join(""));
 
 test("readHeadsUpGit drops branches merged by squash or rebase and keeps the rest (S1)", async () => {
 	const answers: Record<string, () => Promise<{ stdout: string; code: number }>> = {
@@ -228,10 +243,91 @@ test("readHeadsUpGit checks at most 20 branches per read; the rest stay listed (
 	assert.equal(calls.filter((args) => args[0] === "merge-tree").length, 20);
 });
 
+test("readHeadsUpGit remembers verdicts per branch tip: a second read with nothing changed runs no merge-tree (S3)", async () => {
+	const answers: Record<string, () => GitAnswer> = { changes: () => ok("T1\n"), squashed: () => ok("T0\n") };
+	const tips = { changes: "c1", main: "m1", squashed: "s1" };
+	const first = squashRepo(Object.keys(answers), (branch) => answers[branch](), undefined, tipList(tips));
+	assert.deepEqual(await readHeadsUpGit(first.exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: ["changes"] });
+	assert.deepEqual(mergeTrees(first.calls), ["changes", "squashed"]);
+	assert.equal(first.calls.filter((args) => args[0] === "for-each-ref").length, 1, "one tips read per read");
+
+	const second = squashRepo(Object.keys(answers), (branch) => answers[branch](), undefined, tipList(tips));
+	assert.deepEqual(await readHeadsUpGit(second.exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: ["changes"] });
+	assert.deepEqual(mergeTrees(second.calls), [], "nothing changed: no merge-tree");
+	assert.deepEqual(
+		second.calls.filter((args) => args[0] === "branch"),
+		[["branch", "--format=%(refname:short)", "--no-merged", "main"]],
+		"the --no-merged call is unchanged",
+	);
+});
+
+test("readHeadsUpGit re-checks a branch whose tip moved, and every branch when the target tree changed (S3)", async () => {
+	const branches = ["changes", "squashed"];
+	let verdict: Record<string, string> = { changes: "T1\n", squashed: "T0\n" };
+	const read = async (tips: Record<string, string>, tree = "T0") => {
+		const repo = squashRepo(branches, (branch) => ok(verdict[branch]), () => ok(`${tree}\n`), tipList(tips));
+		return { result: await readHeadsUpGit(repo.exec, "E:/DEV/app", "main"), checked: mergeTrees(repo.calls) };
+	};
+	assert.deepEqual(await read({ changes: "c1", squashed: "s1" }), { result: { worktrees: [], unmerged: ["changes"] }, checked: branches });
+
+	// The squashed branch got a new commit with real changes.
+	verdict = { changes: "T1\n", squashed: "T2\n" };
+	assert.deepEqual(await read({ changes: "c1", squashed: "s2" }), { result: { worktrees: [], unmerged: ["changes", "squashed"] }, checked: ["squashed"] });
+
+	// The default branch took in both: its tree changed, so both are checked again.
+	verdict = { changes: "T9\n", squashed: "T9\n" };
+	assert.deepEqual(await read({ changes: "c1", squashed: "s2" }, "T9"), { result: { worktrees: [], unmerged: [] }, checked: branches });
+	assert.deepEqual(await read({ changes: "c1", squashed: "s2" }, "T9"), { result: { worktrees: [], unmerged: [] }, checked: [] });
+});
+
+test("readHeadsUpGit remembers conflicts but not failed merge-trees or branches without a readable tip (S3)", async () => {
+	const answers: Record<string, () => GitAnswer> = {
+		conflict: () => Promise.resolve({ stdout: "T2\nCONFLICT (content): Merge conflict in a.ts\n", code: 1 }),
+		"conflict-no-output": () => Promise.resolve({ stdout: "", code: 1 }),
+		"old-git": () => Promise.resolve({ stdout: "", code: 129 }),
+		throws: () => Promise.reject(new Error("spawn failed")),
+		"no-tip": () => ok("T0\n"),
+		squashed: () => ok("T0\n"),
+	};
+	const tips = tipList({ conflict: "a", "conflict-no-output": "e", "old-git": "b", throws: "c", squashed: "d" });
+	for (let round = 0; round < 2; round++) {
+		const { exec, calls } = squashRepo(Object.keys(answers), (branch) => answers[branch](), undefined, tips);
+		assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: ["conflict", "conflict-no-output", "old-git", "throws"] });
+		// A conflict (exit 1 with a tree) is git's answer and is kept; exit 1 without output, 129 and a throw are failures.
+		assert.deepEqual(mergeTrees(calls), round === 0 ? Object.keys(answers) : ["conflict-no-output", "old-git", "throws", "no-tip"]);
+	}
+
+	// Unreadable tips (for-each-ref fails or throws): every read checks again.
+	for (const broken of [() => fail(), () => Promise.reject(new Error("boom"))]) {
+		forgetSquashVerdicts();
+		for (let round = 0; round < 2; round++) {
+			const { exec, calls } = squashRepo(["squashed", "changes"], (branch) => ok(branch === "squashed" ? "T0\n" : "T1\n"), undefined, broken);
+			assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: ["changes"] });
+			assert.deepEqual(mergeTrees(calls), ["squashed", "changes"]);
+		}
+	}
+});
+
+test("readHeadsUpGit remembers at most 256 verdicts; the oldest are dropped (S3)", async () => {
+	const names = Array.from({ length: 257 }, (_, index) => `b${String(index + 1).padStart(3, "0")}`);
+	const tips = tipList(Object.fromEntries(names.map((name) => [name, `tip-${name}`])));
+	const read = async (branches: string[]) => {
+		const { exec, calls } = squashRepo(branches, () => ok("T1\n"), undefined, tips);
+		assert.deepEqual((await readHeadsUpGit(exec, "E:/DEV/app", "main")).unmerged, branches);
+		return mergeTrees(calls);
+	};
+	// Fill the memory with b001..b256, 20 per read (the per-read check cap).
+	for (let start = 0; start < 256; start += 20) assert.equal((await read(names.slice(start, Math.min(start + 20, 256)))).length, Math.min(20, 256 - start));
+	assert.deepEqual(await read(["b001"]), [], "256 entries: the first one is still remembered");
+	// b001 was just used, so b002 is now the oldest; a 257th entry drops it.
+	assert.deepEqual(await read(["b257"]), ["b257"]);
+	assert.deepEqual(await read(["b003", "b002", "b001"]), ["b002"]);
+});
+
 test("readHeadsUpGit with no unmerged branches reads no tree (S1)", async () => {
 	const { exec, calls } = squashRepo(["main"], () => ok("T0\n"));
 	assert.deepEqual(await readHeadsUpGit(exec, "E:/DEV/app", "main"), { worktrees: [], unmerged: [] });
-	assert.ok(!calls.some((args) => args[0] === "merge-tree" || args[1] === "main^{tree}"));
+	assert.ok(!calls.some((args) => args[0] === "merge-tree" || args[0] === "for-each-ref" || args[1] === "main^{tree}"));
 });
 
 test("readHeadsUpGit outside a repository or without a default branch reports nothing", async () => {
