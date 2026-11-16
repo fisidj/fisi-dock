@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type Look, normalizeLook } from "./look.ts";
 
@@ -41,9 +41,36 @@ export function readDockLook(path: string): Look {
 }
 
 /**
+ * Writes `text` to a temporary file next to `path`, then renames it over `path`, so a
+ * failed write leaves the previous file whole and readers never see a half-written one.
+ * Windows can refuse the rename for a moment while another process reads the file, so
+ * it is tried a few times, with a short pause between tries. The temporary file is removed when the write fails.
+ */
+function replaceFile(path: string, text: string): void {
+	const temp = `${path}.${process.pid}.${Date.now().toString(36)}.tmp`;
+	try {
+		writeFileSync(temp, text, { flag: "wx" });
+		for (let attempt = 1; ; attempt++) {
+			try {
+				renameSync(temp, path);
+				return;
+			} catch (error) {
+				const code = (error as NodeJS.ErrnoException).code;
+				if (attempt >= 5 || (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY")) throw error;
+				// A short synchronous pause lets the other process close the file.
+				Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 * attempt);
+			}
+		}
+	} catch (error) {
+		rmSync(temp, { force: true });
+		throw error;
+	}
+}
+
+/**
  * Writes `fields` over what the file already holds (S5), so each writer keeps the others'
  * keys; `undefined` drops a key. A missing or malformed file starts empty. False when it
- * could not be written.
+ * could not be written; the previous file then stays as it was.
  */
 function mergeState(path: string, fields: Record<string, unknown>): boolean {
 	try {
@@ -53,7 +80,7 @@ function mergeState(path: string, fields: Record<string, unknown>): boolean {
 			if (value === undefined) delete state[key];
 			else state[key] = value;
 		}
-		writeFileSync(path, `${JSON.stringify(state)}\n`);
+		replaceFile(path, `${JSON.stringify(state)}\n`);
 		return true;
 	} catch {
 		return false;

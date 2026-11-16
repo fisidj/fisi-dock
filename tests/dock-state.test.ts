@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -191,4 +191,23 @@ test("look-more S6 the sections' order and the hidden ones are saved with the lo
 	writeFileSync(path, '{"enabled":true,"look":{"logo":"text"}}');
 	assert.deepEqual(readDockLook(path), { ...DEFAULT_LOOK, logo: "text" }, "an old state.json without sections");
 	assert.deepEqual(readDockLook(path).sections, DEFAULT_SECTIONS);
+});
+
+test("coderabbit S5 the state file is replaced whole: no temporary file stays, and a failed replace keeps what was there", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	assert.equal(writeDockEnabled(path, false, "dark"), true);
+	assert.equal(writeDockLook(path, DEFAULT_LOOK), true);
+	assert.deepEqual(readdirSync(dir), ["state.json"], "only the state file after successful writes");
+	assert.equal(readDockEnabled(path), false);
+	assert.equal(readDockTheme(path), "dark");
+
+	// A folder where the state file should be cannot be replaced by a file.
+	const blocked = join(dir, "blocked.json");
+	mkdirSync(blocked);
+	writeFileSync(join(blocked, "keep"), "kept");
+	assert.equal(writeDockEnabled(blocked, true), false);
+	assert.equal(readFileSync(join(blocked, "keep"), "utf8"), "kept");
+	assert.deepEqual(readdirSync(dir).toSorted(), ["blocked.json", "state.json"], "the temporary file is removed after a failed replace");
 });
