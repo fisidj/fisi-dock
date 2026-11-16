@@ -8,12 +8,26 @@ import { forgetSquashVerdicts, readHeadsUpGit } from "../lib/heads-up.ts";
 import type { GitExec } from "../lib/live-store.ts";
 
 // S4: readHeadsUpGit against real git in a throwaway repository. Commits use
-// their own identity and no hooks, so global git config does not matter.
+// their own identity and no hooks, and every git call (setup and the recorded
+// exec) reads an empty fixture-local global config instead of the host's, so
+// host settings such as core.excludesFile cannot change the result.
 
 const IDENTITY = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=no-hooks"];
 
+const CONFIG_HOME = realpathSync.native(mkdtempSync(join(tmpdir(), "fisi-dock-heads-up-config-")));
+const GLOBAL_CONFIG = join(CONFIG_HOME, "gitconfig");
+writeFileSync(GLOBAL_CONFIG, "");
+process.on("exit", () => rmSync(CONFIG_HOME, { recursive: true, force: true }));
+const GIT_ENV = {
+	...process.env,
+	GIT_CONFIG_GLOBAL: GLOBAL_CONFIG,
+	GIT_CONFIG_NOSYSTEM: "1",
+	// The default core.excludesFile is $XDG_CONFIG_HOME/git/ignore.
+	XDG_CONFIG_HOME: CONFIG_HOME,
+};
+
 function run(cwd: string, args: string[]) {
-	return spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+	return spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: GIT_ENV });
 }
 
 /** Runs a setup step; any failure stops the test with git's own message. */
