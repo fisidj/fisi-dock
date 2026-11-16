@@ -33,7 +33,7 @@ export interface CiRuns {
 export type CiExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
 
 const LIST_LIMIT = 20;
-const LIST_FIELDS = "databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha";
+const LIST_FIELDS = "databaseId,workflowDatabaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha";
 /** gh names past this many characters are cut (S64). */
 const NAME_CAP = 80;
 const SHORT_SHA = 7;
@@ -100,15 +100,18 @@ export function ciRunsFromList(stdout: string): CiRuns | null | undefined {
 		const run: CiRun = { name: clean(entry.workflowName) || clean(entry.name), state: runState(entry.status, entry.conclusion) };
 		if (id !== undefined) run.id = id;
 		for (const [key, ms] of Object.entries(times)) if (ms !== undefined) run[key as keyof typeof times] = ms;
-		return [{ sha, run }];
+		// Deduplicate by the workflow's own id; without one, by its raw name: the shown name is cleaned and cut (S7).
+		const workflowId = entry.workflowDatabaseId;
+		const workflow = typeof workflowId === "number" && Number.isSafeInteger(workflowId) ? `id:${workflowId}` : `name:${String(entry.workflowName || entry.name || "")}`;
+		return [{ sha, run, workflow }];
 	});
 	if (runs.length === 0) return null;
 	const newest = runs.reduce((best, entry) => (newer(entry.run.createdAt, best.run.createdAt) ? entry : best));
 	const byWorkflow = new Map<string, CiRun>();
-	for (const { sha, run } of runs) {
+	for (const { sha, run, workflow } of runs) {
 		if (sha !== newest.sha) continue;
-		const known = byWorkflow.get(run.name);
-		if (!known || newer(run.createdAt, known.createdAt)) byWorkflow.set(run.name, run);
+		const known = byWorkflow.get(workflow);
+		if (!known || newer(run.createdAt, known.createdAt)) byWorkflow.set(workflow, run);
 	}
 	return { sha: newest.sha, runs: [...byWorkflow.values()] };
 }

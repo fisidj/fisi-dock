@@ -1779,7 +1779,7 @@ test("CI: gh runs show at session start; a failed read keeps them; an empty list
 	await settle();
 
 	// Session start: the runs of the branch from the git read.
-	assert.deepEqual(gh, ["run list --branch feat/x --limit 20 --json databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha"]);
+	assert.deepEqual(gh, ["run list --branch feat/x --limit 20 --json databaseId,workflowDatabaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha"]);
 	assert.deepEqual(ci(), ["╭─ CI ─ e6f1ffd ─╮", "✓ lint passed 0:34", "⠹ tests running… 1:12"]);
 
 	// A run is going: read again after 30 s; a failed read keeps what is shown.
@@ -1836,7 +1836,7 @@ test("CI: gh runs show at session start; a failed read keeps them; an empty list
 	await settle();
 	assert.deepEqual(ci(), [], "a branch change clears the runs");
 	assert.equal(lists(), 7, "the new branch is read right after the change");
-	assert.equal(gh.filter((call) => call.startsWith("run list")).at(-1), "run list --branch main --limit 20 --json databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha", "read for the new branch");
+	assert.equal(gh.filter((call) => call.startsWith("run list")).at(-1), "run list --branch main --limit 20 --json databaseId,workflowDatabaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha", "read for the new branch");
 
 	// Disposed: no more reads.
 	sim.emit("session_shutdown");

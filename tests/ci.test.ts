@@ -10,7 +10,7 @@ const OLD = "a44a0920123456789abcdef0123456789abcdef0";
 const at = (minute: number, second = 0) => `2026-10-31T14:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}Z`;
 const ms = (minute: number, second = 0) => Date.parse(at(minute, second));
 
-type GhRun = { databaseId?: number; workflowName?: string; name?: string; status?: string; conclusion?: string; startedAt?: string; updatedAt?: string; createdAt?: string; headSha?: string };
+type GhRun = { databaseId?: number; workflowDatabaseId?: number; workflowName?: string; name?: string; status?: string; conclusion?: string; startedAt?: string; updatedAt?: string; createdAt?: string; headSha?: string };
 const run = (fields: GhRun): GhRun => ({ databaseId: 1, workflowName: "tests", name: "tests", status: "completed", conclusion: "success", startedAt: at(0), updatedAt: at(1), createdAt: at(0), headSha: SHA, ...fields });
 const list = (runs: GhRun[]) => JSON.stringify(runs);
 
@@ -31,7 +31,7 @@ test("the commit is the newest run's headSha; its runs are kept, one per workflo
 	assert.equal(ciRunsFromList("[]"), null, "no runs: nothing to show");
 	assert.equal(ciRunsFromList("not json"), undefined, "malformed: unknown");
 	assert.equal(ciRunsFromList('{"a":1}'), undefined);
-	assert.deepEqual(ciListArgs("feat/x"), ["run", "list", "--branch", "feat/x", "--limit", "20", "--json", "databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha"]);
+	assert.deepEqual(ciListArgs("feat/x"), ["run", "list", "--branch", "feat/x", "--limit", "20", "--json", "databaseId,workflowDatabaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha"]);
 });
 
 test("each status and conclusion maps to one state (S64)", () => {
@@ -198,4 +198,18 @@ test("readCi records when the list read succeeded; past 90 s from it a running c
 	assert.equal(ciLive(stale), true, "gh is still read every 30 s");
 	assert.equal(ciRunning(ciView({ ...read, readAt: ms(2, 30) }, ms(2, 31))), true, "the next successful read resumes");
 	assert.equal(ciView({ ...read, readAt: ms(2, 30) }, ms(2, 31))?.checks[0].seconds, 151);
+});
+
+test("two workflows whose cleaned names match are kept apart by their workflow id (coderabbit S7)", () => {
+	const runs = ciRunsFromList(
+		list([
+			run({ databaseId: 1, workflowDatabaseId: 10, workflowName: "CI  Linux", createdAt: at(7) }),
+			run({ databaseId: 2, workflowDatabaseId: 11, workflowName: "CI Linux", createdAt: at(5), conclusion: "failure" }),
+			run({ databaseId: 3, workflowDatabaseId: 10, workflowName: "CI  Linux", createdAt: at(3), conclusion: "failure" }),
+		]),
+	);
+	assert.deepEqual(runs?.runs.map((entry) => [entry.id, entry.name, entry.state]).toSorted(), [[1, "CI Linux", "passed"], [2, "CI Linux", "failed"]].toSorted());
+	const long = "x".repeat(90);
+	const unnamedIds = ciRunsFromList(list([run({ databaseId: 4, workflowName: `${long}a`, createdAt: at(2) }), run({ databaseId: 5, workflowName: `${long}b`, createdAt: at(1) })]));
+	assert.equal(unnamedIds?.runs.length, 2, "without workflow ids, names that only differ after the cut stay apart");
 });
