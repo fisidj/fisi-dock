@@ -3093,3 +3093,10 @@ test("/dock unfolded: one row per skill under its scope's header, the name then 
 	assert.deepEqual(folded, ["│ skills   ▸ 3 loaded · 1 package · 2 user"], "folded: no names nor descriptions");
 });
 
+
+test("a changed path with control sequences renders without them (S4)", () => {
+	const model: PanelModel = { session: { project: "p" }, changes: [{ status: "M", path: "lib/\x1b[2Jevil\x07.ts", added: 1, removed: 0 }] };
+	const lines = renderPanel(model, 47);
+	assert.ok(!lines.some((line) => line.includes("\x1b[2J") || line.includes("\x07")), "no raw control sequence in the rows");
+	assert.ok(lines.map(plain).some((line) => line.includes("evil.ts")), "the printable name stays");
+});

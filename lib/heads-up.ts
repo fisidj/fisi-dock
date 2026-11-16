@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { GitExec } from "./live-store.ts";
+import { printable } from "./odd-detail.ts";
 import type { HeadsUpWarning } from "./panel-model.ts";
 
 // Heads-up (S14): things left open in the project. Pure parsers for git output
@@ -296,17 +297,18 @@ const plural = (count: number, one: string, many: string) => `${count} ${count =
  * replaces the session row's ↑N, S8) always stays visible.
  */
 export function headsUpWarnings(input: HeadsUpInput): HeadsUpWarning[] {
+	// Folder, branch and plan names come from the repository: drop terminal controls (S3).
 	const warnings: HeadsUpWarning[] = [];
 	const worktrees = input.worktrees ?? [];
-	if (worktrees.length === 1) warnings.push({ kind: "worktrees", text: `worktree open: ${folderName(worktrees[0])}` });
+	if (worktrees.length === 1) warnings.push({ kind: "worktrees", text: `worktree open: ${printable(folderName(worktrees[0]))}` });
 	else if (worktrees.length > 1) warnings.push({ kind: "worktrees", text: `${worktrees.length} worktrees open` });
 	if (input.todoLeft && input.todoLeft > 0) warnings.push({ kind: "todo", text: `${plural(input.todoLeft, "todo task", "todo tasks")} left` });
 	if (input.ahead && input.ahead > 0) warnings.push({ kind: "unpushed", text: `${plural(input.ahead, "commit", "commits")} not pushed` });
 	const unmerged = input.unmerged ?? [];
-	if (unmerged.length === 1) warnings.push({ kind: "branches", text: `branch not merged: ${unmerged[0]}` });
+	if (unmerged.length === 1) warnings.push({ kind: "branches", text: `branch not merged: ${printable(unmerged[0])}` });
 	else if (unmerged.length > 1) warnings.push({ kind: "branches", text: `${unmerged.length} branches not merged` });
 	for (const plan of input.plans ?? []) {
-		if (plan.open > 0) warnings.push({ kind: "plan", text: `ODD plan ${plan.name}: ${plan.open} open` });
+		if (plan.open > 0) warnings.push({ kind: "plan", text: `ODD plan ${printable(plan.name)}: ${plan.open} open` });
 	}
 	return warnings;
 }

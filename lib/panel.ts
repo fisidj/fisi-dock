@@ -2,7 +2,7 @@ import { ciLive } from "./ci.ts";
 import { entranceFlash, entranceText, type EntrancePiece } from "./entrance.ts";
 import { type Accent, type ColorMode, DEFAULT_SECTIONS, type DividerLevel, type FrameStyle, type LogoStyle, type MotionMode, type SectionId, type SectionSetting } from "./look.ts";
 import { renderLogo } from "./logo.ts";
-import { fitDetail } from "./odd-detail.ts";
+import { fitDetail, printable } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
 import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, SkillInfo, SkillScope, SkillsInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
@@ -704,9 +704,11 @@ function fileLabel(name: string, folder: string, width: number): string {
 
 function changeRow(change: ChangeInfo, width: number): Row {
 	const kind = CHANGE_KIND[change.status] ?? CHANGE_KIND.M;
-	const slash = change.path.lastIndexOf("/");
-	const name = change.path.slice(slash + 1);
-	const folder = change.path.slice(0, slash + 1);
+	// File names come from the repository: drop terminal controls before they reach a row (S4).
+	const path = printable(change.path);
+	const slash = path.lastIndexOf("/");
+	const name = path.slice(slash + 1);
+	const folder = path.slice(0, slash + 1);
 	// git has no line counts for untracked files: a word says what happened instead of +0 -0.
 	const right = kind.word
 		? fg(kind.color, kind.word)

@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { headsUpWarnings, readHeadsUpGit, readOddPlans } from "../lib/heads-up.ts";
 import { parseAhead, parseBranch } from "../lib/live-data.ts";
+import { printable } from "../lib/odd-detail.ts";
 import type { GitExec } from "../lib/live-store.ts";
 
 const cwd = resolve(process.argv[2] ?? process.cwd());
@@ -27,5 +28,6 @@ const plans = await readOddPlans(cwd);
 const warnings = headsUpWarnings({ worktrees, ahead, unmerged, plans });
 
 console.log(`folder: ${cwd}`);
-console.log(`branch: ${branch ?? "(none)"} · ahead: ${ahead ?? "(no upstream)"} · worktrees: ${JSON.stringify(worktrees)} · unmerged: ${JSON.stringify(unmerged)} · plans: ${JSON.stringify(plans)}`);
+// JSON.stringify leaves DEL and C1 controls as they are: drop them too (S3).
+console.log(printable(`branch: ${branch ?? "(none)"} · ahead: ${ahead ?? "(no upstream)"} · worktrees: ${JSON.stringify(worktrees)} · unmerged: ${JSON.stringify(unmerged)} · plans: ${JSON.stringify(plans)}`));
 console.log(warnings.length > 0 ? warnings.map((warning) => `! ${warning.text}`).join("\n") : "(no heads-up: section not drawn)");

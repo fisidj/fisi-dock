@@ -438,3 +438,13 @@ test("heads-up rows fit at 47, 30 and 20 columns with long names", () => {
 		console.log(`--- heads-up at ${width}\n${shown.filter((line) => line.includes("!") || line.includes("heads-up")).join("\n")}`);
 	}
 });
+
+test("warning text drops terminal control sequences from plan and worktree names (S3)", () => {
+	const warnings = headsUpWarnings({
+		worktrees: ["/repo/wt-\x1b[2Jclear"],
+		plans: [{ name: "\x1b]52;c;dGVzdA==\x07clip", open: 1 }],
+	});
+	const texts = warnings.map((warning) => warning.text);
+	assert.deepEqual(texts, ["worktree open: wt-clear", "ODD plan clip: 1 open"]);
+	for (const text of texts) assert.doesNotMatch(text, /[\x00-\x1f\x7f]/);
+});
