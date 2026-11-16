@@ -413,3 +413,25 @@ test("a running CI check whose last successful read is over 90 s old holds its t
 	assert.equal(held.ci?.checks[0].seconds, 60, "the time stays at the last successful read");
 	assert.equal(runsSpinner(held), false);
 });
+
+test("todo progress drops the remembered next task once no task is left for it (coderabbit S12)", () => {
+	const previous = todoFromState({ tasks: tasks(["pending"]) });
+	assert.equal(previous?.next, "Task 1");
+	const finished = todoFromProgress({ sessionId: "s1", done: 1, total: 1, current: null }, "s1", previous);
+	assert.equal(finished?.next, undefined, "all done: no next task");
+	assert.equal(finished?.more, 0);
+	const lastActive = todoFromProgress({ sessionId: "s1", done: 1, total: 2, current: "Task 2" }, "s1", todoFromState({ tasks: tasks(["done", "pending"]) }));
+	assert.equal(lastActive?.next, undefined, "the only open task is the active one");
+	assert.equal(lastActive?.more, 0);
+});
+
+test("todo progress that still matches the list does not count dropped tasks as open (coderabbit S13)", () => {
+	const previous = todoFromState({ tasks: tasks(["done", "dropped"]) });
+	assert.equal(previous?.more, 0);
+	const progress = todoFromProgress({ sessionId: "s1", done: 1, total: 2, current: null }, "s1", previous);
+	assert.deepEqual(progress?.tasks, previous?.tasks, "the list still matches");
+	assert.equal(progress?.more, 0);
+	const withOpen = todoFromProgress({ sessionId: "s1", done: 1, total: 4, current: "Task 2" }, "s1", todoFromState({ tasks: tasks(["done", "in_progress", "dropped", "pending"]) }));
+	assert.equal(withOpen?.next, "Task 4");
+	assert.equal(withOpen?.more, 0, "Task 2 is active, Task 4 is next, Task 3 is dropped");
+});

@@ -342,3 +342,16 @@ test("look-more S2 spinner clock: refresh re-reads the motion, so motion off mid
 	clock.refresh();
 	assert.equal(timers.size, 0, "a disposed clock stays stopped");
 });
+
+test("an agent list that disappears forgets the start times, so an agent that comes back starts again (coderabbit S8)", () => {
+	let now = 10_000;
+	const store = createLiveStore("app", () => now);
+	store.update({ agents: [{ name: "worker", task: "rows", state: "running" }] });
+	assert.equal(store.model().agents?.[0].startedAt, 10_000);
+	now = 20_000;
+	store.update({ agents: undefined });
+	assert.equal(store.model().agents, undefined, "no list stays no list");
+	now = 30_000;
+	store.update({ agents: [{ name: "worker", task: "rows", state: "running" }] });
+	assert.equal(store.model().agents?.[0].startedAt, 30_000, "not the time from before it was gone");
+});

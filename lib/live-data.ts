@@ -134,11 +134,15 @@ export function todoFromProgress(event: unknown, sessionId: string, previous: To
 	if (!value || value.sessionId !== sessionId || done === undefined || total === undefined) return previous;
 	if (total === 0) return undefined;
 	const active = typeof value.current === "string" && value.current ? value.current : undefined;
-	const next = previous?.next !== undefined && previous.next !== active ? previous.next : undefined;
-	const shown = (active !== undefined ? 1 : 0) + (next !== undefined ? 1 : 0);
 	const list = previous?.tasks;
 	const same = list !== undefined && list.length === total && list.filter((task) => task.state === "done").length === done && list.find((task) => task.state === "active")?.title === active;
-	return { done, total, ...(active !== undefined ? { active } : {}), ...(next !== undefined ? { next } : {}), more: Math.max(0, total - done - shown), ...(same ? { tasks: list } : {}) };
+	// A list that still matches says which tasks are open; otherwise every task not done is (S13).
+	const open = same ? list.filter((task) => task.state !== "done" && task.state !== "dropped").length : total - done;
+	// The remembered next task stays only while an open task is left for it besides the active one (S12).
+	const room = open - (active !== undefined ? 1 : 0);
+	const next = room > 0 && previous?.next !== undefined && previous.next !== active ? previous.next : undefined;
+	const shown = (active !== undefined ? 1 : 0) + (next !== undefined ? 1 : 0);
+	return { done, total, ...(active !== undefined ? { active } : {}), ...(next !== undefined ? { next } : {}), more: Math.max(0, open - shown), ...(same ? { tasks: list } : {}) };
 }
 
 // --- Gentle Shell events -----------------------------------------------------

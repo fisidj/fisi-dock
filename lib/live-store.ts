@@ -34,10 +34,11 @@ export interface LiveStoreOptions {
  * back starts again. Queued and finished agents get none.
  */
 function stampStarts<T extends AgentInfo & { id?: string }>(agents: T[] | undefined, seen: Map<string, number>, prefix: string, at: number): T[] | undefined {
-	if (!agents) return agents;
 	const key = (agent: T) => prefix + (agent.id ?? agent.name);
-	const keys = new Set(agents.map(key));
+	// No list forgets every name too (S8), so one that comes back later starts again.
+	const keys = new Set((agents ?? []).map(key));
 	for (const known of [...seen.keys()]) if (known.startsWith(prefix) && !keys.has(known)) seen.delete(known);
+	if (!agents) return agents;
 	return agents.map((agent) => {
 		if (agent.startedAt !== undefined || agent.state !== "running") return agent;
 		const since = seen.get(key(agent)) ?? at;
