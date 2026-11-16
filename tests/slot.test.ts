@@ -154,3 +154,42 @@ test("railOwnsHost follows Gentle Shell's ownsHost, falls back to active, and ne
 	assert.equal(railOwnsHost({}), false);
 	assert.equal(railOwnsHost(undefined), false);
 });
+
+test("a newer Fisi Dock taking over an older one keeps Gentle Shell's part as the original (S1)", async () => {
+	// A reload can load a second copy of this module before the first copy releases.
+	const newerModule = (await import("../lib/slot.ts?newer-instance")) as typeof import("../lib/slot.ts");
+	const gentle = part("gentle-status");
+	const older = part("fisi-dock-old");
+	const newer = part("fisi-dock-new");
+	const { terminal, parts } = terminalWithFooter(gentle);
+	const olderSlot = createSlotTakeover("footer", older);
+	const newerSlot = newerModule.createSlotTakeover("footer", newer);
+
+	assert.equal(olderSlot.assert(terminal), true);
+	assert.equal(newerSlot.assert(terminal), true);
+	assert.equal(parts.get("footer"), newer);
+	assert.equal(newerSlot.original(), gentle);
+
+	assert.equal(olderSlot.restore(terminal), false);
+	assert.equal(parts.get("footer"), newer);
+	assert.equal(newerSlot.restore(terminal), true);
+	assert.equal(parts.get("footer"), gentle);
+});
+
+test("an older Fisi Dock releasing first still leaves Gentle Shell's part for the newer one (S1)", async () => {
+	const newerModule = (await import("../lib/slot.ts?newer-instance-2")) as typeof import("../lib/slot.ts");
+	const gentle = part("gentle-status");
+	const older = part("fisi-dock-old");
+	const newer = part("fisi-dock-new");
+	const { terminal, parts } = terminalWithFooter(gentle);
+	const olderSlot = createSlotTakeover("footer", older);
+	const newerSlot = newerModule.createSlotTakeover("footer", newer);
+
+	olderSlot.assert(terminal);
+	assert.equal(olderSlot.restore(terminal), true);
+	assert.equal(parts.get("footer"), gentle);
+	assert.equal(newerSlot.assert(terminal), true);
+	assert.equal(newerSlot.original(), gentle);
+	assert.equal(newerSlot.restore(terminal), true);
+	assert.equal(parts.get("footer"), gentle);
+});

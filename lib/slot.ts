@@ -58,8 +58,42 @@ function bumpRevision(terminal: unknown): void {
 	if (cache && typeof cache.revision === "number") cache.revision++;
 }
 
+/**
+ * State shared by every loaded copy of this module: a reload can load a newer
+ * Fisi Dock before the older one releases its slots. `parts` holds every part
+ * a takeover installs; `originals` holds, per terminal and slot key, the last
+ * foreign (non Fisi Dock) part replaced there.
+ */
+interface SharedSlots {
+	parts: WeakSet<object>;
+	originals: WeakMap<object, Map<string, unknown>>;
+}
+
+const SHARED_SLOTS = Symbol.for("fisi-dock.slot-takeover.shared");
+
+function sharedSlots(): SharedSlots {
+	const root = globalThis as Record<symbol, unknown>;
+	let shared = root[SHARED_SLOTS] as SharedSlots | undefined;
+	if (!shared) {
+		shared = { parts: new WeakSet(), originals: new WeakMap() };
+		root[SHARED_SLOTS] = shared;
+	}
+	return shared;
+}
+
+function foreignOriginals(terminal: object): Map<string, unknown> {
+	const { originals } = sharedSlots();
+	let byKey = originals.get(terminal);
+	if (!byKey) {
+		byKey = new Map();
+		originals.set(terminal, byKey);
+	}
+	return byKey;
+}
+
 export function createSlotTakeover(key: string, part: object): SlotTakeover {
 	let original: unknown;
+	sharedSlots().parts.add(part);
 	return {
 		assert(terminal) {
 			const parts = sidebarParts(terminal);
@@ -67,7 +101,13 @@ export function createSlotTakeover(key: string, part: object): SlotTakeover {
 			const current = parts.get(key);
 			// An empty slot means Gentle Shell has not registered yet; wait for it.
 			if (current === undefined || current === part) return false;
-			original = current;
+			const originals = foreignOriginals(terminal as object);
+			// Another Fisi Dock's part is not an original: keep the foreign part it replaced.
+			if (typeof current === "object" && current !== null && sharedSlots().parts.has(current)) original = originals.get(key);
+			else {
+				original = current;
+				originals.set(key, current);
+			}
 			parts.set(key, part);
 			bumpRevision(terminal);
 			return true;
