@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import nodeFs from "node:fs";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, type TestContext } from "node:test";
@@ -394,8 +396,13 @@ test("a header re-registered by Gentle Shell is taken over again on the next fra
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/heads-up-project", import.meta.url));
 
+/** Polls `check` every 5 ms for about two seconds; a condition that never holds fails the test instead of passing silently (S21). */
 async function waitFor(check: () => boolean): Promise<void> {
-	for (let tries = 0; tries < 400 && !check(); tries++) await new Promise((resolve) => setTimeout(resolve, 5));
+	for (let tries = 0; tries < 400; tries++) {
+		if (check()) return;
+		await new Promise((resolve) => setTimeout(resolve, 5));
+	}
+	assert.ok(check(), `waitFor: the condition never held: ${check}`);
 }
 
 function headsUpRows(lines: string[]): string[] {
@@ -537,8 +544,28 @@ test("the RDD switch comes from `gentle-ai review mode status --json` at session
 	sim.emit("session_shutdown");
 });
 
+/**
+ * No gentle-ai binary anywhere on this disk (S20): gentleAiBinary also looks in node's own
+ * prefix, /usr/local, /usr and ~/.npm-global, so the host's install would otherwise decide the
+ * test. Only those lookups are answered here; every other path reads the real disk.
+ */
+function noGentleAiOnDisk(t: TestContext): void {
+	const real = { exists: nodeFs.existsSync, readdir: nodeFs.readdirSync };
+	t.mock.method(nodeFs, "existsSync", (path: Parameters<typeof existsSync>[0]) => !/[\\/]gentle-ai(\.exe)?$/.test(String(path)) && real.exists(path));
+	t.mock.method(nodeFs, "readdirSync", ((path: string, ...rest: unknown[]) => {
+		if (/[\\/]\.gentle-ai$/.test(String(path))) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+		return (real.readdir as (...args: unknown[]) => unknown)(path, ...rest);
+	}) as typeof nodeFs.readdirSync);
+	syncBuiltinESMExports();
+	t.after(() => {
+		t.mock.restoreAll();
+		syncBuiltinESMExports();
+	});
+}
+
 test("without a gentle-ai binary (none on PATH, no package) nothing runs and no RDD section shows until a review event (S85)", async (t) => {
 	injectPackage(t);
+	noGentleAiOnDisk(t);
 	process.env.GENTLE_SHELL_CHILD_PACKAGE_INJECTION = JSON.stringify({ version: 1, noExtensions: true, extensionPaths: [NO_AGENT_DIR] });
 	const commands: string[] = [];
 	const exec: Exec = async (command) => {
@@ -1382,7 +1409,7 @@ test("idle refresh: git, heads-up git, plans and MCP state re-read every ~10 s w
 	status = " M lib/panel.ts\0";
 	tools.push({ name: "mcp__rea__decompile", exposure: "deferred" });
 	t.mock.timers.tick(10_000);
-	await waitFor(() => rail().some((line) => line.includes("lib/panel.ts")));
+	await waitFor(() => rail().some((line) => line.includes("panel.ts lib/")));
 	assert.equal(count("status"), start.status + 1, "git changes re-read once");
 	await waitFor(() => count("worktree") > start.worktree);
 	assert.equal(count("worktree"), start.worktree + 1, "heads-up git re-read once");
@@ -1639,6 +1666,22 @@ test("narrow: strip, then the agents card with each running agent's spinner, nam
 	const idle = renders;
 	t.mock.timers.tick(2_000);
 	assert.equal(renders, idle, "nothing runs: no ticking");
+	sim.emit("session_shutdown");
+});
+
+test("narrow: a lone waiting agent's time keeps ticking in the strip's agents card (S24)", (t) => {
+	animated(t);
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	const strip = sim.widgets.get("fisi-dock-strip")!(sim.tui);
+	for (const handler of sim.handlers.get("tool_execution_start") ?? []) handler({ toolName: "subagent_run", toolCallId: "c1", args: { agent: "explore", task: "Map the footer sources", mode: "task" } }, sim.ctx);
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 1));
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "waiting", 2));
+	const row = () => plain(strip.render(53).find((line) => line.includes("explore")) ?? "");
+	assert.match(row(), /^│ ! explore +Map the footer sources +0:00 │$/);
+	t.mock.timers.tick(5_000);
+	assert.match(row(), / 0:05 │$/, "a waiting agent keeps ticking");
 	sim.emit("session_shutdown");
 });
 
@@ -1916,6 +1959,29 @@ test("CI: a git read whose branch command failed is not a branch change; only a 
 	assert.deepEqual(ci(), [], "cleared");
 	assert.equal(lists().length, 3);
 	assert.ok(lists()[2].startsWith("run list --branch main "));
+	sim.emit("session_shutdown");
+});
+
+test("CI: a successful detached-HEAD read clears the branch's runs and stops polling it; a branch command that failed does not (S22)", async (t) => {
+	const { sim, state, settle, ci, lists } = ciSim(t);
+	await settle();
+	assert.deepEqual(ci(), ["⠹ tests running… 1:12"]);
+	assert.equal(lists().length, 1);
+
+	state.branch = { code: 0, stdout: "HEAD\n" };
+	sim.emit("turn_end");
+	await settle();
+	assert.deepEqual(ci(), [], "detached: the old branch's runs go");
+	t.mock.timers.tick(30_000);
+	await settle();
+	assert.equal(lists().length, 1, "detached: no read for the old branch");
+
+	state.branch = { code: 0, stdout: "feat/x\n" };
+	sim.emit("turn_end");
+	await settle();
+	assert.equal(lists().length, 2, "back on a branch: read again");
+	assert.ok(lists()[1].startsWith("run list --branch feat/x "));
+	assert.deepEqual(ci(), ["⠹ tests running… 1:42"]);
 	sim.emit("session_shutdown");
 });
 
@@ -2534,6 +2600,22 @@ test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme reme
 	assert.deepEqual(other.themes, ["Fisi-Dock", "Gentleman-Cute"]);
 	assert.equal(other.notices.at(-1), "Fisi Dock off · Gentle Shell's panel and theme Gentleman-Cute are back; /fisi-dock on turns it back on");
 	other.emit("session_shutdown");
+});
+
+test("S23 /fisi-dock on that cannot save still gives the theme in use back on off", async (t) => {
+	const path = stateDir(t);
+	seedState(path, { enabled: false, theme: "light", themeApplied: true });
+	const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: "dark" });
+	sim.emit("session_start");
+	// The state can no longer be replaced: a folder where the file was.
+	rmSync(path);
+	mkdirSync(path);
+	await fisiDockCommand(sim, "on");
+	assert.match(sim.notices.at(-1) ?? "", /not saved to /, "the failed save is said");
+	await fisiDockCommand(sim, "off");
+	assert.deepEqual(sim.themes.at(-1), "dark", "the theme in use before on, not an older one or Gentleman-Cute");
+	assert.equal(sim.ctx.ui.theme.name, "dark");
+	sim.emit("session_shutdown");
 });
 
 test("S7 the remembered theme survives a restart: a new session's /fisi-dock off restores it", async (t) => {

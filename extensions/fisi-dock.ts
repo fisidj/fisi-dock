@@ -399,11 +399,18 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 	});
 	const git = createSerialRefresh(async () => {
 		if (disposed || !cwd) return;
-		const exec = (args: string[]) => pi.exec("git", args, { cwd, timeout: GIT_TIMEOUT_MS });
+		// A branch command that succeeded and answered HEAD is a detached checkout
+		// (S22); one that failed or timed out says nothing (S66).
+		let detached = false;
+		const exec = async (args: string[]) => {
+			const result = await pi.exec("git", args, { cwd, timeout: GIT_TIMEOUT_MS });
+			if (args[0] === "rev-parse" && args[1] === "--abbrev-ref") detached = result.code === 0 && result.stdout.trim() === "HEAD";
+			return result;
+		};
 		const session = await readGit(exec);
 		apply(session);
 		const first = !gitRead;
-		const moved = session.branch !== undefined && session.branch !== branch;
+		const moved = (session.branch !== undefined && session.branch !== branch) || (detached && branch !== undefined);
 		gitRead = true;
 		if (moved) branch = session.branch;
 		if (moved && ciRuns) {
@@ -664,6 +671,8 @@ export default function fisiDock(pi: ExtensionAPI): void {
 	// everything, from the start of each session.
 	const statePath = () => dockStatePath(process.env, attempt(() => homedir()) ?? "");
 	let enabled = readDockEnabled(statePath());
+	// The theme in use when /fisi-dock on could not save it: off still hands it back (S23).
+	let unsavedTheme: string | undefined;
 	// The look picked in `/fisi-dock settings` (look settings S1, S5): read at each
 	// session start and on, shared by every renderer, and changed live by the menu.
 	let look = readDockLook(statePath());
@@ -897,7 +906,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		// followed by Fisi Dock's agents card (S35) and todo card (S28). The card
 		// headers have the agent count and `d/t`, so the strip leaves those
 		// segments out while a card shows (S8). Agent times tick on the spinner's
-		// repaints; the second is part of the memo key while agents run.
+		// repaints; the second is part of the memo key while agents run or wait.
 		ctx.ui.setWidget(
 			STRIP_KEY,
 			(tui: Host) => {
@@ -909,7 +918,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						if (live !== session || !terminal?.[SIDEBAR_STATE] || railOwnsHost(terminal)) return [];
 						const model = session.store.model();
 						const now = Date.now();
-						const running = model.agents?.some((agent) => agent.state === "running") ?? false;
+						const running = model.agents?.some(agentLive) ?? false;
 						const key = `${width}:${lookKey(look)}:${session.store.digest()}:${running ? Math.floor(now / 1000) : ""}`;
 						if (drawn?.key !== key) {
 							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors, look.motion);
@@ -1133,9 +1142,10 @@ export default function fisiDock(pi: ExtensionAPI): void {
 			if (next) look = readDockLook(path);
 			const dockTheme = themeNameFor(look.colors, look.accent);
 			const inUse = attempt(() => ctx.ui.theme.name);
-			const remembered = next && typeof inUse === "string" && inUse !== "" && !isDockTheme(inUse) ? inUse : readDockTheme(path);
+			const remembered = next && typeof inUse === "string" && inUse !== "" && !isDockTheme(inUse) ? inUse : ((next ? undefined : unsavedTheme) ?? readDockTheme(path));
 			const applied = readDockThemeApplied(path);
 			const saved = writeDockEnabled(path, next, remembered, applied);
+			unsavedTheme = next && !saved ? remembered : undefined;
 			stop();
 			setLoaded(next);
 			if (next && ctx.hasUI) start(ctx);
