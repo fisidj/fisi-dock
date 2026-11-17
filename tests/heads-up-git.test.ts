@@ -183,8 +183,9 @@ test("the fixture's git environment drops inherited command-scope config, so an 
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const excludes = join(dir, "excludes");
 	writeFileSync(excludes, "*.txt\n");
+	// From the fixture's own environment, so a host GIT_DIR or GIT_WORK_TREE cannot point git elsewhere; only the overrides are added.
 	const inherited = {
-		...process.env,
+		...GIT_ENV,
 		GIT_CONFIG_COUNT: "1",
 		GIT_CONFIG_KEY_0: "core.excludesFile",
 		GIT_CONFIG_VALUE_0: excludes,
