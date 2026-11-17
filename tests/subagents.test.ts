@@ -587,3 +587,18 @@ test("review R3 two overlapping subagent_continue calls: refusing the second giv
 	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), true);
 	assert.deepEqual(tracker.agents(1_000), done, "then the finished row");
 });
+
+test("review R3 refusing the older of two overlapping continue calls keeps the newer one's row; refusing the newer then gives the finished row back", () => {
+	const tracker = createSubagentTracker("s1", () => 1_000);
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c1");
+	tracker.status(statusEvent("t1", "running", 1));
+	tracker.status(statusEvent("t1", "completed", 2));
+	const done = tracker.agents(1_000);
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Again", label: "second pass", mode: "task" }, "c2");
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "More", label: "third pass", mode: "task" }, "c3");
+	const latest = tracker.agents(1_000);
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), true);
+	assert.deepEqual(tracker.agents(1_000), latest, "the newer call still in flight keeps its row");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c3"), true);
+	assert.deepEqual(tracker.agents(1_000), done, "both refused: the finished row");
+});

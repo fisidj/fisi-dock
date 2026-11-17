@@ -329,7 +329,8 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 	};
 	/**
 	 * Puts back the row of the task a continue call made run, when that call made no run, as it was
-	 * before that call; later calls in flight on it go too. Without `callId`: any such task's latest call.
+	 * before that call. Without `callId`: any such task's latest call. An older call refused while a
+	 * newer one is in flight leaves the row to the newer one, which then rolls back to before both.
 	 */
 	const restore = (callId: string | undefined): boolean => {
 		for (const known of tasks.values()) {
@@ -337,6 +338,11 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			const at = callId === undefined ? stack.length - 1 : stack.findIndex((entry) => entry.callId === callId);
 			if (at < 0) continue;
 			const before = stack[at];
+			if (at < stack.length - 1) {
+				stack[at + 1] = { ...before, ...(stack[at + 1].callId !== undefined ? { callId: stack[at + 1].callId } : {}) };
+				stack.splice(at, 1);
+				return true;
+			}
 			known.resumed = at > 0 ? stack.slice(0, at) : undefined;
 			known.provisional = before.provisional;
 			known.status = before.status;
