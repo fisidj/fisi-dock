@@ -348,9 +348,12 @@ export function warningGlyph(kind: HeadsUpWarning["kind"]): string {
 	return WARNING_GLYPH[kind] ?? WARNING_GLYPH.worktrees;
 }
 
+/** The warnings the heads-up section draws: all up to the cap, else one fewer than the cap and a "+N more" row. */
+const shownWarnings = (warnings: HeadsUpWarning[]): HeadsUpWarning[] => (warnings.length > HEADS_UP_CAP ? warnings.slice(0, HEADS_UP_CAP - 1) : warnings);
+
 function headsUpSection(warnings: HeadsUpWarning[], width: number): Section | undefined {
 	if (warnings.length === 0) return undefined;
-	const shown = warnings.length > HEADS_UP_CAP ? warnings.slice(0, HEADS_UP_CAP - 1) : warnings;
+	const shown = shownWarnings(warnings);
 	const rows = shown.map((warning) => ({
 		text: item(warningGlyph(warning.kind), (rest) => plainText(ellipsize(warning.text, rest)), width),
 	}));
@@ -948,8 +951,8 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 	const accent = options.accent;
 	// Session first, then the shown sections in the saved order (look-more S6).
 	const order = (options.sections ?? DEFAULT_SECTIONS).filter((section) => section.shown).map((section) => section.id);
-	// ↑N leaves the branch only when the heads-up that says it is drawn: the section shown and the warning in it.
-	const unpushed = order.includes("heads-up") && (model.headsUp?.some((warning) => warning.kind === "unpushed") ?? false);
+	// ↑N leaves the branch only when the heads-up that says it is drawn: the section shown and the warning among those it draws (not behind its cap).
+	const unpushed = order.includes("heads-up") && (shownWarnings(model.headsUp ?? []).some((warning) => warning.kind === "unpushed"));
 	const draw = (shape: Shape, gaps: boolean) => {
 		const parts: Record<SectionId, () => Section | undefined> = {
 			"heads-up": () => model.headsUp && headsUpSection(model.headsUp, inner),

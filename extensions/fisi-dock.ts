@@ -281,6 +281,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 		// A run starting or settling may leave the drawn model as it was and still
 		// start or stop the todo spinner (L61), so this runs on every patch.
 		spinner.sync(store.spinning(), store.entering());
+		waiting.sync(store.model().agents?.some((agent) => agent.state === "waiting") ?? false);
 	};
 	// Running spinners (S31): a wall-clock timer only while one is drawn; each
 	// new frame changes the store digest, so the rail memo and the strip repaint.
@@ -291,6 +292,22 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 		motion: orbMotion,
 		onFrame: (frame) => apply({ spinner: frame }),
 	});
+	// A waiting agent (S31): its elapsed time ticks, but the spinner clock does not
+	// run for it. One repaint a second, only while an agent waits; stopped when none
+	// does and on dispose. The spinner clock above is left as it is.
+	let waitTimer: ReturnType<typeof setInterval> | undefined;
+	const waiting = {
+		sync(active: boolean) {
+			if (active && !waitTimer && !disposed) {
+				waitTimer = setInterval(() => attempt(() => host?.requestRender()), 1000);
+				(waitTimer as { unref?(): void }).unref?.();
+			} else if (!active && waitTimer) waiting.stop();
+		},
+		stop() {
+			if (waitTimer) clearInterval(waitTimer);
+			waitTimer = undefined;
+		},
+	};
 	// The prompt label's color wave (S90): by the clock, only while Gentle Shell scans its
 	// label; with motion off one still moment and no timer (look-more S2).
 	const wave = createWaveClock({
@@ -648,6 +665,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 			pushCalls.clear();
 			odd.dispose();
 			spinner.dispose();
+			waiting.stop();
 			wave.dispose();
 			disposed = true;
 			attempt(() => unobserveMode?.());

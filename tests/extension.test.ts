@@ -1685,6 +1685,33 @@ test("narrow: a lone waiting agent's time keeps ticking in the strip's agents ca
 	sim.emit("session_shutdown");
 });
 
+test("a lone waiting agent repaints once a second, and stops when none waits or after shutdown (S31)", (t) => {
+	animated(t);
+	let renders = 0;
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => false });
+	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(tui);
+	for (const handler of sim.handlers.get("tool_execution_start") ?? []) handler({ toolName: "subagent_run", toolCallId: "c1", args: { agent: "explore", task: "Map the footer sources", mode: "task" } }, sim.ctx);
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "running", 1));
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "waiting", 2));
+	// Waiting only: the spinner clock is stopped, so the one-second source is the only repaint.
+	let before = renders;
+	t.mock.timers.tick(5_000);
+	assert.equal(renders - before, 5, "one repaint per second while an agent waits, not at the spinner rate");
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t1", "completed", 3));
+	before = renders;
+	t.mock.timers.tick(3_000);
+	assert.equal(renders, before, "no agent waits: no repaints");
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t2", "running", 1));
+	sim.emitEvent("gentle-pi:notification:source", subagentEvent("t2", "waiting", 2));
+	t.mock.timers.tick(1_000);
+	sim.emit("session_shutdown");
+	before = renders;
+	t.mock.timers.tick(3_000);
+	assert.equal(renders, before, "no repaints after the panel is disposed");
+});
+
 // --- S37: subscription tokens and the API-price estimate ---------------------
 
 /** Two claude-bridge (subscription) replies: tokens recorded, cost 0. */

@@ -3109,3 +3109,23 @@ test("S26 the unpushed heads-up takes ↑N off the branch only while the heads-u
 	assert.match(branchRow(renderPanel(model, 47, { sections: await sectionsOf("heads-up") })), /^│ project  fisi-dock  main +│$/, "shown heads-up: it says the count");
 	assert.match(branchRow(renderPanel(model, 47)), /^│ project  fisi-dock  main +│$/, "default sections: unchanged");
 });
+
+test("S32 the unpushed heads-up takes ↑N off the branch only when the heads-up section displays it", () => {
+	type Warning = NonNullable<PanelModel["headsUp"]>[number];
+	const warn = (kind: Warning["kind"], n: number): Warning => ({ kind, text: `${kind} ${n}` });
+	const unpushed: Warning = { kind: "unpushed", text: "2 commits not pushed" };
+	const others = [warn("worktrees", 1), warn("branches", 2), warn("todo", 3), warn("plan", 4), warn("plan", 5)];
+	const rail = (headsUp: Warning[]) => renderPanel({ session: ART_STATES.b, headsUp }, 47);
+	const branchRow = (headsUp: Warning[]) => plain(sectionBody(rail(headsUp), "session")[0]);
+	const headsUpText = (headsUp: Warning[]) => sectionBody(rail(headsUp), "heads-up").join("\n");
+	const beyond = [...others, unpushed];
+	assert.match(headsUpText(beyond), /\+2 more/, "six warnings: four and a summary row");
+	assert.ok(!headsUpText(beyond).includes("not pushed"), "the unpushed warning is past the cap");
+	assert.match(branchRow(beyond), /^│ project  fisi-dock  main ↑2 +│$/, "not displayed: ↑N stays on the branch");
+	const within = [...others.slice(0, 3), unpushed, ...others.slice(3)];
+	assert.ok(headsUpText(within).includes("not pushed"), "the unpushed warning is within the cap");
+	assert.match(branchRow(within), /^│ project  fisi-dock  main +│$/, "displayed: ↑N leaves the branch");
+	const exact = [...others.slice(0, 4), unpushed];
+	assert.ok(headsUpText(exact).includes("not pushed"), "five warnings are all displayed");
+	assert.match(branchRow(exact), /^│ project  fisi-dock  main +│$/);
+});
