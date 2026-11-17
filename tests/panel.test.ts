@@ -3100,3 +3100,12 @@ test("a changed path with control sequences renders without them (S4)", () => {
 	assert.ok(!lines.some((line) => line.includes("\x1b[2J") || line.includes("\x07")), "no raw control sequence in the rows");
 	assert.ok(lines.map(plain).some((line) => line.includes("evil.ts")), "the printable name stays");
 });
+
+test("S26 the unpushed heads-up takes ↑N off the branch only while the heads-up section is shown", async () => {
+	const model: PanelModel = { session: ART_STATES.b, headsUp: [{ kind: "unpushed", text: "2 commits not pushed" }] };
+	const branchRow = (lines: string[]) => plain(sectionBody(lines, "session")[0]);
+	assert.match(branchRow(renderPanel(model, 47, { sections: await sectionsOf("!heads-up") })), /^│ project  fisi-dock  main ↑2 +│$/, "hidden heads-up: ↑N stays");
+	assert.ok(!railTitles(renderPanel(model, 47, { sections: await sectionsOf("!heads-up") })).includes("heads-up"), "the heads-up is not drawn");
+	assert.match(branchRow(renderPanel(model, 47, { sections: await sectionsOf("heads-up") })), /^│ project  fisi-dock  main +│$/, "shown heads-up: it says the count");
+	assert.match(branchRow(renderPanel(model, 47)), /^│ project  fisi-dock  main +│$/, "default sections: unchanged");
+});

@@ -941,7 +941,6 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 	if (columns === 0) return [];
 	const model = options.motion === "off" ? stillModel(moving) : moving;
 	const inner = columns - 4;
-	const unpushed = model.headsUp?.some((warning) => warning.kind === "unpushed") ?? false;
 	// A check that runs, waits or failed keeps CI on screen longer (S77).
 	const ciUrgent = ciLive(model.ci) || (model.ci?.checks.some((check) => check.state === "failed") ?? false);
 	const frames = options.frames ?? "faded";
@@ -949,6 +948,8 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 	const accent = options.accent;
 	// Session first, then the shown sections in the saved order (look-more S6).
 	const order = (options.sections ?? DEFAULT_SECTIONS).filter((section) => section.shown).map((section) => section.id);
+	// ↑N leaves the branch only when the heads-up that says it is drawn: the section shown and the warning in it.
+	const unpushed = order.includes("heads-up") && (model.headsUp?.some((warning) => warning.kind === "unpushed") ?? false);
 	const draw = (shape: Shape, gaps: boolean) => {
 		const parts: Record<SectionId, () => Section | undefined> = {
 			"heads-up": () => model.headsUp && headsUpSection(model.headsUp, inner),
