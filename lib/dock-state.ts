@@ -1,5 +1,5 @@
-import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { type Look, normalizeLook } from "./look.ts";
 
 /**
@@ -56,7 +56,12 @@ function replaceFile(path: string, text: string): void {
 		const stat = statSync(target);
 		if (stat.isFile()) mode = stat.mode & 0o777;
 	} catch {
-		// No file yet: it is made at `path` with the default mode.
+		// No file yet: it is made at `path` with the default mode; a link to a missing file is made at its target.
+		try {
+			if (lstatSync(path).isSymbolicLink()) target = resolve(dirname(path), readlinkSync(path));
+		} catch {
+			// Nothing at `path` at all.
+		}
 	}
 	// The counter keeps two writes in one millisecond apart; another process has another pid.
 	const temp = `${target}.${process.pid}.${Date.now().toString(36)}.${(++tempSequence).toString(36)}.tmp`;

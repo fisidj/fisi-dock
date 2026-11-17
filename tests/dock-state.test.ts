@@ -244,3 +244,19 @@ test("review R1 a symlinked state file keeps its link: the target is replaced, w
 	if (process.platform !== "win32") assert.equal(statSync(target).mode & 0o777, 0o600, "the target's mode is kept");
 	assert.deepEqual(readdirSync(dir).toSorted(), ["dotfiles-state.json", "state.json"], "no temporary file stays");
 });
+
+test("coderabbit PR6 a state file linking to a missing file keeps its link: the save lands at the link's target", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const target = join(dir, "dotfiles-state.json");
+	const path = join(dir, "state.json");
+	try {
+		symlinkSync(target, path, "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	assert.equal(writeDockEnabled(path, false, "dark"), true);
+	assert.equal(lstatSync(path).isSymbolicLink(), true, "the link stays a link");
+	assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { enabled: false, theme: "dark" });
+	assert.equal(readDockTheme(path), "dark", "read back through the link");
+});
