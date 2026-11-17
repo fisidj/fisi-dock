@@ -125,3 +125,41 @@ test("readHeadsUpGit on a real repository: squash, cherry-pick, real changes, co
 		forgetSquashVerdicts();
 	}
 });
+
+test("readHeadsUpGit re-checks a branch when the target commit changed but its tree did not (S9)", async (t) => {
+	if (run(tmpdir(), ["--version"]).status !== 0) return t.skip("git is not installed");
+	const repo = realpathSync.native(mkdtempSync(join(tmpdir(), "fisi-dock-heads-up-")));
+	t.after(() => rmSync(repo, { recursive: true, force: true }));
+
+	git(repo, "init", "-q", "-b", "main");
+	git(repo, "config", "core.autocrlf", "false");
+	commit(repo, { "f.txt": "0\n" }, "base");
+	if (run(repo, ["merge-tree", "--write-tree", "main", "main"]).status !== 0) return t.skip("git merge-tree --write-tree is not supported (git 2.38+)");
+
+	// The feature sets f 0 -> 1 -> 0 and adds g; main sets f to 2 and adds the same g.
+	git(repo, "switch", "-q", "-c", "feature");
+	commit(repo, { "f.txt": "1\n" }, "feature f=1");
+	const middle = git(repo, "rev-parse", "HEAD").trim();
+	commit(repo, { "f.txt": "0\n", "g.txt": "g\n" }, "feature f=0, add g");
+	git(repo, "switch", "-q", "main");
+	commit(repo, { "f.txt": "2\n", "g.txt": "g\n" }, "main f=2, add g");
+	git(repo, "switch", "-q", "-c", "current");
+
+	forgetSquashVerdicts();
+	try {
+		assert.deepEqual(await readHeadsUpGit(recordingExec(repo).exec, repo, "current"), { worktrees: [], unmerged: [] }, "merging the feature changes nothing");
+
+		// An `ours` merge of the feature's middle commit moves main's commit, not its tree.
+		git(repo, "switch", "-q", "main");
+		const treeBefore = git(repo, "rev-parse", "main^{tree}");
+		git(repo, "merge", "-q", "-s", "ours", "-m", "ours", middle);
+		assert.equal(git(repo, "rev-parse", "main^{tree}"), treeBefore, "the tree is the same");
+		git(repo, "switch", "-q", "current");
+
+		const second = recordingExec(repo);
+		assert.deepEqual(await readHeadsUpGit(second.exec, repo, "current"), { worktrees: [], unmerged: ["feature"] }, "merging the feature now conflicts on f");
+		assert.deepEqual(second.calls.filter((args) => args[0] === "merge-tree").map((args) => args[3]), ["feature"]);
+	} finally {
+		forgetSquashVerdicts();
+	}
+});

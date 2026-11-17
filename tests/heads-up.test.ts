@@ -173,7 +173,7 @@ test("readHeadsUpGit reads worktrees and branches not merged into the default br
 		["rev-parse", "--verify", "--quiet", "refs/heads/main"],
 		["rev-parse", "--verify", "--quiet", "refs/heads/master"],
 		["branch", "--format=%(refname:short)", "--no-merged", "master"],
-		["rev-parse", "master^{tree}"],
+		["rev-parse", "master^{tree}", "master^{commit}"],
 		["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"],
 		["merge-tree", "--write-tree", "master", "feat-x"],
 	]);
@@ -186,7 +186,7 @@ type GitAnswer = Promise<{ stdout: string; code: number }>;
  * ancestry and one merge-tree answer per branch. Without `tips`, the branch tips
  * cannot be read (`for-each-ref` fails), so nothing is remembered.
  */
-function squashRepo(branches: string[], mergeTree: (branch: string) => GitAnswer, tree: () => GitAnswer = () => ok("T0\n"), tips?: () => GitAnswer) {
+function squashRepo(branches: string[], mergeTree: (branch: string) => GitAnswer, tree: () => GitAnswer = () => ok("T0\nC0\n"), tips?: () => GitAnswer) {
 	const calls: string[][] = [];
 	const exec: GitExec = (args) => {
 		calls.push(args);
@@ -220,7 +220,7 @@ test("readHeadsUpGit drops branches merged by squash or rebase and keeps the res
 		worktrees: [],
 		unmerged: ["changes", "conflict", "conflict-same-tree", "old-git", "throws", "empty"],
 	});
-	assert.deepEqual(calls.filter((args) => args[0] === "rev-parse"), [["rev-parse", "main^{tree}"]], "the target tree is read once");
+	assert.deepEqual(calls.filter((args) => args[0] === "rev-parse"), [["rev-parse", "main^{tree}", "main^{commit}"]], "the target tree and commit are read once");
 	assert.deepEqual(
 		calls.filter((args) => args[0] === "merge-tree"),
 		Object.keys(answers).map((branch) => ["merge-tree", "--write-tree", "main", branch]),
@@ -265,7 +265,7 @@ test("readHeadsUpGit re-checks a branch whose tip moved, and every branch when t
 	const branches = ["changes", "squashed"];
 	let verdict: Record<string, string> = { changes: "T1\n", squashed: "T0\n" };
 	const read = async (tips: Record<string, string>, tree = "T0") => {
-		const repo = squashRepo(branches, (branch) => ok(verdict[branch]), () => ok(`${tree}\n`), tipList(tips));
+		const repo = squashRepo(branches, (branch) => ok(verdict[branch]), () => ok(`${tree}\nC0\n`), tipList(tips));
 		return { result: await readHeadsUpGit(repo.exec, "E:/DEV/app", "main"), checked: mergeTrees(repo.calls) };
 	};
 	assert.deepEqual(await read({ changes: "c1", squashed: "s1" }), { result: { worktrees: [], unmerged: ["changes"] }, checked: branches });
@@ -278,6 +278,18 @@ test("readHeadsUpGit re-checks a branch whose tip moved, and every branch when t
 	verdict = { changes: "T9\n", squashed: "T9\n" };
 	assert.deepEqual(await read({ changes: "c1", squashed: "s2" }, "T9"), { result: { worktrees: [], unmerged: [] }, checked: branches });
 	assert.deepEqual(await read({ changes: "c1", squashed: "s2" }, "T9"), { result: { worktrees: [], unmerged: [] }, checked: [] });
+});
+
+test("readHeadsUpGit re-checks a branch when the target commit changed under the same tree; without a readable commit nothing is remembered (S9)", async () => {
+	const read = async (tree: () => GitAnswer) => {
+		const repo = squashRepo(["changes"], () => ok("T0\n"), tree, tipList({ changes: "c1" }));
+		return { result: (await readHeadsUpGit(repo.exec, "E:/DEV/app", "main")).unmerged, checked: mergeTrees(repo.calls) };
+	};
+	assert.deepEqual(await read(() => ok("T0\nC1\n")), { result: [], checked: ["changes"] });
+	assert.deepEqual(await read(() => ok("T0\nC1\n")), { result: [], checked: [] }, "same tree and commit: remembered");
+	assert.deepEqual(await read(() => ok("T0\nC2\n")), { result: [], checked: ["changes"] }, "same tree, other commit: checked again");
+	assert.deepEqual(await read(() => ok("T0\n")), { result: [], checked: ["changes"] }, "the commit could not be read: checked");
+	assert.deepEqual(await read(() => ok("T0\n")), { result: [], checked: ["changes"] }, "and not remembered");
 });
 
 test("readHeadsUpGit remembers conflicts but not failed merge-trees or branches without a readable tip (S3)", async () => {
@@ -447,4 +459,24 @@ test("warning text drops terminal control sequences from plan and worktree names
 	const texts = warnings.map((warning) => warning.text);
 	assert.deepEqual(texts, ["worktree open: wt-clear", "ODD plan clip: 1 open"]);
 	for (const text of texts) assert.doesNotMatch(text, /[\x00-\x1f\x7f]/);
+});
+
+test("readHeadsUpGit compares the session folder by its real path: a symlinked checkout is not another worktree (S10)", async (t) => {
+	const { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = realpathSync.native(mkdtempSync(join(tmpdir(), "fisi-dock-link-")));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const real = join(root, "repo");
+	mkdirSync(real);
+	const link = join(root, "link");
+	try {
+		symlinkSync(real, link, "junction");
+	} catch {
+		return t.skip("symbolic links are not available");
+	}
+	const slashed = real.replaceAll("\\", "/");
+	const exec: GitExec = (args) => (args[0] === "worktree" ? ok(`worktree ${slashed}\nHEAD 1\nbranch refs/heads/main\n`) : fail());
+	assert.deepEqual((await readHeadsUpGit(exec, link, "main")).worktrees, [], "the session's own worktree is not listed");
+	assert.deepEqual((await readHeadsUpGit(exec, join(root, "missing"), "main")).worktrees, [slashed], "an unresolvable folder falls back to the path as given");
 });

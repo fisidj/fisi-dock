@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { GitExec } from "./live-store.ts";
 import { printable } from "./odd-detail.ts";
@@ -235,19 +235,20 @@ async function mergeVerdict(exec: GitExec, target: string, branch: string, targe
  * merging it into `target` leaves `target`'s tree unchanged, which is how it is
  * recognized. A conflict, a failed merge-tree (git before 2.38) or an
  * unreadable target tree keeps the branch listed; at most 20 merge-trees run
- * per read. Verdicts are remembered per branch tip and target tree (S3);
- * failures and branches whose tip cannot be read are not.
+ * per read. Verdicts are remembered per branch tip and target commit and tree
+ * (S3, S9); failures and branches whose tip or target commit cannot be read are not.
  */
 async function withoutSquashMerged(exec: GitExec, target: string, branches: string[]): Promise<string[]> {
 	if (branches.length === 0) return branches;
-	const targetTree = firstLine(await gitOutput(exec, ["rev-parse", `${target}^{tree}`]));
-	if (targetTree === undefined) return branches;
+	// The tree alone does not identify the merge base merge-tree uses, so the commit is part of the key (S9).
+	const [targetTree, targetCommit] = ((await gitOutput(exec, ["rev-parse", `${target}^{tree}`, `${target}^{commit}`])) ?? "").split(/\r?\n/).map((line) => line.trim());
+	if (!targetTree) return branches;
 	const tips = parseBranchTips(await gitOutput(exec, ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"]));
 	const kept: string[] = [];
 	let checks = 0;
 	for (const name of branches) {
 		const tip = tips.get(name);
-		const key = tip === undefined ? undefined : JSON.stringify([target, targetTree, name, tip]);
+		const key = tip === undefined || !targetCommit ? undefined : JSON.stringify([target, targetCommit, targetTree, name, tip]);
 		let merged = key === undefined ? undefined : recallVerdict(key);
 		if (merged === undefined && checks < MAX_SQUASH_CHECKS) {
 			checks++;
@@ -264,7 +265,8 @@ export async function readHeadsUpGit(exec: GitExec, cwd: string, branch: string 
 	const porcelain = await gitOutput(exec, ["worktree", "list", "--porcelain"]);
 	// Not a repository (or no git): skip the rest.
 	if (porcelain === undefined) return { worktrees: undefined, unmerged: undefined };
-	const worktrees = otherWorktrees(porcelain, cwd);
+	// Git reports real paths; a session opened through a symlink must compare by its own (S10).
+	const worktrees = otherWorktrees(porcelain, await realpath(cwd).catch(() => cwd));
 	const exists = async (ref: string) => (await gitOutput(exec, ["rev-parse", "--verify", "--quiet", ref])) !== undefined;
 	const symbolicRef = await gitOutput(exec, ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"]);
 	let target = defaultBranchFrom(symbolicRef, false, false);
