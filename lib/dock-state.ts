@@ -58,7 +58,8 @@ function replaceFile(path: string, text: string): void {
 	} catch {
 		// No file yet: it is made at `path` with the default mode; a link to a missing file is made at its target.
 		try {
-			if (lstatSync(path).isSymbolicLink()) target = resolve(dirname(path), readlinkSync(path));
+			// The folder is resolved first: a relative link counts from the real folder, not a linked alias of it.
+			if (lstatSync(path).isSymbolicLink()) target = resolve(realpathSync(dirname(path)), readlinkSync(path));
 		} catch {
 			// Nothing at `path` at all.
 		}

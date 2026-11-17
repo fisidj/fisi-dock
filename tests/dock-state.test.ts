@@ -260,3 +260,25 @@ test("coderabbit PR6 a state file linking to a missing file keeps its link: the 
 	assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { enabled: false, theme: "dark" });
 	assert.equal(readDockTheme(path), "dark", "read back through the link");
 });
+
+test("coderabbit PR6 a relative link to a missing file in a linked folder resolves from the real folder, not the alias", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const real = join(dir, "real", "dock");
+	mkdirSync(real, { recursive: true });
+	const alias = join(dir, "alias");
+	const unrelated = join(dir, "saved.json");
+	writeFileSync(unrelated, "unrelated");
+	try {
+		symlinkSync(real, alias, "dir");
+		symlinkSync(join("..", "saved.json"), join(real, "state.json"), "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	const path = join(alias, "state.json");
+	assert.equal(writeDockEnabled(path, false, "dark"), true);
+	assert.equal(lstatSync(join(real, "state.json")).isSymbolicLink(), true, "the link stays a link");
+	assert.deepEqual(JSON.parse(readFileSync(join(dir, "real", "saved.json"), "utf8")), { enabled: false, theme: "dark" }, "saved at the link's real destination");
+	assert.equal(readFileSync(unrelated, "utf8"), "unrelated", "the file at the alias-relative path is untouched");
+	assert.equal(readDockTheme(path), "dark");
+});
