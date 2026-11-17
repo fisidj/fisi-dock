@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -193,9 +193,11 @@ test("S87 presence seed: the newest activity file of this session's hash gives i
 	const foreign = join(presence, `${"f".repeat(64)}.33333333-3333-4333-8333-333333333333.activity.json`);
 	writeFileSync(older, JSON.stringify({ tasks: [summary("stale", "running")] }));
 	writeFileSync(foreign, JSON.stringify({ tasks: [summary("theirs", "running")] }));
-	// The newer incarnation is written last, so its mtime wins.
-	await new Promise((resolve) => setTimeout(resolve, 20));
 	writeFileSync(newer, JSON.stringify({ tasks: [summary("t1", "running"), summary("t2", "queued", { startedAt: null }), summary("t3", "completed", { endedAt: 3_000 }), { summary: { id: "bad" }, thread: {} }, summary("t4", "waiting", { model: "" })] }));
+	// Explicit times, seconds apart (a FAT write time has two-second resolution): the newer incarnation's mtime wins on any file system.
+	utimesSync(older, 1_000, 1_000);
+	utimesSync(foreign, 1_000, 1_000);
+	utimesSync(newer, 1_010, 1_010);
 	assert.deepEqual(await readPresenceTasks(agentHome, "s1"), [
 		{ id: "t1", agent: "explore", label: "label t1", status: "running", model: "anthropic/claude-opus-5-5", startedAt: 1_500 },
 		{ id: "t2", agent: "explore", label: "label t2", status: "queued", model: "anthropic/claude-opus-5-5" },
@@ -414,7 +416,7 @@ test("T102 a background subagent_run without events: the result right after the 
 	// Its continuation in task mode, with the events gone: the call shows it running, its result ends it.
 	now = 3_000;
 	assert.equal(tracker.call("subagent_continue", { task_id: "t1", prompt: "Now the header", label: "map header", mode: "task" }, "c2"), true);
-	assert.deepEqual(tracker.agents(now), [{ id: "call:c1", name: "gentle-ai-explore", task: "map header", state: "running", startedAt: 1_000, model: "anthropic/claude-opus-5-5", effort: "high" }], "one row, running again from the continue call; the time keeps counting from its first running event");
+	assert.deepEqual(tracker.agents(now), [{ id: "call:c1", name: "gentle-ai-explore", task: "map header", state: "running", startedAt: 3_000, model: "anthropic/claude-opus-5-5", effort: "high" }], "one row, running again from the continue call, its time counting from that call and not from the previous run");
 	now = 4_000;
 	assert.equal(tracker.result("subagent_continue", taskResult("t1", { agent: "gentle-ai-explore", status: "completed", label: "map header" }), false, "c2"), true);
 	assert.equal(tracker.agents(now)[0].state, "done", "with no event since the continue call, its result's status counts");
@@ -519,4 +521,52 @@ test("T102 a subagent_continue of a finished task that is refused (no details.ge
 	tracker.status(statusEvent("t2", "running", 5));
 	assert.equal(tracker.settle(), false);
 	assert.equal(tracker.agents(now)[0].state, "running");
+});
+
+test("S14 a subagent_continue of a live task that is refused with no task in its result puts the task's label and text back", () => {
+	const tracker = createSubagentTracker("s1", () => 1_000);
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c1");
+	tracker.status(statusEvent("t1", "running", 1));
+	const before = tracker.agents(1_000);
+	assert.equal(before[0].task, "map footer");
+	assert.equal(tracker.call("subagent_continue", { task_id: "t1", prompt: "Again", label: "second pass", mode: "task" }, "c2"), true);
+	assert.equal(tracker.agents(1_000)[0].task, "second pass");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), true, "the refusal is a change");
+	assert.deepEqual(tracker.agents(1_000), before, "the live task shows its own label again, still running");
+	// The same with the end lost: the settled run puts it back.
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Once more", label: "third pass", mode: "task" }, "c3");
+	assert.equal(tracker.settle(), true);
+	assert.deepEqual(tracker.agents(1_000), before);
+	// An event after the continue call makes it real: nothing to put back.
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Once more", label: "third pass", mode: "task" }, "c4");
+	tracker.status(statusEvent("t1", "waiting", 2));
+	assert.equal(tracker.settle(), false);
+	assert.equal(tracker.agents(1_000)[0].task, "third pass");
+});
+
+test("S15 a continuation of a finished task counts its time from the continue call, then from its first running event; a refusal gives the old start back", () => {
+	let now = 1_000;
+	const tracker = createSubagentTracker("s1", () => now);
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c1");
+	tracker.status(statusEvent("t1", "running", 1));
+	now = 2_000;
+	tracker.status(statusEvent("t1", "completed", 2));
+	now = 50_000;
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Again", mode: "task" }, "c2");
+	assert.equal(tracker.agents(now)[0].startedAt, 50_000, "not the previous run's start");
+	now = 51_000;
+	tracker.status(statusEvent("t1", "running", 3));
+	assert.equal(tracker.agents(now)[0].startedAt, 51_000, "the new running event's time");
+	// Refused: the old row, start included.
+	now = 60_000;
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c3");
+	tracker.status(statusEvent("t2", "running", 1));
+	tracker.status(statusEvent("t2", "completed", 2));
+	const second = tracker.agents(now).find((agent) => agent.id === "call:c3")!;
+	assert.equal(second.startedAt, 60_000);
+	now = 70_000;
+	tracker.call("subagent_continue", { task_id: "t2", prompt: "Again", mode: "task" }, "c4");
+	assert.equal(tracker.agents(now).find((agent) => agent.id === "call:c3")!.startedAt, 70_000);
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c4"), true);
+	assert.deepEqual(tracker.agents(now).find((agent) => agent.id === "call:c3"), second, "done again with its old start");
 });

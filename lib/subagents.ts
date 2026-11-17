@@ -217,8 +217,8 @@ interface Task {
 	lastStep?: string;
 	/** When the call that launched or continued it started: the time shown until the first running event. */
 	calledAt?: number;
-	/** A continue call in flight on a task that was not live: how the row was, for when that call makes no run. */
-	resumed?: { callId?: string; status: TaskStatus; endedAt?: number; label?: string; text?: string };
+	/** A continue call in flight: how the row was (status, times, label and text), for when that call makes no run. */
+	resumed?: { callId?: string; provisional: boolean; status: TaskStatus; endedAt?: number; startedAt?: number; calledAt?: number; label?: string; text?: string };
 	startedAt?: number;
 	endedAt?: number;
 	/** Presence file reads that looked for its model: at most SUBAGENT_DETAILS_ATTEMPTS. */
@@ -333,9 +333,11 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			const before = known.resumed;
 			if (!before || (callId !== undefined && before.callId !== callId)) continue;
 			known.resumed = undefined;
-			known.provisional = false;
+			known.provisional = before.provisional;
 			known.status = before.status;
 			known.endedAt = before.endedAt;
+			known.startedAt = before.startedAt;
+			known.calledAt = before.calledAt;
 			known.label = before.label;
 			known.text = before.text;
 			return true;
@@ -381,13 +383,16 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			if (!call) return false;
 			const known = call.taskId !== undefined ? tasks.get(call.taskId) : undefined;
 			if (known) {
-				const before = { ...(callId !== undefined ? { callId } : {}), status: known.status, endedAt: known.endedAt, label: known.label, text: known.text };
+				const before = { ...(callId !== undefined ? { callId } : {}), provisional: known.provisional, status: known.status, endedAt: known.endedAt, startedAt: known.startedAt, calledAt: known.calledAt, label: known.label, text: known.text };
+				// Live or not, a continue that makes no run must give the row back as it was; a call already in flight keeps the older rollback.
+				if (known.resumed === undefined) known.resumed = before;
 				describe(known, call);
 				// A continuation runs the task again: running until an event or its result says otherwise.
 				if (!LIVE.has(known.status)) {
-					known.resumed = before;
 					known.status = "running";
 					known.endedAt = undefined;
+					// Its time counts from this call, then from the new running event, not from the previous run.
+					known.startedAt = undefined;
 					known.calledAt = now();
 					known.provisional = true;
 				}
