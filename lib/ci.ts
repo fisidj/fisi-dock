@@ -27,6 +27,14 @@ export interface CiRuns {
 	runs: CiRun[];
 	/** Epoch ms of the successful list read that gave these runs (S66). */
 	readAt?: number;
+}
+
+/**
+ * What a caller remembers about the installed gh between reads, kept for as
+ * long as it should (the session): readCi reads and sets it, so the mode
+ * outlives an empty run list or a failed read (S39).
+ */
+export interface CiMode {
 	/** The installed gh refused workflowDatabaseId: later reads ask without it. */
 	legacyList?: true;
 }
@@ -150,13 +158,14 @@ async function ghOutput(exec: CiExec, args: string[]): Promise<string | undefine
 	return result?.code === 0 ? result.stdout : undefined;
 }
 
-/** The list read; a gh that refuses the workflowDatabaseId field is asked once more without it, and `legacy` says so. */
-async function listOutput(exec: CiExec, branch: string, legacy: boolean): Promise<{ stdout?: string; legacy: boolean }> {
-	if (legacy) return { stdout: await ghOutput(exec, ciListArgs(branch, false)), legacy };
+/** The list read; a gh that refuses the workflowDatabaseId field is asked once more without it, and `mode` remembers it. */
+async function listOutput(exec: CiExec, branch: string, mode: CiMode): Promise<string | undefined> {
+	if (mode.legacyList) return ghOutput(exec, ciListArgs(branch, false));
 	const result = await ghResult(exec, ciListArgs(branch));
-	if (result?.code === 0) return { stdout: result.stdout, legacy };
-	if (!result || !/workflowDatabaseId/.test(result.stderr ?? "")) return { legacy };
-	return { stdout: await ghOutput(exec, ciListArgs(branch, false)), legacy: true };
+	if (result?.code === 0) return result.stdout;
+	if (!result || !/workflowDatabaseId/.test(result.stderr ?? "")) return undefined;
+	mode.legacyList = true;
+	return ghOutput(exec, ciListArgs(branch, false));
 }
 
 /**
@@ -165,9 +174,10 @@ async function listOutput(exec: CiExec, branch: string, legacy: boolean): Promis
  * answered in `previous` for the same id and updatedAt keeps that answer
  * without another `gh run view`; a failed view is retried (S66). Undefined:
  * the read failed or timed out (keep what is shown); null: no runs.
+ * `mode` is read and set for the installed gh (S39).
  */
-export async function readCi(exec: CiExec, branch: string, previous?: CiRuns, now: () => number = Date.now): Promise<CiRuns | null | undefined> {
-	const { stdout, legacy } = await listOutput(exec, branch, previous?.legacyList === true);
+export async function readCi(exec: CiExec, branch: string, previous?: CiRuns, now: () => number = Date.now, mode: CiMode = {}): Promise<CiRuns | null | undefined> {
+	const stdout = await listOutput(exec, branch, mode);
 	const read = stdout === undefined ? undefined : ciRunsFromList(stdout);
 	if (!read) return read;
 	const readAt = now();
@@ -182,7 +192,7 @@ export async function readCi(exec: CiExec, branch: string, previous?: CiRuns, no
 		if (!view) runs.push(run);
 		else runs.push({ ...run, ...(view.job !== undefined ? { failedJob: view.job } : {}), jobRead: true });
 	}
-	return { sha: read.sha, runs, readAt, ...(legacy ? { legacyList: true as const } : {}) };
+	return { sha: read.sha, runs, readAt };
 }
 
 /** Whole seconds from `from` to `to`; none when either is unknown. */

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { ciLive, gitPushTool, readCi, type CiRuns } from "../lib/ci.ts";
+import { ciLive, gitPushTool, readCi, type CiMode, type CiRuns } from "../lib/ci.ts";
 import { dockStatePath, readDockEnabled, readDockLook, readDockTheme, readDockThemeApplied, writeDockEnabled, writeDockLook } from "../lib/dock-state.ts";
 import { headerPath, renderHeaderLine, renderNarrowHeader } from "../lib/header.ts";
 import { readHeadsUpGit, readOddPlans } from "../lib/heads-up.ts";
@@ -404,11 +404,13 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 	let branch: string | undefined;
 	let gitRead = false;
 	let ciRuns: CiRuns | undefined;
+	// The installed gh, learned by readCi; kept for this session, so an older gh costs one call per poll even with no runs (S39).
+	const ciMode: CiMode = {};
 	let ciReadAt = Date.now();
 	const ci = createSerialRefresh(async () => {
 		if (disposed || !cwd) return;
 		const at = branch;
-		const read = at === undefined ? null : await readCi((args) => pi.exec("gh", args, { cwd, timeout: GH_TIMEOUT_MS }), at, ciRuns);
+		const read = at === undefined ? null : await readCi((args) => pi.exec("gh", args, { cwd, timeout: GH_TIMEOUT_MS }), at, ciRuns, undefined, ciMode);
 		ciReadAt = Date.now();
 		if (disposed || read === undefined || branch !== at) return;
 		ciRuns = read ?? undefined;

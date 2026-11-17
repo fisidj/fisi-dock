@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ciListArgs, ciLive, ciRunning, ciRunsFromList, ciView, failedJob, gitPushTool, readCi, type CiExec, type CiRuns } from "../lib/ci.ts";
+import { ciListArgs, ciLive, ciRunning, ciRunsFromList, ciView, failedJob, gitPushTool, readCi, type CiExec, type CiMode, type CiRuns } from "../lib/ci.ts";
 
 // CI checks of the last pushed commit (S64, artboard 24 option C), from
 // `gh run list --json` and `gh run view --json jobs` output.
@@ -221,13 +221,14 @@ test("review R3 readCi: a gh that does not know workflowDatabaseId is asked agai
 		calls.push(args);
 		return args.at(-1)!.includes("workflowDatabaseId") ? { code: 1, stdout: "", stderr: 'Unknown JSON field: "workflowDatabaseId"\nAvailable fields:\n  databaseId\n' } : { code: 0, stdout: ok };
 	};
-	const read = await readCi(oldGh, "main");
+	const mode: CiMode = {};
+	const read = await readCi(oldGh, "main", undefined, undefined, mode);
 	assert.equal(read?.sha, "abc1234");
 	assert.deepEqual(read?.runs.map((entry) => entry.name), ["tests"]);
 	assert.equal(calls.length, 2);
 	assert.equal(calls[1].at(-1), "databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha");
 	calls.length = 0;
-	assert.equal((await readCi(oldGh, "main", read!))?.sha, "abc1234", "the next read");
+	assert.equal((await readCi(oldGh, "main", read!, undefined, mode))?.sha, "abc1234", "the next read");
 	assert.deepEqual(calls, [ciListArgs("main", false)], "remembers the older gh: one call, without the field");
 	calls.length = 0;
 	const offline: CiExec = async (args) => {
@@ -236,4 +237,34 @@ test("review R3 readCi: a gh that does not know workflowDatabaseId is asked agai
 	};
 	assert.equal(await readCi(offline, "main"), undefined);
 	assert.equal(calls.length, 1, "one try when gh fails for another reason");
+});
+
+test("review R3 readCi: the older gh stays remembered across an empty run list and a failed read, one call per poll (S39)", async () => {
+	const calls: string[][] = [];
+	let stdout = "[]";
+	let fail = false;
+	const oldGh: CiExec = async (args) => {
+		calls.push(args);
+		if (args.at(-1)!.includes("workflowDatabaseId")) return { code: 1, stdout: "", stderr: "Unknown JSON field: \"workflowDatabaseId\"" };
+		return fail ? { code: 1, stdout: "", stderr: "error connecting to api.github.com" } : { code: 0, stdout };
+	};
+	const mode: CiMode = {};
+	assert.equal(await readCi(oldGh, "main", undefined, undefined, mode), null, "no runs");
+	assert.equal(calls.length, 2, "the first read learns the older gh");
+	calls.length = 0;
+	assert.equal(await readCi(oldGh, "main", undefined, undefined, mode), null, "still no runs");
+	assert.deepEqual(calls, [ciListArgs("main", false)], "one call, without the field");
+	calls.length = 0;
+	fail = true;
+	assert.equal(await readCi(oldGh, "main", undefined, undefined, mode), undefined, "a failed read");
+	assert.deepEqual(calls, [ciListArgs("main", false)], "still one call, without the field");
+	calls.length = 0;
+	fail = false;
+	stdout = JSON.stringify([{ databaseId: 1, workflowName: "tests", name: "tests", status: "completed", conclusion: "success", headSha: "abc1234", createdAt: "2026-01-01T00:00:00Z" }]);
+	assert.equal((await readCi(oldGh, "main", undefined, undefined, mode))?.sha, "abc1234");
+	assert.deepEqual(calls, [ciListArgs("main", false)]);
+	const current: string[][] = [];
+	const newGh: CiExec = async (args) => (current.push(args), { code: 0, stdout: "[]" });
+	await readCi(newGh, "main", undefined, undefined, {});
+	assert.deepEqual(current, [ciListArgs("main")], "a current gh: the field-bearing list, one call");
 });
