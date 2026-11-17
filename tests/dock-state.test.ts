@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -210,4 +210,37 @@ test("coderabbit S5 the state file is replaced whole: no temporary file stays, a
 	assert.equal(writeDockEnabled(blocked, true), false);
 	assert.equal(readFileSync(join(blocked, "keep"), "utf8"), "kept");
 	assert.deepEqual(readdirSync(dir).toSorted(), ["blocked.json", "state.json"], "the temporary file is removed after a failed replace");
+});
+
+test("review R4 a leftover temporary file with the same name neither fails the save nor is removed", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	const at = 1_700_000_000_000;
+	t.mock.method(Date, "now", () => at);
+	const stray = `${path}.${process.pid}.${at.toString(36)}.tmp`;
+	writeFileSync(stray, "another write");
+	assert.equal(writeDockEnabled(path, false, "dark"), true, "the save goes through");
+	assert.equal(readDockTheme(path), "dark");
+	assert.equal(readFileSync(stray, "utf8"), "another write", "a file this write did not make stays");
+	assert.deepEqual(readdirSync(dir).toSorted(), [stray.slice(dir.length + 1), "state.json"].toSorted());
+});
+
+test("review R1 a symlinked state file keeps its link: the target is replaced, with its mode", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const target = join(dir, "dotfiles-state.json");
+	const path = join(dir, "state.json");
+	writeFileSync(target, JSON.stringify({ enabled: true, extra: 1 }));
+	try {
+		symlinkSync(target, path, "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	if (process.platform !== "win32") chmodSync(target, 0o600);
+	assert.equal(writeDockEnabled(path, false, "dark"), true);
+	assert.equal(lstatSync(path).isSymbolicLink(), true, "the link stays a link");
+	assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { enabled: false, extra: 1, theme: "dark" }, "the linked file holds the save");
+	if (process.platform !== "win32") assert.equal(statSync(target).mode & 0o777, 0o600, "the target's mode is kept");
+	assert.deepEqual(readdirSync(dir).toSorted(), ["dotfiles-state.json", "state.json"], "no temporary file stays");
 });

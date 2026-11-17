@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type Look, normalizeLook } from "./look.ts";
 
@@ -45,14 +45,29 @@ export function readDockLook(path: string): Look {
  * failed write leaves the previous file whole and readers never see a half-written one.
  * Windows can refuse the rename for a moment while another process reads the file, so
  * it is tried a few times, with a short pause between tries. The temporary file is removed when the write fails.
+ * A symlinked file is replaced at its target, so the link stays, and the replaced file keeps its mode.
  */
+let tempSequence = 0;
 function replaceFile(path: string, text: string): void {
-	const temp = `${path}.${process.pid}.${Date.now().toString(36)}.tmp`;
+	let target = path;
+	let mode: number | undefined;
+	try {
+		target = realpathSync(path);
+		const stat = statSync(target);
+		if (stat.isFile()) mode = stat.mode & 0o777;
+	} catch {
+		// No file yet: it is made at `path` with the default mode.
+	}
+	// The counter keeps two writes in one millisecond apart; another process has another pid.
+	const temp = `${target}.${process.pid}.${Date.now().toString(36)}.${(++tempSequence).toString(36)}.tmp`;
+	let made = false;
 	try {
 		writeFileSync(temp, text, { flag: "wx" });
+		made = true;
+		if (mode !== undefined) chmodSync(temp, mode);
 		for (let attempt = 1; ; attempt++) {
 			try {
-				renameSync(temp, path);
+				renameSync(temp, target);
 				return;
 			} catch (error) {
 				const code = (error as NodeJS.ErrnoException).code;
@@ -62,7 +77,8 @@ function replaceFile(path: string, text: string): void {
 			}
 		}
 	} catch (error) {
-		rmSync(temp, { force: true });
+		// Only a file this write made is removed.
+		if (made) rmSync(temp, { force: true });
 		throw error;
 	}
 }
