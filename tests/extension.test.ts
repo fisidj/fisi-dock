@@ -2605,7 +2605,7 @@ test("S7 /fisi-dock on while the theme already is Fisi-Dock keeps the theme reme
 test("S23 /fisi-dock on that cannot save still gives the theme in use back on off", async (t) => {
 	const path = stateDir(t);
 	seedState(path, { enabled: false, theme: "light", themeApplied: true });
-	const sim = simulate("E:\DEV\app", { ownsHost: () => true, theme: "dark" });
+	const sim = simulate("E:\\DEV\\app", { ownsHost: () => true, theme: "dark" });
 	sim.emit("session_start");
 	// The state can no longer be replaced: a folder where the file was.
 	rmSync(path);
