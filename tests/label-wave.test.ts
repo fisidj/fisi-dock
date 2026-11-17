@@ -288,7 +288,7 @@ test("S4 soft colors: the petal in the pastel tones, the wave unchanged; omittin
 		assert.equal(wavePetal(at), wavePetal(at, "vivid"));
 	}
 	// The wave already passes in pastel in vivid (0.3.1): soft paints it the same.
-	assert.equal(waveLabel("ODD checking…", WAVE_STEP_MS * 5), waveLabel("ODD checking…", WAVE_STEP_MS * 5));
+	assert.equal(waveLabel("ODD checking…", WAVE_STEP_MS * 5, "pink", "soft"), waveLabel("ODD checking…", WAVE_STEP_MS * 5));
 });
 
 test("look-more S2 motion off: the clock paints one fixed moment, starts no timer and stops a running one; the label and petal stand still", () => {
