@@ -570,3 +570,20 @@ test("S15 a continuation of a finished task counts its time from the continue ca
 	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c4"), true);
 	assert.deepEqual(tracker.agents(now).find((agent) => agent.id === "call:c3"), second, "done again with its old start");
 });
+
+test("review R3 two overlapping subagent_continue calls: refusing the second gives the first continuation's row back", () => {
+	const tracker = createSubagentTracker("s1", () => 1_000);
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c1");
+	tracker.status(statusEvent("t1", "running", 1));
+	tracker.status(statusEvent("t1", "completed", 2));
+	const done = tracker.agents(1_000);
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Again", label: "second pass", mode: "task" }, "c2");
+	const afterFirst = tracker.agents(1_000);
+	assert.equal(afterFirst[0].task, "second pass");
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "More", label: "third pass", mode: "task" }, "c3");
+	assert.equal(tracker.agents(1_000)[0].task, "third pass");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c3"), true);
+	assert.deepEqual(tracker.agents(1_000), afterFirst, "the first continuation's row, still running");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), true);
+	assert.deepEqual(tracker.agents(1_000), done, "then the finished row");
+});
