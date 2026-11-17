@@ -2,9 +2,10 @@
 // renamed or removed key in Gentle Shell would not fail type checking: Fisi Dock would just
 // go quiet. This test checks that every gentle-pi.* key Fisi Dock reads still exists in a
 // Gentle Shell package (gentle-pi, the one `gentle-shell --link` loads). It proves the key
-// exists, not the shape of the data behind it. The default run reads a pinned fixture built
-// in a temp folder, so it never depends on this machine's PATH, npm, home or Gentle Shell
-// version. Checking a real installation is opt-in: set FISI_DOCK_CHECK_INSTALLED_GENTLE_SHELL=1.
+// exists, not the shape of the data behind it. The default run reads a pinned fixture written
+// out literally from Gentle Shell 4.8.0 (tests/fixtures/gentle-shell-4.8.0), independent of
+// READ_KEYS and PROMPT_PIECES, so it never depends on this machine's PATH, npm, home or
+// Gentle Shell version, and a key added only on Fisi Dock's side fails it. Checking a real installation is opt-in: set FISI_DOCK_CHECK_INSTALLED_GENTLE_SHELL=1.
 // The installed package is then GENTLE_SHELL_DIR when set, else the one Gentle Shell itself
 // loads (the package its launcher injects into a session, else the `gentle-shell` launcher's
 // own on PATH: pnpm and npm alike), else gentle-pi in the global npm root (`npm root -g`);
@@ -194,7 +195,10 @@ function missingPromptPieces(dir: string): string[] {
 	return missing.sort();
 }
 
-// A pinned Gentle Shell package, written to a temp folder: the keys and prompt pieces Fisi Dock relies on, nothing from this machine.
+// The pinned Gentle Shell 4.8.0 package: literal source text kept in the repository, never built from READ_KEYS or PROMPT_PIECES.
+const PINNED_GENTLE_SHELL = join(import.meta.dirname, "fixtures", "gentle-shell-4.8.0");
+
+// Generated packages, written to a temp folder, for the scanner's negative tests only: they lose a key or a piece on purpose.
 const FIXTURES: string[] = [];
 after(() => {
 	for (const dir of FIXTURES) rmSync(dir, { recursive: true, force: true });
@@ -216,10 +220,11 @@ function pinnedFiles(keys: string[] = READ_KEYS, pieces: [string, string[]][] = 
 	return files;
 }
 
-test("the pinned Gentle Shell fixture defines every key and prompt piece Fisi Dock relies on", () => {
-	const dir = gentleShellFixture(pinnedFiles());
-	assert.deepEqual(missingKeys(gentlePiKeys(FISI_DOCK_DIR), gentlePiKeys(dir)), []);
-	assert.deepEqual(missingPromptPieces(dir), []);
+test("the pinned Gentle Shell 4.8.0 fixture defines every key and prompt piece Fisi Dock relies on", () => {
+	assert.equal(JSON.parse(readFileSync(join(PINNED_GENTLE_SHELL, "package.json"), "utf8")).version, "4.8.0");
+	assert.deepEqual(missingKeys(gentlePiKeys(FISI_DOCK_DIR), gentlePiKeys(PINNED_GENTLE_SHELL)), []);
+	assert.deepEqual(missingPromptPieces(PINNED_GENTLE_SHELL), []);
+	assert.ok(!gentlePiKeys(PINNED_GENTLE_SHELL).has("gentle-pi.only-in-a-test"), "a key only a test file defines does not count");
 });
 
 test("a Gentle Shell package that lost a key or a prompt piece is reported; a key only a test file defines does not count", () => {

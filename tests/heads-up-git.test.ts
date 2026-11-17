@@ -9,8 +9,9 @@ import type { GitExec } from "../lib/live-store.ts";
 
 // S4: readHeadsUpGit against real git in a throwaway repository. Commits use
 // their own identity and no hooks, and every git call (setup and the recorded
-// exec) reads an empty fixture-local global config instead of the host's, so
-// host settings such as core.excludesFile cannot change the result.
+// exec) reads an empty fixture-local global config instead of the host's and drops
+// inherited GIT_CONFIG_* overrides, so host settings such as core.excludesFile cannot
+// change the result.
 
 const IDENTITY = ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=no-hooks"];
 
@@ -18,13 +19,25 @@ const CONFIG_HOME = realpathSync.native(mkdtempSync(join(tmpdir(), "fisi-dock-he
 const GLOBAL_CONFIG = join(CONFIG_HOME, "gitconfig");
 writeFileSync(GLOBAL_CONFIG, "");
 process.on("exit", () => rmSync(CONFIG_HOME, { recursive: true, force: true }));
-const GIT_ENV = {
-	...process.env,
-	GIT_CONFIG_GLOBAL: GLOBAL_CONFIG,
-	GIT_CONFIG_NOSYSTEM: "1",
-	// The default core.excludesFile is $XDG_CONFIG_HOME/git/ignore.
-	XDG_CONFIG_HOME: CONFIG_HOME,
-};
+// Command-scope configuration git takes from the environment (GIT_CONFIG_COUNT with GIT_CONFIG_KEY_<n> /
+// GIT_CONFIG_VALUE_<n>, GIT_CONFIG_PARAMETERS, the legacy GIT_CONFIG) outranks every config file, so the
+// empty global config alone would not isolate the fixture; nor would an inherited repository location.
+// Environment names are case-insensitive on Windows, hence the i flag.
+const INHERITED_GIT_OVERRIDES = /^(GIT_CONFIG(_.*)?|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_NAMESPACE|GIT_EXCLUDE_FROM)$/i;
+
+/** `base` without any inherited git configuration or repository override, pointed at the fixture-local config. */
+function isolatedGitEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {};
+	for (const [name, value] of Object.entries(base)) if (!INHERITED_GIT_OVERRIDES.test(name)) env[name] = value;
+	return {
+		...env,
+		GIT_CONFIG_GLOBAL: GLOBAL_CONFIG,
+		GIT_CONFIG_NOSYSTEM: "1",
+		// The default core.excludesFile is $XDG_CONFIG_HOME/git/ignore.
+		XDG_CONFIG_HOME: CONFIG_HOME,
+	};
+}
+const GIT_ENV = isolatedGitEnv(process.env);
 
 function run(cwd: string, args: string[]) {
 	return spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: GIT_ENV });
@@ -162,4 +175,31 @@ test("readHeadsUpGit re-checks a branch when the target commit changed but its t
 	} finally {
 		forgetSquashVerdicts();
 	}
+});
+
+test("the fixture's git environment drops inherited command-scope config, so an inherited *.txt exclude cannot reject git add (S36)", (t) => {
+	if (run(tmpdir(), ["--version"]).status !== 0) return t.skip("git is not installed");
+	const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "fisi-dock-heads-up-env-")));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const excludes = join(dir, "excludes");
+	writeFileSync(excludes, "*.txt\n");
+	const inherited = {
+		...process.env,
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "core.excludesFile",
+		GIT_CONFIG_VALUE_0: excludes,
+		GIT_CONFIG_PARAMETERS: "'core.excludesfile=" + excludes + "'",
+		git_config_count: "1",
+	};
+	const env = isolatedGitEnv(inherited);
+	for (const name of Object.keys(env)) assert.ok(!/^GIT_CONFIG_(COUNT|KEY_|VALUE_|PARAMETERS)/i.test(name), `${name} was inherited`);
+	assert.equal(env.GIT_CONFIG_GLOBAL, GLOBAL_CONFIG);
+
+	const repo = join(dir, "repo");
+	const at = (override: NodeJS.ProcessEnv, ...args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf8", windowsHide: true, env: override });
+	assert.equal(spawnSync("git", ["init", "-q", repo], { encoding: "utf8", windowsHide: true, env }).status, 0);
+	writeFileSync(join(repo, "a.txt"), "a\n");
+	assert.notEqual(at(inherited, "add", "--", "a.txt").status, 0, "the inherited override would have rejected the file");
+	const added = at(env, "add", "--", "a.txt");
+	assert.equal(added.status, 0, added.stderr);
 });
