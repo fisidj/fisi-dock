@@ -282,3 +282,114 @@ test("coderabbit PR6 a relative link to a missing file in a linked folder resolv
 	assert.equal(readFileSync(unrelated, "utf8"), "unrelated", "the file at the alias-relative path is untouched");
 	assert.equal(readDockTheme(path), "dark");
 });
+
+test("coderabbit PR6 S37 a chain of links to a missing file is followed to its end: every link stays, the save lands at the last target", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const target = join(dir, "dotfiles-state.json");
+	const link2 = join(dir, "link2.json");
+	const path = join(dir, "state.json");
+	try {
+		symlinkSync(target, link2, "file");
+		symlinkSync(link2, path, "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	assert.equal(writeDockEnabled(path, false, "dark"), true);
+	assert.equal(lstatSync(path).isSymbolicLink(), true, "the first link stays a link");
+	assert.equal(lstatSync(link2).isSymbolicLink(), true, "the second link stays a link");
+	assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { enabled: false, theme: "dark" }, "saved at the end of the chain");
+	assert.equal(readDockTheme(path), "dark", "read back through both links");
+	assert.deepEqual(readdirSync(dir).toSorted(), ["dotfiles-state.json", "link2.json", "state.json"], "no temporary file stays");
+});
+
+test("coderabbit PR6 S37 each relative link in a chain counts from the real folder of the link that holds it", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const real = join(dir, "real", "dock");
+	const second = join(dir, "real", "second");
+	mkdirSync(real, { recursive: true });
+	mkdirSync(second, { recursive: true });
+	const alias = join(dir, "alias");
+	const unrelated = join(dir, "final.json");
+	writeFileSync(unrelated, "unrelated");
+	try {
+		symlinkSync(real, alias, "dir");
+		// real/dock/state.json -> ../second/hop.json, and real/second/hop.json -> ../final.json (real/final.json).
+		symlinkSync(join("..", "second", "hop.json"), join(real, "state.json"), "file");
+		symlinkSync(join("..", "final.json"), join(second, "hop.json"), "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	const path = join(alias, "state.json");
+	assert.equal(writeDockEnabled(path, false, "dark"), true);
+	assert.equal(lstatSync(join(real, "state.json")).isSymbolicLink(), true, "the first link stays a link");
+	assert.equal(lstatSync(join(second, "hop.json")).isSymbolicLink(), true, "the second link stays a link");
+	assert.deepEqual(JSON.parse(readFileSync(join(dir, "real", "final.json"), "utf8")), { enabled: false, theme: "dark" }, "saved where the second link points");
+	assert.equal(readFileSync(unrelated, "utf8"), "unrelated", "the file one folder up from the alias is untouched");
+	assert.equal(readDockTheme(path), "dark");
+});
+
+test("coderabbit PR6 S37 a chain of links that loops fails the save and replaces nothing", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	const other = join(dir, "other.json");
+	try {
+		symlinkSync(other, path, "file");
+		symlinkSync(path, other, "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	assert.equal(writeDockEnabled(path, false, "dark"), false, "a loop of two links");
+	assert.equal(writeDockLook(path, DEFAULT_LOOK), false, "the look is refused too");
+	assert.equal(lstatSync(path).isSymbolicLink(), true, "the link is still a link, not replaced by a file");
+	assert.equal(lstatSync(other).isSymbolicLink(), true, "the other link is still a link");
+	assert.deepEqual(readdirSync(dir).toSorted(), ["other.json", "state.json"], "no file was made");
+	assert.equal(readDockEnabled(path), true, "reads as the default");
+	const self = join(dir, "self.json");
+	try {
+		symlinkSync(self, self, "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	assert.equal(writeDockEnabled(self, false), false, "a link to itself");
+	assert.equal(lstatSync(self).isSymbolicLink(), true, "it is still a link");
+});
+
+test("coderabbit PR6 S37 a chain longer than the depth cap fails the save and replaces nothing", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const names = Array.from({ length: 30 }, (_, index) => join(dir, `link${index}.json`));
+	try {
+		for (const [index, name] of names.entries()) symlinkSync(index === names.length - 1 ? join(dir, "end.json") : names[index + 1], name, "file");
+	} catch {
+		return t.skip("symlinks cannot be made here");
+	}
+	assert.equal(writeDockEnabled(names[0], false), false);
+	assert.deepEqual(readdirSync(dir).toSorted(), names.map((name) => name.slice(dir.length + 1)).toSorted(), "no file was made, no link replaced");
+	assert.equal(lstatSync(names[0]).isSymbolicLink(), true);
+});
+
+test("coderabbit PR6 S38 a foreign file at the temporary name makes the save fail and is left alone", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const path = join(dir, "state.json");
+	assert.equal(writeDockEnabled(path, true, "dark"), true);
+	const before = readFileSync(path, "utf8");
+	// The temporary name is `<path>.<pid>.<ms>.<counter>.tmp`. With the clock fixed, every name this write
+	// can pick (the counter only grows with each write in this process) is taken by a foreign file, so
+	// the exclusive create fails whichever counter it reaches.
+	const at = 1_700_000_000_000;
+	t.mock.method(Date, "now", () => at);
+	const strays: string[] = [];
+	for (let counter = 1; counter <= 400; counter++) {
+		const stray = `${path}.${process.pid}.${at.toString(36)}.${counter.toString(36)}.tmp`;
+		writeFileSync(stray, `foreign ${counter}`);
+		strays.push(stray);
+	}
+	assert.equal(writeDockEnabled(path, false), false, "the exclusive create failed, so the save says false");
+	assert.equal(readFileSync(path, "utf8"), before, "the previous file is whole");
+	for (const [index, stray] of strays.entries()) assert.equal(readFileSync(stray, "utf8"), `foreign ${index + 1}`, `a foreign file stays: ${stray}`);
+	assert.equal(readdirSync(dir).length, strays.length + 1, "nothing else appeared");
+});
