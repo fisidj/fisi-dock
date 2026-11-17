@@ -69,14 +69,24 @@ export function mcpNamespace(server: string): string {
  * codemode-exposed ones included, and re-registers the tools of a server that
  * dropped or was switched off as hidden. So: a visible tool is connected; only
  * hidden tools or an unreadable list is unknown; no tool is unknown until
- * `settled` (the grace period passed), then failing.
+ * `settled` (the grace period passed), then failing. A tool belongs to one
+ * server (S11): the one named by its declared namespace; without that
+ * metadata, the one with the longest namespace prefix of its name.
  */
 export function mcpServerStates(names: readonly string[], tools: unknown, settled: boolean): McpServerInfo[] {
 	const list = Array.isArray(tools) ? tools.map(record).filter((tool) => tool !== undefined) : undefined;
+	const namespaces = names.map(mcpNamespace);
+	const ownerOf = (tool: Record<string, unknown>) => {
+		const declared = record(tool.namespace)?.name;
+		if (typeof declared === "string") return declared;
+		if (typeof tool.name !== "string") return undefined;
+		const name = tool.name;
+		return namespaces.filter((namespace) => name.startsWith(`${namespace}__`)).toSorted((a, b) => b.length - a.length)[0];
+	};
 	return names.map((name) => {
 		if (!list) return { name, state: "unknown" };
 		const namespace = mcpNamespace(name);
-		const own = list.filter((tool) => (typeof tool.name === "string" && tool.name.startsWith(`${namespace}__`)) || record(tool.namespace)?.name === namespace);
+		const own = list.filter((tool) => ownerOf(tool) === namespace);
 		if (own.some((tool) => tool.exposure !== "hidden")) return { name, state: "connected" };
 		return { name, state: own.length === 0 && settled ? "failing" : "unknown" };
 	});

@@ -86,3 +86,17 @@ test("a tool list Pi could not give: every server unknown", () => {
 test("a prefix of another server's name does not count: mcp__eng is not mcp__engram", () => {
 	assert.deepEqual(mcpServerStates(["eng"], [tool("mcp__engram__mem_save")], true), [{ name: "eng", state: "failing" }]);
 });
+
+test("a tool belongs to one server: the declared namespace first, else the longest server prefix (S11)", () => {
+	const states = (tools: unknown[], names = ["a", "a__b"]) => mcpServerStates(names, tools, true).map(({ name, state }) => `${name}:${state}`);
+	// Named like server a__b's tool (also a prefix match for a): only a__b is connected.
+	assert.deepEqual(states([tool("mcp__a__b__read")]), ["a:failing", "a__b:connected"]);
+	// An explicit namespace wins over the name.
+	assert.deepEqual(states([tool("read", { namespace: { name: "mcp__a__b" } })]), ["a:failing", "a__b:connected"]);
+	assert.deepEqual(states([tool("mcp__a__b__read", { namespace: { name: "mcp__a" } })]), ["a:connected", "a__b:failing"]);
+	// The shorter server still matches its own tools, with or without metadata.
+	assert.deepEqual(states([tool("mcp__a__read")]), ["a:connected", "a__b:failing"]);
+	assert.deepEqual(states([tool("mcp__a__read"), tool("mcp__a__b__read", { exposure: "hidden" })]), ["a:connected", "a__b:unknown"]);
+	// A server that is not configured does not steal the tool.
+	assert.deepEqual(states([tool("mcp__a__b__read")], ["a"]), ["a:connected"]);
+});
