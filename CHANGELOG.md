@@ -10,8 +10,8 @@
 
 - A newer Fisi Dock taking over an older one keeps Gentle Shell's original part, so turning the dock off gives it back.
 - Repository names and changed paths with terminal control sequences are drawn without them in the heads-up and the changes list.
-- The state file is replaced in one step, so a failed write keeps the previous settings; `/fisi-dock on` that cannot save still gives the theme in use back on `off`.
-- CI keeps two workflows apart when their cleaned names match, and a detached HEAD clears the previous branch's runs and stops polling them.
+- The state file is replaced in one step, so a failed write keeps the previous settings; `/fisi-dock on` that cannot save still gives the theme in use back on `off`. A symlinked state file keeps its link and its mode, and two saves in the same millisecond no longer get in each other's way.
+- CI keeps two workflows apart when their cleaned names match, and a detached HEAD clears the previous branch's runs and stops polling them. A `gh` too old to know a workflow's id still shows CI.
 - Agent start times are forgotten with the agent list, a continued agent's clock restarts, a refused continuation is rolled back, and a waiting agent's time keeps ticking in the narrow agents card.
 - Todo progress counts no longer keep stale numbers.
 - The heads-up re-checks a branch's merge verdict when the default branch moves to a new commit with the same tree, and does not list the current worktree as another one when Pi starts from a link to it.
