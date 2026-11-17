@@ -27,6 +27,8 @@ export interface CiRuns {
 	runs: CiRun[];
 	/** Epoch ms of the successful list read that gave these runs (S66). */
 	readAt?: number;
+	/** The installed gh refused workflowDatabaseId: later reads ask without it. */
+	legacyList?: true;
 }
 
 /** Runs one gh command in the session folder; Pi's exec in the extension. */
@@ -148,12 +150,13 @@ async function ghOutput(exec: CiExec, args: string[]): Promise<string | undefine
 	return result?.code === 0 ? result.stdout : undefined;
 }
 
-/** The list read; a gh that refuses the workflowDatabaseId field is asked once more without it. */
-async function listOutput(exec: CiExec, branch: string): Promise<string | undefined> {
+/** The list read; a gh that refuses the workflowDatabaseId field is asked once more without it, and `legacy` says so. */
+async function listOutput(exec: CiExec, branch: string, legacy: boolean): Promise<{ stdout?: string; legacy: boolean }> {
+	if (legacy) return { stdout: await ghOutput(exec, ciListArgs(branch, false)), legacy };
 	const result = await ghResult(exec, ciListArgs(branch));
-	if (result?.code === 0) return result.stdout;
-	if (!result || !/workflowDatabaseId/.test(result.stderr ?? "")) return undefined;
-	return ghOutput(exec, ciListArgs(branch, false));
+	if (result?.code === 0) return { stdout: result.stdout, legacy };
+	if (!result || !/workflowDatabaseId/.test(result.stderr ?? "")) return { legacy };
+	return { stdout: await ghOutput(exec, ciListArgs(branch, false)), legacy: true };
 }
 
 /**
@@ -164,7 +167,7 @@ async function listOutput(exec: CiExec, branch: string): Promise<string | undefi
  * the read failed or timed out (keep what is shown); null: no runs.
  */
 export async function readCi(exec: CiExec, branch: string, previous?: CiRuns, now: () => number = Date.now): Promise<CiRuns | null | undefined> {
-	const stdout = await listOutput(exec, branch);
+	const { stdout, legacy } = await listOutput(exec, branch, previous?.legacyList === true);
 	const read = stdout === undefined ? undefined : ciRunsFromList(stdout);
 	if (!read) return read;
 	const readAt = now();
@@ -179,7 +182,7 @@ export async function readCi(exec: CiExec, branch: string, previous?: CiRuns, no
 		if (!view) runs.push(run);
 		else runs.push({ ...run, ...(view.job !== undefined ? { failedJob: view.job } : {}), jobRead: true });
 	}
-	return { sha: read.sha, runs, readAt };
+	return { sha: read.sha, runs, readAt, ...(legacy ? { legacyList: true as const } : {}) };
 }
 
 /** Whole seconds from `from` to `to`; none when either is unknown. */

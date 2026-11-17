@@ -227,6 +227,9 @@ test("review R3 readCi: a gh that does not know workflowDatabaseId is asked agai
 	assert.equal(calls.length, 2);
 	assert.equal(calls[1].at(-1), "databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha");
 	calls.length = 0;
+	assert.equal((await readCi(oldGh, "main", read!))?.sha, "abc1234", "the next read");
+	assert.deepEqual(calls, [ciListArgs("main", false)], "remembers the older gh: one call, without the field");
+	calls.length = 0;
 	const offline: CiExec = async (args) => {
 		calls.push(args);
 		return { code: 1, stdout: "", stderr: "error connecting to api.github.com" };
