@@ -179,6 +179,25 @@ test("S28 a fallback caused by a label too long for the bare box is tried again 
 	assert.ok(plain(editor.render(20)[0]).startsWith("╭─ ✿"), "the shorter label boxes at the same width");
 });
 
+test("S33 an animated petal does not retry a fallback whose label still does not fit", () => {
+	const options = { label: "implementing…" + "x".repeat(30), petals: ["✿", "❀", "❁", "✾"], turn: 0 };
+	const widths: number[] = [];
+	const editorLike = Object.assign((_tui: unknown) => ({
+		topRowCount: 0,
+		render(width: number) {
+			widths.push(width);
+			const rows = gentleRows(width, {});
+			rows[0] = `─ ${options.petals[options.turn++ % options.petals.length]} ${options.label} ─`;
+			return rows;
+		},
+	}), { [PROMPT_OWNER]: true });
+	const editor = wrapPromptFactory(editorLike, { painting, labels: () => LABELS })(tuiWith(true), {}, {});
+	for (let frame = 0; frame < 6; frame++) assert.ok(!plain(editor.render(20)[0]).startsWith("╭"), "too long: Gentle Shell's rows");
+	assert.deepEqual(widths, [16, 20, 20, 20, 20, 20, 20], "one render per frame while the label stays, whatever the petal");
+	options.label = "ok";
+	assert.ok(plain(editor.render(20)[0]).startsWith("╭─ ✿"), "the shorter label boxes at the same width");
+});
+
 test("too tight for the right part: the mode, model and effort drop first, the box stays (S88)", () => {
 	// A model too long for the rule even alone: nothing of ours is left to compact to (S3).
 	const long = { modelId: "claude-opus-5-5-very-long-preview-build", effort: "high" };

@@ -88,4 +88,8 @@ test("S30 sliceColumns keeps a combining mark with its base and never starts a s
 	assert.equal(sliceColumns("e\u0301x", 0, 0), "", "nothing selected, no mark");
 	assert.equal(sliceColumns("\u65e5\u0301a", 0, 2), "\u65e5\u0301");
 	assert.equal(sliceColumns("\x1b[31me\u0301x\x1b[39m", 0, 1), "\x1b[31me\u0301\x1b[0m", "escapes before it stay");
+	assert.equal(sliceColumns("\u0301a", 0, 1), "a", "S34 a mark before the first base is dropped");
+	assert.equal(sliceColumns("\u0301\u0302a", 0, 1), "a", "every leading mark");
+	assert.equal(sliceColumns("\x1b[31m\u0301a\x1b[39m", 0, 1), "\x1b[31ma\x1b[39m\x1b[0m", "an escape before the orphan mark is kept");
+	assert.equal(sliceColumns("\u0301", 0, 1), "", "marks only");
 });

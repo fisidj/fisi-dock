@@ -25,6 +25,11 @@ function isWideSymbol(codePoint: number): boolean {
 	return false;
 }
 
+/** A combining mark or variation selector: zero width, and it belongs to the character before it. */
+function isCombiningMark(codePoint: number): boolean {
+	return (codePoint >= 0x300 && codePoint <= 0x36f) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f);
+}
+
 function charWidth(codePoint: number): number {
 	// Printable ASCII, most of what the panel draws, skips the range checks below.
 	if (codePoint >= 0x20 && codePoint < 0x7f) return 1;
@@ -165,6 +170,11 @@ export function sliceColumns(text: string, from: number, to: number): string {
 		// A zero-width mark goes with the character before it: kept when that was kept, left out when not.
 		if (next === 0 && hasBase) {
 			if (selected) out += String.fromCodePoint(codePoint);
+			index += size;
+			continue;
+		}
+		// A mark before any base has nothing to attach to: it never starts a slice.
+		if (!hasBase && isCombiningMark(codePoint)) {
 			index += size;
 			continue;
 		}

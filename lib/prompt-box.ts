@@ -304,7 +304,8 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 		let direct: { width: number; retry: boolean; rule: string } | undefined;
 		const ruleOf = (rows: string[]): string => {
 			const rule = rows[topRowsOf(editor)];
-			return rule === undefined ? "" : strip(rule).replace(/─+/g, "─");
+			// The petal turns every frame while the label stays: it is not part of what must fit, so it is normalized.
+			return rule === undefined ? "" : strip(rule).replace(/─+/g, "─").replace(/^(─ )\S/u, "$1✿");
 		};
 		const unboxed = (rows: string[]): string[] => {
 			frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false, leftOut: -1 };
