@@ -63,3 +63,29 @@ test("fitWidth gives exactly the width: padded when the text fits, cut with … 
 		for (let width = -1; width <= 12; width++) assert.equal(fitWidth(text, width), padEnd(ellipsize(text, width), width), `${JSON.stringify(text)} at ${width}`);
 	}
 });
+
+// Expected widths come from Unicode EastAsianWidth.txt (W and F), not from the code under test.
+test("S29 emoji-presentation symbols below U+2E80 and in the old emoji blocks are 2 columns wide", () => {
+	for (const glyph of ["\u231a", "\u231b", "\u2329", "\u232a", "\u23e9", "\u23f0", "\u23f3", "\u25fd", "\u2614", "\u2648", "\u267f", "\u2693", "\u26a1", "\u26bd", "\u26c4", "\u26d4", "\u26ea", "\u2705", "\u270a", "\u2728", "\u274c", "\u2753", "\u2795", "\u27b0", "\u2b1b", "\u2b50", "\u2b55", "\u{1f004}", "\u{1f0cf}", "\u{1f18e}", "\u{1f191}", "\u{1f201}", "\u{1f22f}"]) {
+		assert.equal(visibleWidth(glyph), 2, `U+${glyph.codePointAt(0)!.toString(16)}`);
+	}
+	assert.equal(padEnd("\u231a", 2), "\u231a", "no padding: the glyph already fills two columns");
+	assert.equal(padEnd("\u231a", 4), "\u231a  ");
+	assert.equal(truncateToWidth("\u231a\u231a", 3), "\u231a", "a second wide glyph does not fit in column 3");
+});
+
+test("S29 the narrow symbols the panel draws stay 1 column", () => {
+	for (const glyph of ["─", "╭", "█", "▰", "⣿", "→", "↑", "✿", "✓", "✗", "·", "…", "☃", "⌘", "\u23f4", "\u25fc", "⚠", "★", "\u2b1d", "\u2b56"]) {
+		assert.equal(visibleWidth(glyph), 1, `U+${glyph.codePointAt(0)!.toString(16)}`);
+	}
+});
+
+test("S30 sliceColumns keeps a combining mark with its base and never starts a slice with an orphan mark", () => {
+	assert.equal(sliceColumns("e\u0301x", 0, 1), "e\u0301");
+	assert.equal(sliceColumns("e\u0301x", 1, 2), "x", "the accent belongs to the base left out of the slice");
+	assert.equal(sliceColumns("ae\u0301\u0302x", 1, 2), "e\u0301\u0302", "every mark after the base");
+	assert.equal(sliceColumns("e\u0301x", 0, 2), "e\u0301x");
+	assert.equal(sliceColumns("e\u0301x", 0, 0), "", "nothing selected, no mark");
+	assert.equal(sliceColumns("\u65e5\u0301a", 0, 2), "\u65e5\u0301");
+	assert.equal(sliceColumns("\x1b[31me\u0301x\x1b[39m", 0, 1), "\x1b[31me\u0301\x1b[0m", "escapes before it stay");
+});
