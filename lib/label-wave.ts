@@ -40,7 +40,7 @@ export function waveLabel(label: string, now: number, accent: Accent = "pink", c
 }
 
 /** Gentle Shell's working petal (lib/shell-prompt.ts PETAL_FRAMES): four flowers, one column each. */
-const PETAL_FRAMES = ["✿", "❀", "❁", "✾"] as const;
+export const PETAL_FRAMES = ["✿", "❀", "❁", "✾"] as const;
 /**
  * Its tones (PETAL_TONE_FRAMES: mdQuoteBorder, thinkingHigh, accent, borderAccent, accent, thinkingHigh,
  * mdQuoteBorder twice) in the colors of the Fisi Dock theme for color mode `mode` (look settings S4)

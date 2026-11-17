@@ -339,7 +339,9 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			if (at < 0) continue;
 			const before = stack[at];
 			if (at < stack.length - 1) {
-				stack[at + 1] = { ...before, ...(stack[at + 1].callId !== undefined ? { callId: stack[at + 1].callId } : {}) };
+				// The merged entry is the newer call's: its id, or none; never the refused older call's.
+				const { callId: _older, ...rollback } = before;
+				stack[at + 1] = { ...rollback, ...(stack[at + 1].callId !== undefined ? { callId: stack[at + 1].callId } : {}) };
 				stack.splice(at, 1);
 				return true;
 			}
@@ -419,7 +421,8 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 			if (!details) {
 				if (toolName === RUN_TOOL) return drop(toolName, callId);
 				if (toolName !== CONTINUE_TOOL) return false;
-				return (callId !== undefined && restore(callId)) || drop(toolName, callId) || restore(undefined);
+				// An id that names no recorded call (a late duplicate, or one an older call already merged away) must not roll back the newest call: only an id-less result does.
+				return (callId !== undefined && restore(callId)) || drop(toolName, callId) || (callId === undefined && restore(undefined));
 			}
 			const known = tasks.get(details.taskId);
 			const current = known ?? adopt(details.taskId, callId);

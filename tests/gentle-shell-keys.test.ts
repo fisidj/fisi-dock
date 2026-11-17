@@ -2,10 +2,14 @@
 // renamed or removed key in Gentle Shell would not fail type checking: Fisi Dock would just
 // go quiet. This test checks that every gentle-pi.* key Fisi Dock reads still exists in a
 // Gentle Shell package (gentle-pi, the one `gentle-shell --link` loads). It proves the key
-// exists, not the shape of the data behind it. The default run reads a pinned fixture written
-// out literally from Gentle Shell 4.8.0 (tests/fixtures/gentle-shell-4.8.0), independent of
+// exists, not the shape of the data behind it. The default run reads a pinned fixture
+// (tests/fixtures/gentle-shell-4.8.0): a hand-written pin of the names Fisi Dock reads, as of
+// Gentle Shell 4.8.0, not source text copied from that release. It is kept independent of
 // READ_KEYS and PROMPT_PIECES, so it never depends on this machine's PATH, npm, home or
-// Gentle Shell version, and a key added only on Fisi Dock's side fails it. Checking a real installation is opt-in: set FISI_DOCK_CHECK_INSTALLED_GENTLE_SHELL=1.
+// Gentle Shell version, and a key added only on Fisi Dock's side fails it. It proves the
+// scanner works and that the pinned names still match what Fisi Dock reads; it does not prove
+// Gentle Shell itself still defines them. Only the opt-in check against a real installation
+// proves upstream compatibility: set FISI_DOCK_CHECK_INSTALLED_GENTLE_SHELL=1.
 // The installed package is then GENTLE_SHELL_DIR when set, else the one Gentle Shell itself
 // loads (the package its launcher injects into a session, else the `gentle-shell` launcher's
 // own on PATH: pnpm and npm alike), else gentle-pi in the global npm root (`npm root -g`);
@@ -195,7 +199,7 @@ function missingPromptPieces(dir: string): string[] {
 	return missing.sort();
 }
 
-// The pinned Gentle Shell 4.8.0 package: literal source text kept in the repository, never built from READ_KEYS or PROMPT_PIECES.
+// The pinned Gentle Shell 4.8.0 names: a hand-written fixture kept in the repository, never built from READ_KEYS or PROMPT_PIECES, and not a copy of upstream source.
 const PINNED_GENTLE_SHELL = join(import.meta.dirname, "fixtures", "gentle-shell-4.8.0");
 
 // Generated packages, written to a temp folder, for the scanner's negative tests only: they lose a key or a piece on purpose.
@@ -220,7 +224,7 @@ function pinnedFiles(keys: string[] = READ_KEYS, pieces: [string, string[]][] = 
 	return files;
 }
 
-test("the pinned Gentle Shell 4.8.0 fixture defines every key and prompt piece Fisi Dock relies on", () => {
+test("the hand-written Gentle Shell 4.8.0 pin still names every key and prompt piece Fisi Dock reads (not proof of upstream compatibility: only the opt-in installed check is)", () => {
 	assert.equal(JSON.parse(readFileSync(join(PINNED_GENTLE_SHELL, "package.json"), "utf8")).version, "4.8.0");
 	assert.deepEqual(missingKeys(gentlePiKeys(FISI_DOCK_DIR), gentlePiKeys(PINNED_GENTLE_SHELL)), []);
 	assert.deepEqual(missingPromptPieces(PINNED_GENTLE_SHELL), []);

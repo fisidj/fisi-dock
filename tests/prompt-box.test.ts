@@ -179,6 +179,26 @@ test("S28 a fallback caused by a label too long for the bare box is tried again 
 	assert.ok(plain(editor.render(20)[0]).startsWith("╭─ ✿"), "the shorter label boxes at the same width");
 });
 
+test("S40 a rule without a petal keeps its label's first character in the fallback key: a label changing only there retries the box", () => {
+	const options = { first: "A" };
+	const widths: number[] = [];
+	const editorLike = Object.assign((_tui: unknown) => ({
+		topRowCount: 0,
+		render(width: number) {
+			widths.push(width);
+			const rows = gentleRows(width, {});
+			rows[0] = `─ ${options.first} ${"x".repeat(40)} ─`;
+			return rows;
+		},
+	}), { [PROMPT_OWNER]: true });
+	const editor = wrapPromptFactory(editorLike, { painting, labels: () => LABELS })(tuiWith(true), {}, {});
+	for (let frame = 0; frame < 2; frame++) assert.ok(!plain(editor.render(20)[0]).startsWith("╭"), "too long: Gentle Shell's rows");
+	assert.deepEqual(widths, [16, 20, 20], "one render per frame while the rule stays");
+	options.first = "B";
+	editor.render(20);
+	assert.deepEqual(widths, [16, 20, 20, 20, 16], "the changed first character is a new rule: the box is tried again");
+});
+
 test("S33 an animated petal does not retry a fallback whose label still does not fit", () => {
 	const options = { label: "implementing…" + "x".repeat(30), petals: ["✿", "❀", "❁", "✾"], turn: 0 };
 	const widths: number[] = [];

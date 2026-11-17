@@ -602,3 +602,20 @@ test("review R3 refusing the older of two overlapping continue calls keeps the n
 	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c3"), true);
 	assert.deepEqual(tracker.agents(1_000), done, "both refused: the finished row");
 });
+
+test("S41 the older of two overlapping continue calls refused while a newer call without an id is in flight: a late result for the old id leaves the newer row alone", () => {
+	const tracker = createSubagentTracker("s1", () => 1_000);
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c1");
+	tracker.status(statusEvent("t1", "running", 1));
+	tracker.status(statusEvent("t1", "completed", 2));
+	const done = tracker.agents(1_000);
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Again", label: "second pass", mode: "task" }, "c2");
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "More", label: "third pass", mode: "task" });
+	const latest = tracker.agents(1_000);
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), true, "the older call's refusal is a change");
+	assert.deepEqual(tracker.agents(1_000), latest, "the newer call keeps its row");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), false, "a late duplicate for the old id is no change");
+	assert.deepEqual(tracker.agents(1_000), latest, "and does not roll the newer call's row back");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true), true, "the newer call, refused without an id, gives the finished row back");
+	assert.deepEqual(tracker.agents(1_000), done);
+});

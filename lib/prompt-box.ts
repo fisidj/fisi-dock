@@ -15,11 +15,13 @@
 // flat gray, faded like the rail boxes, or none, the labels on a fading top rule alone. Light
 // colors paint what the box adds for a light background (look-more S5); Gentle Shell's petal,
 // label, hint and rows keep the colors it painted them in.
-import { waveLabel, wavePetal } from "./label-wave.ts";
+import { PETAL_FRAMES, waveLabel, wavePetal } from "./label-wave.ts";
 import type { Accent, ColorMode, FrameStyle } from "./look.ts";
 import { dim, fadeAmount, fadedEdge, fg, labelAccent, palette, tone } from "./palette.ts";
 import { promptLineSteps, type PromptLineModel, type PromptLinePart } from "./prompt-line.ts";
 import { ellipsize, padEnd, sliceColumns, truncateToWidth, visibleWidth } from "./text.ts";
+/** The petal after the rule's leading `─ `, any frame: masked in the fallback key so its turning does not retry the box (S33, S40). */
+const PETAL_KEY = new RegExp(`^(─ )[${PETAL_FRAMES.join("")}]`, "u");
 
 /** Gentle Shell marks its editor factory with this symbol (extensions/gentle-shell.ts): it steps aside for an unmarked editor and resets only a marked one at shutdown. */
 export const PROMPT_OWNER = Symbol.for("gentle-pi.prompt-owner");
@@ -305,7 +307,8 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 		const ruleOf = (rows: string[]): string => {
 			const rule = rows[topRowsOf(editor)];
 			// The petal turns every frame while the label stays: it is not part of what must fit, so it is normalized.
-			return rule === undefined ? "" : strip(rule).replace(/─+/g, "─").replace(/^(─ )\S/u, "$1✿");
+			// Only one of Gentle Shell's petal glyphs is masked: a rule without a petal keeps its label's first character in the key.
+			return rule === undefined ? "" : strip(rule).replace(/─+/g, "─").replace(PETAL_KEY, "$1✿");
 		};
 		const unboxed = (rows: string[]): string[] => {
 			frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false, leftOut: -1 };
