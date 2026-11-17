@@ -60,10 +60,8 @@ function replaceFile(path: string, text: string): void {
 	}
 	// The counter keeps two writes in one millisecond apart; another process has another pid.
 	const temp = `${target}.${process.pid}.${Date.now().toString(36)}.${(++tempSequence).toString(36)}.tmp`;
-	let made = false;
 	try {
 		writeFileSync(temp, text, { flag: "wx" });
-		made = true;
 		if (mode !== undefined) chmodSync(temp, mode);
 		for (let attempt = 1; ; attempt++) {
 			try {
@@ -77,8 +75,8 @@ function replaceFile(path: string, text: string): void {
 			}
 		}
 	} catch (error) {
-		// Only a file this write made is removed.
-		if (made) rmSync(temp, { force: true });
+		// The name is this write's own, so a half-written file left by a failed write is removed too.
+		rmSync(temp, { force: true });
 		throw error;
 	}
 }

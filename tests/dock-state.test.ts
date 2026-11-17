@@ -212,7 +212,7 @@ test("coderabbit S5 the state file is replaced whole: no temporary file stays, a
 	assert.deepEqual(readdirSync(dir).toSorted(), ["blocked.json", "state.json"], "the temporary file is removed after a failed replace");
 });
 
-test("review R4 a leftover temporary file with the same name neither fails the save nor is removed", (t) => {
+test("review R4 a leftover temporary file from the same process and millisecond neither fails the save nor is removed", (t) => {
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "state.json");
