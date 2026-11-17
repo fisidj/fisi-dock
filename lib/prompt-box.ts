@@ -300,7 +300,12 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 		// width; `retry`: the fallback was not panel chrome, so the box is tried again
 		// the frame the chrome comes back. Panel chrome too tight for the box waits for
 		// a new width.
-		let direct: { width: number; retry: boolean } | undefined;
+		// `rule`: the full-width rule it failed on, so a new label (which can fit the bare box now) tries the box again.
+		let direct: { width: number; retry: boolean; rule: string } | undefined;
+		const ruleOf = (rows: string[]): string => {
+			const rule = rows[topRowsOf(editor)];
+			return rule === undefined ? "" : strip(rule).replace(/─+/g, "─");
+		};
 		const unboxed = (rows: string[]): string[] => {
 			frame = { boxed: false, ruleShift: LEFT_COLUMNS, top: 0, buttonDropped: false, leftOut: -1 };
 			deps.onRender?.(false);
@@ -316,7 +321,8 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 			let full: string[] | undefined;
 			if (direct?.width === columns) {
 				full = render.call(editor, width);
-				if (!direct.retry || !isPanelChrome(full, topRowsOf(editor))) return unboxed(full);
+				const chrome = isPanelChrome(full, topRowsOf(editor));
+				if (direct.retry ? !chrome : !chrome || ruleOf(full) === direct.rule) return unboxed(full);
 			}
 			const rows = render.call(editor, columns - FRAME_COLUMNS);
 			const top = topRowsOf(editor);
@@ -328,15 +334,17 @@ export function wrapPromptFactory(original: EditorFactory, deps: PromptBoxDeps):
 				deps.onScanning?.(box.scanning);
 				return box.rows;
 			}
-			direct = { width: columns, retry: !full && !isPanelChrome(rows, top) };
-			return unboxed(full ?? render.call(editor, width));
+			const fallback = full ?? render.call(editor, width);
+			direct = { width: columns, retry: !full && !isPanelChrome(rows, top), rule: ruleOf(fallback) };
+			return unboxed(fallback);
 		};
 		if (typeof handleMouse === "function") {
 			editor.handleMouse = function (event: MouseEvent): unknown {
 				if (!frame.boxed || !event || typeof event !== "object") return handleMouse.call(editor, event);
 				// The rule row holds Gentle Shell's dropped `[ Panel ]` button: a click there stays with the box.
 				if (event.y === frame.top && frame.buttonDropped) return undefined;
-				const shift = event.y === frame.top ? frame.ruleShift : LEFT_COLUMNS;
+				// Rows above the rule have no left border: their x stays as it came.
+				const shift = event.y < frame.top ? 0 : event.y === frame.top ? frame.ruleShift : LEFT_COLUMNS;
 				// Rows under the row the box left out sit one higher than in Gentle Shell's rows.
 				const y = frame.leftOut >= 0 && event.y >= frame.leftOut ? event.y + 1 : event.y;
 				return handleMouse.call(editor, { ...event, x: Math.max(0, event.x - shift), y, width: event.width - FRAME_COLUMNS });
