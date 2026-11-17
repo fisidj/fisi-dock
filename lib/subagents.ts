@@ -320,8 +320,10 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 		return created;
 	};
 	/** Drops the pending call `callId`, else the oldest of `toolName`'s kind; true when one went. */
-	const drop = (toolName: unknown, callId: string | undefined): boolean => {
+	/** Removes the pending call `callId` names; without a match, the oldest of its kind, unless `exact` (an id must name its own call). */
+	const drop = (toolName: unknown, callId: string | undefined, exact = false): boolean => {
 		let at = callId === undefined ? -1 : pending.findIndex((entry) => entry.callId === callId);
+		if (at < 0 && exact && callId !== undefined) return false;
 		if (at < 0) at = pending.findIndex((entry) => (entry.call.taskId === undefined) === (toolName === RUN_TOOL));
 		if (at < 0) return false;
 		pending.splice(at, 1);
@@ -422,7 +424,7 @@ export function createSubagentTracker(sessionId: string, now: () => number): Sub
 				if (toolName === RUN_TOOL) return drop(toolName, callId);
 				if (toolName !== CONTINUE_TOOL) return false;
 				// An id that names no recorded call (a late duplicate, or one an older call already merged away) must not roll back the newest call: only an id-less result does.
-				return (callId !== undefined && restore(callId)) || drop(toolName, callId) || (callId === undefined && restore(undefined));
+				return (callId !== undefined && restore(callId)) || drop(toolName, callId, true) || (callId === undefined && restore(undefined));
 			}
 			const known = tasks.get(details.taskId);
 			const current = known ?? adopt(details.taskId, callId);

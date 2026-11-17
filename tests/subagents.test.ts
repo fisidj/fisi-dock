@@ -619,3 +619,18 @@ test("S41 the older of two overlapping continue calls refused while a newer call
 	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true), true, "the newer call, refused without an id, gives the finished row back");
 	assert.deepEqual(tracker.agents(1_000), done);
 });
+
+test("coderabbit PR6 a late refusal for a merged-away continue id does not drop another pending continuation", () => {
+	const tracker = createSubagentTracker("s1", () => 1_000);
+	tracker.call("subagent_run", { agent: "explore", task: "Map", label: "map footer", mode: "task" }, "c1");
+	tracker.status(statusEvent("t1", "running", 1));
+	tracker.status(statusEvent("t1", "completed", 2));
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "Again", label: "second pass", mode: "task" }, "c2");
+	tracker.call("subagent_continue", { task_id: "t1", prompt: "More", label: "third pass", mode: "task" }, "c3");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), true);
+	// A continuation of a task this session does not know yet: pending until its result names it.
+	tracker.call("subagent_continue", { task_id: "t2", prompt: "Elsewhere", label: "fourth pass", mode: "task" }, "c4");
+	assert.equal(tracker.result("subagent_continue", refusal(WRITER_SURFACE_REFUSAL), true, "c2"), false, "a late duplicate for c2 is no change");
+	assert.equal(tracker.result("subagent_continue", taskResult("t2", { agent: "explore", status: "running", label: undefined }), false, "c4"), true);
+	assert.ok(tracker.agents(1_000).some((agent) => agent.task === "fourth pass"), "c4 kept its pending call: its row carries its label");
+});
