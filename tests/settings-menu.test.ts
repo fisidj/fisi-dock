@@ -321,3 +321,29 @@ test("look-more S6 render: the sections screen lists every section in order with
 	assert.match(plain(renderSettings(hidden, 60, 4, model()).at(-1)!), /^ space show · shift\+↑↓ move · Esc back *$/, "a short screen keeps the hint");
 	console.log(`--- the sections screen, 60x24\n${lines.join("\n")}`);
 });
+
+test("S16 render: a short screen scrolls the rows to keep the selected one visible, on the settings and on the sections screen", () => {
+	const shown = (state: SettingsState, height: number) => renderSettings(state, 60, height, model()).map(plain);
+	// Height 5: four rows and the hint. Every row, one after the other, is on screen and marked.
+	SETTINGS_ROWS.forEach((key, row) => {
+		const lines = shown({ row, look: { ...DEFAULT_LOOK } }, 5);
+		assert.equal(lines.length, 5);
+		const marked = lines.filter((line) => line.startsWith(" › "));
+		assert.equal(marked.length, 1, `${key}: the selected row is visible`);
+		assert.equal(marked[0].slice(3).split(" ")[0], key);
+		assert.match(lines.at(-1)!, /Esc close/, `${key}: the hint stays last`);
+	});
+	assert.deepEqual(shown({ row: 0, look: { ...DEFAULT_LOOK } }, 5).slice(0, 4).map((line) => line.replace("›", " ").trim().split(" ")[0]), ["logo", "frames", "colors", "accent"], "at the top the first rows show, as before");
+	assert.match(shown({ row: 6, look: { ...DEFAULT_LOOK } }, 5)[3], /^ › sections +7 of 7 ›/, "the last row is the last visible one");
+	// The sections screen: the cursor item stays visible too.
+	for (let item = 0; item < DEFAULT_SECTIONS.length; item++) {
+		const lines = shown(onSections(undefined, item), 5);
+		const marked = lines.filter((line) => line.startsWith(" › "));
+		assert.equal(marked.length, 1, `section ${item}: the cursor is visible`);
+		assert.equal(marked[0].trim().split(" ").at(-1), DEFAULT_SECTIONS[item].id);
+		assert.match(lines.at(-1)!, /Esc back/);
+	}
+	// One row: just the hint; two rows: one item and the hint, still the selected one.
+	assert.match(shown({ row: 5, look: { ...DEFAULT_LOOK } }, 1)[0], /Esc close/);
+	assert.match(shown({ row: 5, look: { ...DEFAULT_LOOK } }, 2)[0], /^ › motion/);
+});

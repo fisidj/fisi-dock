@@ -156,7 +156,7 @@ function sectionRow(state: SettingsState, index: number): string {
  * The settings overlay at `width` x `height`: exactly `height` rows of exactly
  * `width` columns. The title, the rows (the selected one marked `›`), then,
  * with `model` and the room for it, the rail in the chosen look, and the hint
- * on the last row. A screen too short for all of it keeps the rows and the hint. Light colors
+ * on the last row. A screen too short for all of it keeps the hint and as many rows as fit, scrolled to keep the selected one in view. Light colors
  * paint the menu for a light background, like the preview (look-more S5). The sections screen
  * lists the sections in place of the rows, with its own title and hint (look-more S6).
  */
@@ -171,7 +171,11 @@ export function renderSettings(state: SettingsState, width: number, height: numb
 	const title = own(` ${bold(fg(accentBase(state.look.accent), "Fisi Dock look"))}${onSections ? ` ${fg(palette.faint, "›")} ${bold(fg(palette.text, "sections"))}` : ""}`);
 	let lines: string[];
 	if (rows < HEAD_ROWS + 1) {
-		lines = [...items.slice(0, rows - 1), ...Array<string>(Math.max(0, rows - 1 - items.length)).fill(""), hint].slice(-rows);
+		// A viewport of the rows that fit above the hint, following the selected one (its row, or the sections screen's cursor).
+		const room = rows - 1;
+		const selected = wrap(onSections ? (state.item ?? 0) : state.row, items.length);
+		const first = Math.max(0, Math.min(selected - room + 1, items.length - room));
+		lines = [...items.slice(first, first + room), ...Array<string>(Math.max(0, room - items.length)).fill(""), hint].slice(-rows);
 	} else {
 		const room = rows - HEAD_ROWS - 1;
 		const previewWidth = Math.min(PREVIEW_WIDTH, columns - 2);
