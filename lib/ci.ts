@@ -30,18 +30,20 @@ export interface CiRuns {
 }
 
 /** Runs one gh command in the session folder; Pi's exec in the extension. */
-export type CiExec = (args: string[]) => Promise<{ stdout: string; code: number }>;
+export type CiExec = (args: string[]) => Promise<{ stdout: string; stderr?: string; code: number }>;
 
 const LIST_LIMIT = 20;
 const LIST_FIELDS = "databaseId,workflowDatabaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha";
+/** For a gh too old to know workflowDatabaseId: runs are then kept apart by their raw workflow name. */
+const LEGACY_LIST_FIELDS = LIST_FIELDS.replace("workflowDatabaseId,", "");
 /** gh names past this many characters are cut (S64). */
 const NAME_CAP = 80;
 const SHORT_SHA = 7;
 /** Past this long without a successful list read, a running check's time and spinner hold (S66). */
 const STALE_MS = 90_000;
 
-export function ciListArgs(branch: string): string[] {
-	return ["run", "list", "--branch", branch, "--limit", String(LIST_LIMIT), "--json", LIST_FIELDS];
+export function ciListArgs(branch: string, workflowId = true): string[] {
+	return ["run", "list", "--branch", branch, "--limit", String(LIST_LIMIT), "--json", workflowId ? LIST_FIELDS : LEGACY_LIST_FIELDS];
 }
 
 export function ciViewArgs(id: number): string[] {
@@ -133,13 +135,25 @@ function viewJob(stdout: string): { job?: string } | undefined {
 	return { job: step ? `${name} · ${step}` : name };
 }
 
-async function ghOutput(exec: CiExec, args: string[]): Promise<string | undefined> {
+async function ghResult(exec: CiExec, args: string[]): Promise<{ stdout: string; stderr?: string; code: number } | undefined> {
 	try {
-		const result = await exec(args);
-		return result.code === 0 ? result.stdout : undefined;
+		return await exec(args);
 	} catch {
 		return undefined;
 	}
+}
+
+async function ghOutput(exec: CiExec, args: string[]): Promise<string | undefined> {
+	const result = await ghResult(exec, args);
+	return result?.code === 0 ? result.stdout : undefined;
+}
+
+/** The list read; a gh that refuses the workflowDatabaseId field is asked once more without it. */
+async function listOutput(exec: CiExec, branch: string): Promise<string | undefined> {
+	const result = await ghResult(exec, ciListArgs(branch));
+	if (result?.code === 0) return result.stdout;
+	if (!result || !/workflowDatabaseId/.test(result.stderr ?? "")) return undefined;
+	return ghOutput(exec, ciListArgs(branch, false));
 }
 
 /**
@@ -150,7 +164,7 @@ async function ghOutput(exec: CiExec, args: string[]): Promise<string | undefine
  * the read failed or timed out (keep what is shown); null: no runs.
  */
 export async function readCi(exec: CiExec, branch: string, previous?: CiRuns, now: () => number = Date.now): Promise<CiRuns | null | undefined> {
-	const stdout = await ghOutput(exec, ciListArgs(branch));
+	const stdout = await listOutput(exec, branch);
 	const read = stdout === undefined ? undefined : ciRunsFromList(stdout);
 	if (!read) return read;
 	const readAt = now();

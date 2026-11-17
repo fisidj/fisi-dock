@@ -213,3 +213,24 @@ test("two workflows whose cleaned names match are kept apart by their workflow i
 	const unnamedIds = ciRunsFromList(list([run({ databaseId: 4, workflowName: `${long}a`, createdAt: at(2) }), run({ databaseId: 5, workflowName: `${long}b`, createdAt: at(1) })]));
 	assert.equal(unnamedIds?.runs.length, 2, "without workflow ids, names that only differ after the cut stay apart");
 });
+
+test("review R3 readCi: a gh that does not know workflowDatabaseId is asked again without it; other failures are asked once", async () => {
+	const calls: string[][] = [];
+	const ok = JSON.stringify([{ databaseId: 1, workflowName: "tests", name: "tests", status: "completed", conclusion: "success", headSha: "abc1234", createdAt: "2026-01-01T00:00:00Z" }]);
+	const oldGh: CiExec = async (args) => {
+		calls.push(args);
+		return args.at(-1)!.includes("workflowDatabaseId") ? { code: 1, stdout: "", stderr: 'Unknown JSON field: "workflowDatabaseId"\nAvailable fields:\n  databaseId\n' } : { code: 0, stdout: ok };
+	};
+	const read = await readCi(oldGh, "main");
+	assert.equal(read?.sha, "abc1234");
+	assert.deepEqual(read?.runs.map((entry) => entry.name), ["tests"]);
+	assert.equal(calls.length, 2);
+	assert.equal(calls[1].at(-1), "databaseId,workflowName,name,status,conclusion,startedAt,updatedAt,createdAt,headSha");
+	calls.length = 0;
+	const offline: CiExec = async (args) => {
+		calls.push(args);
+		return { code: 1, stdout: "", stderr: "error connecting to api.github.com" };
+	};
+	assert.equal(await readCi(offline, "main"), undefined);
+	assert.equal(calls.length, 1, "one try when gh fails for another reason");
+});
