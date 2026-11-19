@@ -85,8 +85,10 @@ function cardLines(info: WelcomeInfo, width: number): string[] {
 /**
  * Gentle Shell's version for this agent home, from the `provisioned` record in its
  * config.json (the folder above the agent home): `4.6.0-main.dd37ffe` reads `4.6.0-main`.
+ * Gentle Shell 4.9 keys the record by the home's real path, so `realHome` is tried
+ * after the path as given.
  */
-export function shellVersion(configText: string | undefined, agentHome: string): string | undefined {
+export function shellVersion(configText: string | undefined, agentHome: string, realHome?: string): string | undefined {
 	if (configText === undefined) return undefined;
 	let config: unknown;
 	try {
@@ -95,7 +97,9 @@ export function shellVersion(configText: string | undefined, agentHome: string):
 		return undefined;
 	}
 	const provisioned = (config as { provisioned?: Record<string, { gentlePi?: unknown }> } | null)?.provisioned;
-	const version = provisioned?.[agentHome]?.gentlePi;
+	const versionAt = (home: string | undefined) => (home === undefined ? undefined : provisioned?.[home]?.gentlePi);
+	const given = versionAt(agentHome);
+	const version = typeof given === "string" ? given : versionAt(realHome);
 	if (typeof version !== "string") return undefined;
 	const match = /^(\d+\.\d+\.\d+)(-[0-9A-Za-z]+)?/.exec(version);
 	return match ? match[1] + (match[2] ?? "") : undefined;

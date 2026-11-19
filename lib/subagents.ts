@@ -32,8 +32,10 @@ const PENDING_CAP = 32;
 const NAME_CAP = 32;
 const TASK_CAP = 120;
 const MODEL_CAP = 64;
-/** A presence activity file past this size is not read (Gentle Shell marks such files `activity-too-large`). */
-const ACTIVITY_SIZE_CAP = 8 * 1024 * 1024;
+/** A presence activity file past this size is not read: Gentle Shell 4.9's ACTIVITY_LIMIT; past it, Gentle Shell writes no activity file and marks the header `activity-too-large`. */
+const ACTIVITY_SIZE_CAP = 16 * 1024 * 1024;
+/** The header beside an activity file is small (Gentle Shell reads it bounded too); past this it is ignored. */
+const HEADER_SIZE_CAP = 64 * 1024;
 
 const TASK_STATUSES = ["queued", "running", "waiting", "completed", "failed", "cancelled", "timed_out"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -173,7 +175,10 @@ function seedTask(row: unknown): SeedTask | undefined {
  * `<agentHome>/gentle-agents/presence/<sha256(sessionId)>.<incarnation>.activity.json`,
  * written by Gentle Shell while tasks run: `{ schema: 1, …, activity: { tasks } }`,
  * or a bare `{ tasks }`. One bounded read; a missing directory or file, an
- * oversized file or unreadable JSON give [].
+ * oversized file or unreadable JSON give []. When the incarnation's header
+ * (`….header.json`) says `activity-too-large`, Gentle Shell stopped rewriting the
+ * activity file, so the one left on disk is stale and gives [] too; a missing or
+ * unreadable header changes nothing.
  */
 export async function readPresenceTasks(agentHome: string, sessionId: string): Promise<SeedTask[]> {
 	try {
@@ -188,11 +193,23 @@ export async function readPresenceTasks(agentHome: string, sessionId: string): P
 			if (!newest || stat.mtimeMs > newest.mtime) newest = { path, mtime: stat.mtimeMs };
 		}
 		if (!newest) return [];
+		if (await activityTooLarge(newest.path.replace(/\.activity\.json$/, ".header.json"))) return [];
 		const file = record(JSON.parse(await fs.readFile(newest.path, "utf8")));
 		const tasks = record(file?.activity)?.tasks ?? file?.tasks;
 		return Array.isArray(tasks) ? tasks.map(seedTask).filter((task): task is SeedTask => task !== undefined) : [];
 	} catch {
 		return [];
+	}
+}
+
+/** Whether the presence header at `path` says its activity is too large to publish; false when it is missing, oversized or unreadable. */
+async function activityTooLarge(path: string): Promise<boolean> {
+	try {
+		const stat = await fs.stat(path);
+		if (!stat.isFile() || stat.size > HEADER_SIZE_CAP) return false;
+		return record(JSON.parse(await fs.readFile(path, "utf8")))?.unavailable === "activity-too-large";
+	} catch {
+		return false;
 	}
 }
 

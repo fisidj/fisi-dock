@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Tested with Gentle Shell 4.9.0.
+
+### Fixed
+
+- Subagent rows read Gentle Shell 4.9's presence activity files up to its 16 MiB limit (8 MiB before), and no longer take a stale file when Gentle Shell marks the session's activity too large to publish.
+- The welcome card finds Gentle Shell's version when the agent home is reached through a link: Gentle Shell 4.9 records it under the home's real path.
+
 ## 0.5.2
 
 ### Changed

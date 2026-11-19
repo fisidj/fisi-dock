@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -723,7 +723,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		// Shell Pi keeps its own header.
 		if (!gentleShellLoaded()) return () => {};
 		const home = agentHomeDir(process.env, attempt(() => homedir()) ?? "");
-		const version = shellVersion(attempt(() => readFileSync(join(dirname(home), "config.json"), "utf8")), home);
+		const version = shellVersion(attempt(() => readFileSync(join(dirname(home), "config.json"), "utf8")), home, attempt(() => realpathSync(home)));
 		// Fisi Dock's own version, from the package.json beside this extension's folder;
 		// unreadable, the card names the brand alone.
 		const dockVersion = attempt(() => {

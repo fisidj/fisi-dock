@@ -58,6 +58,16 @@ test("the shell version comes from Gentle Shell's config for this agent home, bu
 	assert.equal(shellVersion(undefined, home), undefined);
 });
 
+test("Gentle Shell 4.9 keys `provisioned` by the agent home's real path, so a home reached through a link finds its version under the real one; the path as given still wins", () => {
+	const linked = "C:\\Users\\me\\.gentle-shell\\agent";
+	const real = "D:\\homes\\agent";
+	const config = JSON.stringify({ provisioned: { [real]: { gentlePi: "4.9.0-main.ce64a9a708e5" } } });
+	assert.equal(shellVersion(config, linked, real), "4.9.0-main");
+	assert.equal(shellVersion(config, linked), undefined, "without the real path: not found, as before");
+	const both = JSON.stringify({ provisioned: { [linked]: { gentlePi: "4.8.0" }, [real]: { gentlePi: "4.9.0" } } });
+	assert.equal(shellVersion(both, linked, real), "4.8.0");
+});
+
 test("the title names Fisi Dock's version, muted after the pink brand; the version drops before the brand when the row is short", () => {
 	const info = { version: "4.7.0-main", dockVersion: "0.5.0", project: "my-app", branch: "main" };
 	// The title row's text inside the frame (the card is width - 6 columns inside).

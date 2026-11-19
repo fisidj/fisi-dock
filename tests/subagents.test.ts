@@ -246,6 +246,49 @@ test("S87 presence file as Gentle Shell writes it (schema 1): the tasks under `a
 	}
 });
 
+test("S87 presence size: Gentle Shell 4.9 writes activity files up to 16 MiB, so a file past 8 MiB is read and one past 16 MiB is not", async () => {
+	const scratch = mkdtempSync(join(tmpdir(), "fisi-dock-subagents-"));
+	const presence = join(scratch, "agent", "gentle-agents", "presence");
+	mkdirSync(presence, { recursive: true });
+	const hash = createHash("sha256").update("s1").digest("hex");
+	const file = join(presence, `${hash}.11111111-1111-4111-8111-111111111111.activity.json`);
+	const task = { summary: { id: "t1", agent: "gentle-ai-worker", label: "label t1", status: "running", model: "m", createdAt: 1_000, startedAt: 1_500, endedAt: null, lastActivityAt: 2_000 }, thread: { version: 1, dropped: 0, items: [] } };
+	const sized = (bytes: number) => {
+		const body = JSON.stringify({ schema: 1, activity: { tasks: [task] }, pad: "" });
+		return body.replace('"pad":""', `"pad":"${"x".repeat(bytes - body.length)}"`);
+	};
+	try {
+		writeFileSync(file, sized(9 * 1024 * 1024));
+		assert.deepEqual(await readPresenceTasks(join(scratch, "agent"), "s1"), [{ id: "t1", agent: "gentle-ai-worker", label: "label t1", status: "running", model: "m", startedAt: 1_500 }], "9 MiB is read");
+		writeFileSync(file, sized(16 * 1024 * 1024 + 1));
+		assert.deepEqual(await readPresenceTasks(join(scratch, "agent"), "s1"), [], "past 16 MiB is not read");
+	} finally {
+		rmSync(scratch, { recursive: true, force: true });
+	}
+});
+
+test("S87 presence header: when the incarnation's header says activity-too-large, the activity file left on disk is stale and gives nothing; a header with unavailable null changes nothing", async () => {
+	const scratch = mkdtempSync(join(tmpdir(), "fisi-dock-subagents-"));
+	const presence = join(scratch, "agent", "gentle-agents", "presence");
+	mkdirSync(presence, { recursive: true });
+	const hash = createHash("sha256").update("s1").digest("hex");
+	const incarnation = "11111111-1111-4111-8111-111111111111";
+	const task = { summary: { id: "t1", agent: "gentle-ai-worker", label: "label t1", status: "running", model: "m", createdAt: 1_000, startedAt: 1_500, endedAt: null, lastActivityAt: 2_000 }, thread: { version: 1, dropped: 0, items: [] } };
+	writeFileSync(join(presence, `${hash}.${incarnation}.activity.json`), JSON.stringify({ schema: 1, sessionHash: hash, incarnation, generation: 3, activity: { tasks: [task] } }));
+	const header = (unavailable: string | null, generation: number) => writeFileSync(join(presence, `${hash}.${incarnation}.header.json`), JSON.stringify({ schema: 1, sessionHash: hash, incarnation, label: "x", heartbeat: 1, generation, counts: { running: 1, queued: 0, waiting: 0, finished: 0 }, digest: unavailable ? null : "0".repeat(64), unavailable }));
+	const seeded = [{ id: "t1", agent: "gentle-ai-worker", label: "label t1", status: "running", model: "m", startedAt: 1_500 }];
+	try {
+		header(null, 3);
+		assert.deepEqual(await readPresenceTasks(join(scratch, "agent"), "s1"), seeded, "header available: read as before");
+		header("activity-too-large", 4);
+		assert.deepEqual(await readPresenceTasks(join(scratch, "agent"), "s1"), [], "header too large: stale file ignored");
+		writeFileSync(join(presence, `${hash}.${incarnation}.header.json`), "{ not json");
+		assert.deepEqual(await readPresenceTasks(join(scratch, "agent"), "s1"), seeded, "an unreadable header changes nothing");
+	} finally {
+		rmSync(scratch, { recursive: true, force: true });
+	}
+});
+
 const presenceTask = (id: string, extra: Partial<{ agent: string; label: string; model: string; status: "queued" | "running" | "waiting" }> = {}) => ({ id, agent: "gentle-ai-worker", label: `file label ${id}`, status: "running" as const, model: "claude-bridge/claude-opus-5-5", startedAt: 1, ...extra });
 
 test("S87 details: a queued, running or waiting task with no model takes the file's model, and its label when it has none, before its result", () => {
