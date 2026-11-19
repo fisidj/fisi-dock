@@ -16,8 +16,8 @@ export const DIVIDER_LEVELS = ["medium", "off", "subtle", "strong"] as const;
 /** Animations on (today) or off, every animated glyph on one fixed frame (look-more S2). */
 export const MOTION_MODES = ["on", "off"] as const;
 
-/** The rail sections a user can hide or move (look-more S6), in today's order; session is always shown and first, so it is not here. */
-export const SECTION_IDS = ["heads-up", "odd", "rdd", "ci", "agents", "todo", "changes"] as const;
+/** The rail sections a user can hide or move (look-more S6), in today's order; session is always shown and first, so it is not here. `sessions` (peer-agents 02) came after the others: see INSERTED_AFTER. */
+export const SECTION_IDS = ["heads-up", "odd", "rdd", "ci", "agents", "sessions", "todo", "changes"] as const;
 
 export type LogoStyle = (typeof LOGO_STYLES)[number];
 export type FrameStyle = (typeof FRAME_STYLES)[number];
@@ -77,9 +77,20 @@ const LIGHT_THEME = "Fisi-Dock-Light";
 export const FISI_DOCK_THEMES: readonly string[] = [...ACCENTS.flatMap((accent) => (["vivid", "soft"] as const).map((mode) => themeNameFor(mode, accent))), LIGHT_THEME];
 
 /**
+ * Sections added after look-more S6 shipped, each with the section it follows. A saved look
+ * from before has none of them, so one missing from the saved list goes right after its
+ * predecessor, not at the end: the new section sits where today's order puts it.
+ */
+const INSERTED_AFTER: Readonly<Partial<Record<SectionId, SectionId>>> = { sessions: "agents" };
+
+/**
  * The sections from anything (look-more S6): the saved order and the hidden ones kept;
  * an unknown id, a repeated one or a bad entry dropped; each missing id after them in
- * today's order, shown. Only `shown: false` hides. Not a list: today's. Fresh entries.
+ * today's order, shown. Only `shown: false` hides, so a saved look never hides a section by
+ * leaving it out: a missing id is always one the look predates (or a hand-edited list)
+ * and comes back shown. A missing id listed in INSERTED_AFTER (`sessions`) is put right
+ * after its predecessor instead of last; the ids are handled in today's order, so the
+ * predecessor is already in the list, saved or appended. Not a list: today's. Fresh entries.
  */
 export function normalizeSections(value: unknown): SectionSetting[] {
 	const sections: SectionSetting[] = [];
@@ -88,7 +99,12 @@ export function normalizeSections(value: unknown): SectionSetting[] {
 		const id = pick(SECTION_IDS, raw.id, undefined);
 		if (id && !sections.some((section) => section.id === id)) sections.push({ id, shown: raw.shown !== false });
 	}
-	for (const id of SECTION_IDS) if (!sections.some((section) => section.id === id)) sections.push({ id, shown: true });
+	for (const id of SECTION_IDS) {
+		if (sections.some((section) => section.id === id)) continue;
+		const after = INSERTED_AFTER[id];
+		const at = after === undefined ? -1 : sections.findIndex((section) => section.id === after);
+		sections.splice(at < 0 ? sections.length : at + 1, 0, { id, shown: true });
+	}
 	return sections;
 }
 

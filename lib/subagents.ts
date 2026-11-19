@@ -33,9 +33,9 @@ const NAME_CAP = 32;
 const TASK_CAP = 120;
 const MODEL_CAP = 64;
 /** A presence activity file past this size is not read: Gentle Shell 4.9's ACTIVITY_LIMIT; past it, Gentle Shell writes no activity file and marks the header `activity-too-large`. */
-const ACTIVITY_SIZE_CAP = 16 * 1024 * 1024;
+export const ACTIVITY_SIZE_CAP = 16 * 1024 * 1024;
 /** The header beside an activity file is small (Gentle Shell reads it bounded too); past this it is ignored. */
-const HEADER_SIZE_CAP = 64 * 1024;
+export const HEADER_SIZE_CAP = 64 * 1024;
 
 const TASK_STATUSES = ["queued", "running", "waiting", "completed", "failed", "cancelled", "timed_out"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -50,13 +50,13 @@ const AGENT_STATE: Record<TaskStatus, AgentInfo["state"]> = {
 	timed_out: "failed",
 };
 
-const record = (value: unknown): Record<string, unknown> | undefined =>
+export const record = (value: unknown): Record<string, unknown> | undefined =>
 	value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 
 const isStatus = (value: unknown): value is TaskStatus => typeof value === "string" && (TASK_STATUSES as readonly string[]).includes(value);
 
 /** Model-provided text as one printable, bounded line (S61 rule): escapes, controls and bidi overrides go, whitespace collapses. */
-function clean(value: unknown, cap: number): string | undefined {
+export function clean(value: unknown, cap: number): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const text = printable(value).replace(/\s+/g, " ").trim().slice(0, cap);
 	return text || undefined;
@@ -156,7 +156,7 @@ export function agentHomeDir(env: Record<string, string | undefined>, home: stri
 
 const ACTIVITY_FILE = /^([a-f0-9]{64})\.([0-9a-f-]{36})\.activity\.json$/;
 
-function seedTask(row: unknown): SeedTask | undefined {
+export function seedTask(row: unknown): SeedTask | undefined {
 	const summary = record(record(row)?.summary);
 	if (!summary || !identity(summary.id) || typeof summary.agent !== "string" || typeof summary.label !== "string" || !isStatus(summary.status) || FINISHED.has(summary.status)) return undefined;
 	const startedAt = summary.startedAt;

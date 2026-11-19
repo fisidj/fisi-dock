@@ -55,7 +55,7 @@ It is a Pi package (an extension and its themes) that paints its own panel in Ge
 
 ## What you get
 
-- **Side panel** in the fullscreen rail, one framed section each, under the GENTLESHELL logo, with a fading divider line between the chat and the panel: `session` (project and branch, context meter, model profile and cost, Engram memory and MCP servers, and the skills Pi loaded, in that order; `/skills` or `ctrl+alt+s`, named on a muted line under the row, unfolds their names), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `todo` and `changes`. On short screens the least urgent rows and sections step aside first.
+- **Side panel** in the fullscreen rail, one framed section each, under the GENTLESHELL logo, with a fading divider line between the chat and the panel: `session` (project and branch, context meter, model profile and cost, Engram memory and MCP servers, and the skills Pi loaded, in that order; `/skills` or `ctrl+alt+s`, named on a muted line under the row, unfolds their names), `heads-up` (worktrees, unpushed commits, open plans), `ODD`, `RDD`, `CI` (GitHub Actions of the branch), `agents`, `sessions` (one short row per other Gentle Shell session with unfinished agents, with its counts), `todo` and `changes`. On short screens the least urgent rows and sections step aside first, `sessions` before all.
 - **Your own look**: `/fisi-dock settings` picks the rail logo, the section frames, the colors (`vivid`, `soft` or `light`), the accent, the divider, the motion and the sections shown and their order, with a live preview ([Look](#look)).
 - **Start screen**: a welcome card in place of Gentle Shell's rose banner (Gentle Shell's and Fisi Dock's versions, the project and branch, the commands to begin with), and Pi's list of loaded skills, prompts and extensions folded into one `loaded` box under it. Your expand key (`ctrl+o` by default) shows Pi's full listing; Pi's warnings always show.
 - **Prompt box**: Gentle Shell's prompt framed like the panel's sections, with the working label (`ODD exploring…`), the permission mode, the model and the effort on its top border. Your messages get the same frame.
@@ -155,7 +155,7 @@ Gentle Shell and Pi controls that change what Fisi Dock shows:
 | `accent` | `pink`: Fisi Dock's pink | `teal` · `lilac` · `amber` · `green` |
 | `divider` | `medium`: the fading line between the chat and the rail | `off`: no line, its column stays blank so the panel does not move · `subtle`: dimmer · `strong`: brighter |
 | `motion` | `on`: spinners, the ODD orb, the prompt label wave and petal, and new rows' entrance move | `off`: all of them stand still on one frame and new rows appear at once |
-| `sections` | `7 of 7`: every section, in today's order | Hide or reorder `heads-up`, `odd`, `rdd`, `ci`, `agents`, `todo` and `changes` |
+| `sections` | `8 of 8`: every section, in today's order | Hide or reorder `heads-up`, `odd`, `rdd`, `ci`, `agents`, `sessions`, `todo` and `changes` |
 
 What each one reaches:
 

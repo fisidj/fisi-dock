@@ -3265,7 +3265,7 @@ test("look-more S6 settings › sections: → opens the list, space hides, Shift
 	assert.deepEqual(titles(before), ["session", "ODD", "todo"], "today's rail");
 	const settings = await openSettings(sim);
 	for (let index = 0; index < 6; index++) settings.view.handleInput?.(DOWN);
-	assert.match(plain(settings.view.render(60)[8]), /^ › sections  7 of 7 › *$/);
+	assert.match(plain(settings.view.render(60)[8]), /^ › sections  8 of 8 › *$/);
 	settings.view.handleInput?.(RIGHT);
 	let shown = settings.view.render(60).map(plain);
 	assert.match(shown[0], /^ Fisi Dock look › sections *$/);
@@ -3276,20 +3276,21 @@ test("look-more S6 settings › sections: → opens the list, space hides, Shift
 	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(" ");
 	const sections = () => (readState(path).look.sections as { id: string; shown: boolean }[]).map((section) => `${section.shown ? "" : "!"}${section.id}`).join(" ");
-	assert.equal(sections(), "heads-up !odd rdd ci agents todo changes", "space hides ODD, saved");
+	assert.equal(sections(), "heads-up !odd rdd ci agents sessions todo changes", "space hides ODD, saved");
 	assert.deepEqual(titles(rail.render(57)), ["session", "todo"], "the rail drops ODD at once");
 	assert.notEqual(rail.digest(), digest, "Gentle Shell's rail memo sees it");
 
-	for (let index = 0; index < 4; index++) settings.view.handleInput?.(DOWN);
+	for (let index = 0; index < 5; index++) settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.("\x1b[1;2A");
-	assert.equal(sections(), "heads-up !odd rdd ci todo agents changes", "Shift+↑ moves todo up");
+	assert.equal(sections(), "heads-up !odd rdd ci agents todo sessions changes", "Shift+↑ moves todo up");
 	settings.view.handleInput?.("K");
 	settings.view.handleInput?.("K");
 	settings.view.handleInput?.("K");
-	assert.equal(sections(), "heads-up todo !odd rdd ci agents changes", "K moves it on");
+	settings.view.handleInput?.("K");
+	assert.equal(sections(), "heads-up todo !odd rdd ci agents sessions changes", "K moves it on");
 	settings.view.handleInput?.(DOWN);
 	settings.view.handleInput?.(" ");
-	assert.equal(sections(), "heads-up todo odd rdd ci agents changes", "the cursor followed todo: one down is ODD, space shows it again");
+	assert.equal(sections(), "heads-up todo odd rdd ci agents sessions changes", "the cursor followed todo: one down is ODD, space shows it again");
 	assert.deepEqual(titles(rail.render(57)), ["session", "todo", "ODD"], "todo above ODD on the rail");
 	shown = settings.view.render(60).map(plain);
 	assert.match(shown[3], /^ {3}\[x\] todo *$/);
@@ -3300,11 +3301,11 @@ test("look-more S6 settings › sections: → opens the list, space hides, Shift
 	assert.equal(settings.closed(), false, "Esc goes back to the main rows");
 	shown = settings.view.render(60).map(plain);
 	assert.match(shown[0], /^ Fisi Dock look *$/);
-	assert.match(shown[8], /^ › sections  7 of 7 › *$/);
+	assert.match(shown[8], /^ › sections  8 of 8 › *$/);
 	settings.view.handleInput?.("\x1b");
 	await settings.pending;
 	assert.ok(settings.closed(), "Esc on the main rows closes");
-	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "faded", colors: "vivid", accent: "pink", divider: "medium", motion: "on", sections: ["heads-up", "todo", "odd", "rdd", "ci", "agents", "changes"].map((id) => ({ id, shown: true })) } });
+	assert.deepEqual(readState(path), { enabled: true, themeApplied: true, look: { logo: "braille", frames: "faded", colors: "vivid", accent: "pink", divider: "medium", motion: "on", sections: ["heads-up", "todo", "odd", "rdd", "ci", "agents", "sessions", "changes"].map((id) => ({ id, shown: true })) } });
 
 	// /dock takes the order too.
 	const dockOpen = Promise.resolve(sim.commands.get("dock")!.handler("", sim.ctx));
@@ -3632,7 +3633,7 @@ test("S1 without a UI, /fisi-dock settings only says the look; the picker offers
 	sim.ctx.hasUI = false;
 	await fisiDockCommand(sim, "settings");
 	assert.equal(sim.customs.length, 0);
-	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · accent pink · divider medium · motion on · sections 7 of 7 · /fisi-dock settings changes it in the interactive UI");
+	assert.equal(sim.notices.at(-1), "Fisi Dock look: logo braille · frames faded · colors vivid · accent pink · divider medium · motion on · sections 8 of 8 · /fisi-dock settings changes it in the interactive UI");
 	assert.deepEqual(readState(path), { enabled: true, themeApplied: true });
 	sim.ctx.hasUI = true;
 
@@ -3944,4 +3945,131 @@ test("look-more S4 every Fisi Dock theme counts as its own: on never remembers i
 	assert.deepEqual(start.themes, ["Fisi-Dock-Lilac"], "the first start applies the lilac theme");
 	assert.deepEqual(readState(first), { look: { accent: "lilac" }, enabled: true, theme: "dark", themeApplied: true });
 	start.emit("session_shutdown");
+});
+
+// --- peer-agents 02: the sessions section ---------------------------------------------
+
+/** A fresh GENTLE_PI_AGENT_HOME and the writer of another session's presence header (and its activity file) as Gentle Shell 4.9 writes them. */
+function peerPresence(t: TestContext) {
+	const scratch = mkdtempSync(join(tmpdir(), "fisi-dock-peers-"));
+	console.log(`--- peer presence scratch: ${scratch}`);
+	const saved = process.env.GENTLE_PI_AGENT_HOME;
+	process.env.GENTLE_PI_AGENT_HOME = join(scratch, "agent");
+	t.after(() => {
+		if (saved === undefined) delete process.env.GENTLE_PI_AGENT_HOME;
+		else process.env.GENTLE_PI_AGENT_HOME = saved;
+		rmSync(scratch, { recursive: true, force: true });
+	});
+	const dir = join(scratch, "agent", "gentle-agents", "presence");
+	mkdirSync(dir, { recursive: true });
+	const incarnation = "e6d7aaaa-1111-4222-8333-444455556666";
+	return {
+		header(label: string, counts: { running?: number; queued?: number; waiting?: number }, heartbeat = Date.now(), generation = 1) {
+			const hash = createHash("sha256").update(label).digest("hex");
+			writeFileSync(join(dir, `${hash}.${incarnation}.header.json`), JSON.stringify({ schema: 1, sessionHash: hash, incarnation, label, heartbeat, generation, counts: { running: 0, queued: 0, waiting: 0, finished: 0, ...counts }, digest: "0".repeat(64), unavailable: null }));
+			return hash;
+		},
+		activity(label: string, startedAt: number) {
+			const hash = createHash("sha256").update(label).digest("hex");
+			const summary = { id: "w1", agent: "explore", label: "Which SSH port?", status: "waiting", model: "haiku", createdAt: 1_000, startedAt, endedAt: null, lastActivityAt: 2_000 };
+			writeFileSync(join(dir, `${hash}.${incarnation}.activity.json`), JSON.stringify({ schema: 1, sessionHash: hash, incarnation, generation: 1, activity: { tasks: [{ summary, thread: { version: 1, dropped: 0, items: [] } }] } }));
+		},
+	};
+}
+const sessionRowsOf = (lines: string[]) => {
+	const start = lines.findIndex((line) => line.startsWith("╭─ sessions"));
+	return start < 0 ? undefined : lines.slice(start + 1, lines.findIndex((line, index) => index > start && line.startsWith("╰"))).map((line) => line.replace(/ +│$/, "").replace(/ {2,}/g, " "));
+};
+
+test("peer-agents 02 S1 S6 other sessions' presence headers show in the sessions section, read at session start and every ~5 s while the sidebar shows; unchanged data does not repaint; nothing is read hidden or after shutdown", async (t) => {
+	t.mock.timers.enable({ apis: ["setInterval", "Date"], now: 1_800_000_000_000 });
+	const peers = peerPresence(t);
+	peers.header("hub", { waiting: 1 });
+	const sim = simulate("E:\DEV\app", { ownsHost: () => true });
+	let renders = 0;
+	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
+	const terminal = sim.tui.terminal as Record<symbol, unknown>;
+	const state = terminal[SIDEBAR_STATE];
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(tui);
+	await waitFor(() => sessionRowsOf(railOf(sim)(58)) !== undefined);
+	assert.deepEqual(sessionRowsOf(railOf(sim)(58)), ["│▎! hub !1"], "read at session start: the waiting session, highlighted");
+
+	// Unchanged data (the header only got a newer heartbeat) repaints nothing.
+	peers.header("hub", { waiting: 1 });
+	let before = renders;
+	t.mock.timers.tick(5_000);
+	await ioPause(100);
+	assert.equal(renders, before, "the same sessions: no repaint");
+
+	// A change shows after the next poll.
+	peers.header("hub", { waiting: 2, queued: 1 });
+	peers.header("api", { queued: 3 });
+	t.mock.timers.tick(5_000);
+	await waitFor(() => (sessionRowsOf(railOf(sim)(58)) ?? []).length === 2);
+	assert.deepEqual(sessionRowsOf(railOf(sim)(58)), ["│▎! hub ○1 !2", "│ ○ api ○3"]);
+	assert.ok(renders > before, "a change repaints");
+	assert.match(plain(railPanelLine((sim.parts.get("footer") as Rail).render(58).find((line) => plain(line).includes("╭─ sessions"))!)), / 2 ─╮$/);
+
+	// Not on screen (no Gentle Shell sidebar state): no reads.
+	delete terminal[SIDEBAR_STATE];
+	peers.header("hub", { running: 1 });
+	peers.header("api", { queued: 3 });
+	t.mock.timers.tick(5_000);
+	await ioPause(100);
+	assert.deepEqual(sessionRowsOf(railOf(sim)(58)), ["│▎! hub ○1 !2", "│ ○ api ○3"], "nothing read while nothing of ours is visible");
+	terminal[SIDEBAR_STATE] = state;
+
+	// A run in progress does not stop it; a header gone stale or removed takes its row away.
+	sim.emit("agent_start");
+	peers.header("hub", { running: 1 }, Date.now() - 16_000);
+	peers.header("api", { queued: 3 });
+	t.mock.timers.tick(5_000);
+	await waitFor(() => (sessionRowsOf(railOf(sim)(58)) ?? []).length === 1);
+	assert.deepEqual(sessionRowsOf(railOf(sim)(58)), ["│ ○ api ○3"], "a stale heartbeat is no longer live");
+	sim.emit("agent_settled");
+
+	// Shutdown stops the timer.
+	sim.emit("session_shutdown");
+	before = renders;
+	peers.header("api", { running: 4 });
+	t.mock.timers.tick(30_000);
+	await ioPause(100);
+	assert.equal(renders, before, "nothing read after shutdown");
+});
+
+test("peer-agents 02 S1 only this session's own presence is skipped, however many incarnations it left", async (t) => {
+	t.mock.timers.enable({ apis: ["setInterval", "Date"], now: 1_800_000_000_000 });
+	const peers = peerPresence(t);
+	peers.header("s1", { running: 5 });
+	const sim = simulate("E:\DEV\app", { ownsHost: () => true });
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(sim.tui);
+	await ioPause(100);
+	assert.equal(sessionRowsOf(railOf(sim)(58)), undefined, "this session's id is s1: its own header is not a peer");
+	sim.emit("session_shutdown");
+});
+
+test("peer-agents 02 S9 the narrow agents card shows a waiting session with its waiting time, which ticks; a session that only runs adds nothing", async (t) => {
+	t.mock.timers.enable({ apis: ["setInterval", "Date"], now: 1_800_000_000_000 });
+	const peers = peerPresence(t);
+	peers.header("hub", { waiting: 1 });
+	peers.activity("hub", Date.now() - 65_000);
+	peers.header("busy", { running: 2 });
+	let renders = 0;
+	const sim = simulate("E:\DEV\app", { ownsHost: () => false });
+	const tui = { terminal: sim.tui.terminal, requestRender: () => void renders++ };
+	sim.emit("session_start");
+	sim.widgets.get("fisi-dock")!(tui);
+	const strip = sim.widgets.get("fisi-dock-strip")!(tui);
+	await waitFor(() => strip.render(40).some((line) => line.includes("waits for you")));
+	const card = () => strip.render(40).map(plain).filter((line) => /^[╭│╰]/.test(line));
+	assert.equal(card().length, 3, "one row: the session that only runs adds none");
+	assert.match(card()[0], /^╭─ agents ─+ 1 ─╮$/);
+	assert.match(card()[1], /^│▎! hub waits for you +1:05 │$/);
+	const before = renders;
+	t.mock.timers.tick(1_000);
+	assert.ok(renders > before, "the time repaints while a session waits");
+	assert.match(card()[1], / 1:06 │$/, "the time followed the clock");
+	sim.emit("session_shutdown");
 });

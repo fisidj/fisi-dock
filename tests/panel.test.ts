@@ -1558,6 +1558,7 @@ test("the phone todo card and /dock's full list show the model's spinner frame (
 
 test("with nothing running the panel ignores the spinner frame: byte-identical output (S31)", () => {
 	const idle = clone(samplePanelModel);
+	delete idle.sessions;
 	delete idle.todo!.active;
 	idle.agents![1].state = "done";
 	idle.odd!.steps[3].state = "done";
@@ -1585,7 +1586,8 @@ test("a panel that fits the rows is unchanged; no row limit is the old output (S
 });
 
 test("short screens keep the logo, session, heads-up, ODD, todo and agents; drop the session's group labels, then odd and rdd spacers, then changes, then rdd with a running ODD cut to its active row (S38, S34, S50, S52)", () => {
-	const model: PanelModel = { ...clone(samplePanelModel), headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
+	// Without other sessions: sessions would step aside first (peer-agents 02 S8, tested below).
+	const model: PanelModel = { ...clone(samplePanelModel), sessions: undefined, headsUp: [{ kind: "unpushed", text: "1 commit not pushed" }] };
 	const full = renderPanel(model, 58).map(plain);
 	const logo = full.findIndex((line) => line.startsWith("╭─ session"));
 	assert.ok(logo > 0, "the full panel starts with the logo");
@@ -2905,7 +2907,7 @@ test("look-more S4 /dock and the narrow todo card follow the accent too", async 
 /** A sections list from `spec`, e.g. "todo odd !rdd": each id in that order, `!` hidden, the rest after them shown. */
 const sectionsOf = async (spec: string) => (await import("../lib/look.ts")).normalizeLook({ sections: spec.split(" ").map((word) => ({ id: word.replace(/^!/, ""), shown: !word.startsWith("!") })) }).sections;
 const railTitles = (lines: string[]) => lines.map(plain).map((line) => line.replace(/^[│ ]+?(?=╭)/, "")).filter((line) => line.startsWith("╭─ ")).map((line) => line.slice(3).split(" ")[0]);
-const everySection = (): PanelModel => ({ ...clone(lookModel), ci: passedCi() });
+const everySection = (): PanelModel => ({ ...clone(lookModel), ci: passedCi(), sessions: undefined });
 
 test("look-more S6 S7 today's sections, given or omitted, draw byte for byte today's panel, rail and /dock, short screens too", async () => {
 	const { DEFAULT_SECTIONS } = await import("../lib/look.ts");
@@ -3129,3 +3131,181 @@ test("S32 the unpushed heads-up takes ↑N off the branch only when the heads-up
 	assert.ok(headsUpText(exact).includes("not pushed"), "five warnings are all displayed");
 	assert.match(branchRow(exact), /^│ project  fisi-dock  main +│$/);
 });
+
+// --- sessions section (peer-agents 02) ----------------------------------------------
+
+type Peer = NonNullable<PanelModel["sessions"]>[number];
+const STRAY: Peer = { name: "stray-kids-hub", running: 1, queued: 1, waiting: 0 };
+const CONTROL: Peer = { name: "control-movil", running: 0, queued: 0, waiting: 1, waitingSince: NOW - 65_000 };
+const withSessions = (sessions: Peer[] | undefined): PanelModel => ({ session: { project: "solo" }, agents: [{ name: "explore", task: "Map CI workflow", state: "running" }], sessions });
+/** A sessions row as the 47-column rail draws it: the glyph, the name, the counts flush right (41 cells after the glyph column). */
+const sessionLine = (glyph: string, name: string, counts: string, lit = false) => `${lit ? "│▎" : "│ "}${glyph} ${name.padEnd(41 - counts.length)}${counts} │`;
+
+test("S1 S4 sessions: a section under agents with one row per other session, the number of sessions on the top rule; no sessions, no section and no row", () => {
+	const lines = renderPanel(withSessions([STRAY, CONTROL]), 47).map(plain);
+	const titles = lines.filter((line) => line.startsWith("╭─ ")).map((line) => line.split(" ")[1]);
+	assert.deepEqual(titles, ["session", "ODD", "agents", "sessions", "todo"]);
+	assert.match(lines.find((line) => line.startsWith("╭─ sessions"))!, /^╭─ sessions ─+ 2 ─╮$/);
+	assert.equal(sectionBody(lines, "sessions").length, 2);
+	const without = renderPanel(withSessions(undefined), 47);
+	for (const sessions of [[], [{ name: "idle", running: 0, queued: 0, waiting: 0 }]]) assert.deepEqual(renderPanel(withSessions(sessions), 47), without, "takes no space");
+	assert.ok(!without.some((line) => plain(line).includes("sessions")));
+});
+
+test("S2 S3 sessions rows at 47 columns: waiting sessions first, with the highlight bar; glyph, name, counts flush right", () => {
+	const lines = renderPanel(withSessions([STRAY, CONTROL]), 47).map(plain);
+	assert.deepEqual(sectionBody(lines, "sessions"), [sessionLine("!", "control-movil", "!1", true), sessionLine("⠹", "stray-kids-hub", "⠹1 ○1")]);
+	console.log(`--- sessions section, 47 columns\n${lines.slice(lines.findIndex((line) => line.startsWith("╭─ sessions"))).join("\n")}`);
+});
+
+test("S2 sessions counts: running after the spinner, queued after ○, waiting after !, zeros omitted; the glyph is ! when it waits, else the spinner, else ○", () => {
+	const row = (peer: Peer) => sectionBody(renderPanel(withSessions([peer]), 47), "sessions")[0];
+	assert.equal(row({ name: "all", running: 2, queued: 1, waiting: 1 }), sessionLine("!", "all", "⠹2 ○1 !1", true));
+	assert.equal(row({ name: "run", running: 3, queued: 0, waiting: 0 }), sessionLine("⠹", "run", "⠹3"));
+	assert.equal(row({ name: "q", running: 0, queued: 4, waiting: 0 }), sessionLine("○", "q", "○4"));
+	assert.equal(row({ name: "rq", running: 1, queued: 2, waiting: 0 }), sessionLine("⠹", "rq", "⠹1 ○2"));
+	assert.equal(row({ name: "rw", running: 2, queued: 0, waiting: 1 }), sessionLine("!", "rw", "⠹2 !1", true));
+	const moving = sectionBody(renderPanel({ ...withSessions([STRAY]), spinner: 1 }, 47), "sessions")[0];
+	assert.equal(moving, sessionLine("⠙", "stray-kids-hub", "⠙1 ○1"), "the shared spinner frame");
+});
+
+test("S2 S4 sessions colors: bold amber ! and a bold name for a waiting session, the running color on the spinner, gray ○, the teal title and counter, the highlight bar", () => {
+	const lines = renderPanel(withSessions([STRAY, CONTROL]), 47);
+	const top = lines.find((line) => plain(line).startsWith("╭─ sessions"))!;
+	assert.ok(top.includes(`\x1b[1m${fgCode(panelVivid(palette.teal))}sessions`), "teal bold title");
+	assert.ok(top.includes(`${fgCode(panelVivid(palette.teal))}2`), "the counter in the section's color");
+	const waiting = rawRow(lines, "sessions", "control-movil");
+	assert.ok(waiting.includes(`\x1b[1m${fgCode(palette.amber)}!`), "bold amber !");
+	assert.ok(waiting.includes(`\x1b[1m${fgCode(palette.text)}control-movil`), "bold name");
+	assert.ok(waiting.includes(bgCode(palette.highlight)), "highlighted");
+	const running = rawRow(lines, "sessions", "stray-kids-hub");
+	assert.ok(running.includes(`${fgCode(palette.blue)}⠹`), "the running color");
+	assert.ok(running.includes(`${fgCode(palette.faint)}○`), "gray ○");
+	assert.ok(!running.includes(bgCode(palette.highlight)) && !running.includes("\x1b[1m"), "no highlight, a plain name");
+	const quiet = rawRow(renderPanel(withSessions([{ name: "later", running: 0, queued: 2, waiting: 0 }]), 47), "sessions", "later");
+	assert.ok(quiet.includes(`${fgCode(palette.faint)}○`), "queued only: the gray ○");
+});
+
+test("S3 sessions order: waiting first, then by running count, stable; at most 3 rows then +N more /dock all; /dock shows them all", () => {
+	const sessions: Peer[] = [
+		{ name: "a", running: 1, queued: 0, waiting: 0 },
+		{ name: "b", running: 3, queued: 0, waiting: 0 },
+		{ name: "c", running: 0, queued: 0, waiting: 1 },
+		{ name: "d", running: 3, queued: 0, waiting: 0 },
+		{ name: "e", running: 2, queued: 0, waiting: 1 },
+	];
+	const names = (lines: string[]) => sectionBody(lines, "sessions").map((line) => line.slice(4, 5));
+	const rail = renderPanel(withSessions(sessions), 47).map(plain);
+	assert.deepEqual(names(rail).slice(0, 3), ["e", "c", "b"]);
+	const body = sectionBody(rail, "sessions");
+	assert.equal(body.length, 4);
+	assert.match(body[3], /^│ {3}\+2 more +\/dock all │$/);
+	assert.match(rail.find((line) => line.startsWith("╭─ sessions"))!, / 5 ─╮$/, "the counter counts every session");
+	const dock = renderPanel(withSessions(sessions), 47, { listsExpanded: true }).map(plain);
+	assert.deepEqual(names(dock), ["e", "c", "b", "d", "a"]);
+	assert.ok(!sectionBody(dock, "sessions").some((line) => line.includes("more")));
+	assert.deepEqual(sectionBody(renderPanel(withSessions(sessions.slice(0, 3)), 47), "sessions").length, 3, "three fit without a more row");
+	const docked = renderDock(withSessions(sessions), 60, 80, 0).lines.map(plain);
+	assert.ok(docked.filter((line) => /^ *│[ ▎][!⠹○] [a-e] /.test(line)).length === 5, "/dock draws them all");
+});
+
+test("S2 a long session name is cut with an ellipsis and the counts stay; every line fits (S2)", () => {
+	const long: Peer = { name: "diseño personal de una sesión con un nombre larguísimo que no cabe", running: 2, queued: 0, waiting: 1 };
+	for (const width of [47, 34, 20]) for (const line of renderPanel(withSessions([long, STRAY]), width)) assert.ok(visibleWidth(line) <= width, `${width}: ${plain(line)}`);
+	const row = sectionBody(renderPanel(withSessions([long]), 47), "sessions")[0];
+	assert.match(row, /^│▎! diseño personal.*… ⠹2 !1 │$/);
+});
+
+test("S8 short screens: sessions is the first part to step aside, before the spacers; agents never drops", () => {
+	const model: PanelModel = { ...clone(samplePanelModel), sessions: [STRAY, CONTROL] };
+	const full = renderPanel(model, 47).map(plain);
+	const spacers = full.filter(isSpacer).length;
+	assert.ok(spacers > 0);
+	const first = renderPanel(model, 47, { maxRows: full.length - 1 }).map(plain);
+	assert.ok(!first.some((line) => line.startsWith("╭─ sessions")), "sessions dropped");
+	assert.equal(first.filter(isSpacer).length, spacers, "the spacers are still there");
+	assert.equal(first.length, full.length - (2 + 2), "exactly the sessions frame went");
+	assert.ok(first.some((line) => line.startsWith("╭─ changes")), "changes still there");
+	assert.deepEqual(renderPanel(model, 47, { maxRows: full.length }).map(plain), full, "it fits: sessions drawn");
+	const next = renderPanel(model, 47, { maxRows: first.length - 1 }).map(plain);
+	assert.ok(next.length < first.length && !next.some(isSpacer), "then the spacers go");
+	for (const rows of [30, 10, 3, 0]) {
+		const tiny = renderPanel(model, 47, { maxRows: rows }).map(plain);
+		assert.ok(!tiny.some((line) => line.startsWith("╭─ sessions")) || rows >= full.length);
+		assert.ok(tiny.some((line) => line.startsWith("╭─ agents")), `agents never drops at ${rows} rows`);
+	}
+});
+
+test("S8 short screens without sessions behave as before: the spacers are the first to go", () => {
+	const model: PanelModel = { ...clone(samplePanelModel), sessions: undefined };
+	const full = renderPanel(model, 47).map(plain);
+	const first = renderPanel(model, 47, { maxRows: full.length - 1 }).map(plain);
+	assert.equal(first.length, full.length - full.filter(isSpacer).length);
+});
+
+test("S1 sessions follow the section settings: hidden or moved with the saved list", () => {
+	const sections = [{ id: "sessions", shown: true }, { id: "agents", shown: true }, { id: "todo", shown: false }] as const;
+	const lines = renderPanel(withSessions([STRAY]), 47, { sections: sections.map((section) => ({ ...section })) }).map(plain);
+	const titles = lines.filter((line) => line.startsWith("╭─ ")).map((line) => line.split(" ")[1]);
+	assert.deepEqual(titles, ["session", "sessions", "agents"]);
+	const hidden = renderPanel(withSessions([STRAY]), 47, { sections: [{ id: "sessions", shown: false }] }).map(plain);
+	assert.ok(!hidden.some((line) => line.startsWith("╭─ sessions")));
+});
+
+// --- the phone's agents card (S9) ---
+
+const OWN_RUNNING = { name: "explore", task: "Map CI", state: "running" as const, startedAt: NOW - 42_000 };
+const CTRL: Peer = { name: "ctrl", running: 0, queued: 0, waiting: 1, waitingSince: NOW - 65_000 };
+
+test("S9 agents card: a session with a waiting agent adds a row after this session's agents: amber !, the highlight, its name, `waits for you` and its waiting time; the counter counts the rows", () => {
+	const lines = renderAgentsCard([OWN_RUNNING], 34, 2, NOW, undefined, undefined, [STRAY, CTRL]);
+	const card = lines.map(plain);
+	assert.match(card[0], /^╭─ agents ─+ 2 ─╮$/);
+	assert.match(card[1], /^│ ⠹ explore +Map CI +0:42 │$/);
+	assert.equal(card[2], "│▎! ctrl    waits for you   1:05 │");
+	assert.match(card[3], /^╰─+╯$/);
+	assert.equal(card.length, 4, "a session that only runs adds no row");
+	assert.ok(lines[2].includes(`\x1b[1m${fgCode(palette.amber)}!`), "bold amber !");
+	assert.ok(lines[2].includes(`${fgCode(palette.teal)}ctrl`), "the name in teal");
+	assert.ok(lines[2].includes(bgCode(palette.highlight)), "highlighted");
+	assert.equal(visibleWidth(lines[2]), 34);
+	console.log(`--- agents card with a waiting session, 34 columns\n${card.join("\n")}`);
+});
+
+test("S9 agents card: a waiting session without a known time shows none; a long name is cut; every row fits", () => {
+	const card = renderAgentsCard([OWN_RUNNING], 34, 2, NOW, undefined, undefined, [{ ...CTRL, waitingSince: undefined }]).map(plain);
+	assert.equal(card[2], "│▎! ctrl    waits for you        │");
+	const long = renderAgentsCard([OWN_RUNNING], 34, 2, NOW, undefined, undefined, [{ ...CONTROL, name: "control-movil-de-la-oficina" }]).map(plain);
+	assert.match(long[2], /^│▎! control-mov… waits for…/);
+	for (const width of [40, 34, 24, 12]) for (const line of renderAgentsCard([OWN_RUNNING], width, 2, NOW, undefined, undefined, [CONTROL])) assert.ok(visibleWidth(line) <= width, `${width}`);
+});
+
+test("S9 agents card: with no running agent of its own, a waiting session still draws the card; a session that only runs does not", () => {
+	const card = renderAgentsCard([], 34, 2, NOW, undefined, undefined, [CTRL]).map(plain);
+	assert.match(card[0], /^╭─ agents ─+ 1 ─╮$/);
+	assert.equal(card[1], "│▎! ctrl waits for you      1:05 │");
+	assert.deepEqual(renderAgentsCard(undefined, 34, 2, NOW, undefined, undefined, [STRAY]), []);
+	assert.equal(renderAgentsCard([{ name: "x", task: "y", state: "done" }], 34, 2, NOW, undefined, undefined, [CTRL]).length, 3);
+});
+
+test("S9 agents card: the cap counts both kinds of row, then +N more /dock all; the counter is every row", () => {
+	const own = Array.from({ length: 3 }, (_, index) => ({ name: `agent${index}`, task: `task ${index}`, state: "running" as const, startedAt: NOW - 1_000 }));
+	const card = renderAgentsCard(own, 40, 2, NOW, undefined, undefined, [CTRL, { ...CTRL, name: "other" }, { ...CTRL, name: "third" }]).map(plain);
+	assert.match(card[0], / 6 ─╮$/);
+	assert.match(card[4], /^│▎! ctrl /);
+	assert.match(card[5], /^│ {3}\+2 more +\/dock all │$/);
+});
+
+test("S9 agents card with only its own agents is exactly as before; motion off keeps the still glyph", () => {
+	const own = [OWN_RUNNING, { name: "worker", task: "rows", state: "waiting" as const, startedAt: NOW - 3_000 }];
+	assert.deepEqual(renderAgentsCard(own, 34, 2, NOW), renderAgentsCard(own, 34, 2, NOW, undefined, undefined, undefined));
+	assert.deepEqual(renderAgentsCard(own, 34, 2, NOW, undefined, undefined, []), renderAgentsCard(own, 34, 2, NOW));
+	assert.deepEqual(renderAgentsCard(own, 34, 2, NOW, undefined, undefined, [STRAY]), renderAgentsCard(own, 34, 2, NOW), "running sessions add nothing");
+	assert.match(plain(renderAgentsCard([OWN_RUNNING], 34, 5, NOW, undefined, "off", [CTRL])[1]), /^│ ⠹ explore/);
+});
+
+test("S1 the panel digest changes with the sessions", () => {
+	assert.notEqual(panelDigest(withSessions([STRAY])), panelDigest(withSessions([CONTROL])));
+	assert.notEqual(panelDigest(withSessions([STRAY])), panelDigest(withSessions(undefined)));
+});
+

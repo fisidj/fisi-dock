@@ -2,7 +2,7 @@ import { ciRunning, ciView, type CiRuns } from "./ci.ts";
 import { entranceSteps } from "./entrance.ts";
 import { headsUpWarnings, type PlanInfo } from "./heads-up.ts";
 import { SHIMMER_STEP_MS } from "./orbs.ts";
-import type { AgentInfo, ChangeInfo, McpServerInfo, MemoryInfo, OddInfo, PanelModel, SessionInfo, SkillInfo, TodoInfo, TodoTask } from "./panel-model.ts";
+import type { AgentInfo, ChangeInfo, McpServerInfo, MemoryInfo, OddInfo, PanelModel, PeerSessionInfo, SessionInfo, SkillInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { rddLabel } from "./panel.ts";
 import { rddLive, rddView, type RddRow } from "./rdd.ts";
 
@@ -263,6 +263,8 @@ export interface LiveParts {
 	todo?: TodoInfo;
 	odd?: OddInfo;
 	agents?: AgentInfo[];
+	/** The other live sessions with unfinished agents (peer-agents 02, lib/sessions.ts readPeerSessions); undefined or [] draws no section. */
+	sessions?: PeerSessionInfo[];
 	changes?: ChangeInfo[];
 	/** Heads-up sources (S14). */
 	worktrees?: string[];
@@ -298,13 +300,13 @@ export interface LiveParts {
  * True while the panel draws a running spinner (S31): a running agent, an
  * active todo task while a run is active, or a review that runs or waits for
  * the user (S50; its m:ss ticks with the spinner), or a running CI check
- * (S64, the same). A task left in progress after the run settled shows the
+ * (S64, the same), or another session's running agents (the sessions section, peer-agents 02). A task left in progress after the run settled shows the
  * still frame (L61).
  */
 export function runsSpinner(model: PanelModel, runActive = true): boolean {
 	const todo = model.todo;
 	const activeTask = runActive && todo !== undefined && todo.total > 0 && (todo.active !== undefined || (todo.tasks?.some((task) => task.state === "active") ?? false));
-	return activeTask || (model.agents?.some((agent) => agent.state === "running") ?? false) || rddLive(model.rdd) || ciRunning(model.ci);
+	return activeTask || (model.agents?.some((agent) => agent.state === "running") ?? false) || (model.sessions?.some((session) => session.running > 0) ?? false) || rddLive(model.rdd) || ciRunning(model.ci);
 }
 
 // --- row entrance (S54) -----------------------------------------------------
@@ -431,6 +433,7 @@ function snapshotOf(parts: LiveParts, now: number): PanelModel {
 		...(parts.todo ? { todo: parts.todo } : {}),
 		...(parts.odd && parts.odd.steps.length > 0 ? { odd: parts.odd } : {}),
 		...(agents ? { agents } : {}),
+		...(parts.sessions?.length ? { sessions: parts.sessions } : {}),
 		...(parts.changes ? { changes: parts.changes } : {}),
 		...(rdd ? { rdd } : {}),
 		...(ci ? { ci } : {}),

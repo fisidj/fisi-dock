@@ -114,6 +114,18 @@ export interface AgentInfo {
 	effort?: string;
 }
 
+/** Another live Gentle Shell session with unfinished agents (peer-agents 02, lib/sessions.ts): one row of the sessions section. */
+export interface PeerSessionInfo {
+	/** Its label, the name Gentle Shell shows in its agents view: printable and bounded. */
+	name: string;
+	/** Its agents by state; at least one of the three is above 0. */
+	running: number;
+	queued: number;
+	waiting: number;
+	/** Epoch ms its longest-waiting agent started waiting, for the narrow agents card; absent when unknown. */
+	waitingSince?: number;
+}
+
 export interface ChangeInfo {
 	status: "M" | "A" | "D" | "R" | "?";
 	path: string;
@@ -191,6 +203,8 @@ export interface PanelModel {
 	odd?: OddInfo;
 	/** All known agents; the renderer draws the first 4 and a "+N more" row. */
 	agents?: AgentInfo[];
+	/** The other live sessions with unfinished agents (peer-agents 02), after agents; the renderer draws the first 3 and a "+N more" row. */
+	sessions?: PeerSessionInfo[];
 	/** All changed files; the renderer draws the first 4 and a "+N more" row. */
 	changes?: ChangeInfo[];
 	/** The session's RDD reviews (S50); the section also shows with only `footer.rdd`. */
@@ -225,6 +239,10 @@ export const samplePanelModel: PanelModel = {
 	agents: [
 		{ name: "explore", task: "Map CI workflow", state: "done" },
 		{ name: "verify", task: "Check PR 265 checks", state: "running" },
+	],
+	sessions: [
+		{ name: "stray-kids-hub", running: 1, queued: 1, waiting: 0 },
+		{ name: "control-movil", running: 0, queued: 0, waiting: 1 },
 	],
 	changes: [{ status: "M", path: ".github/workflows/ci.yml", added: 1, removed: 0 }],
 	rdd: {

@@ -178,7 +178,7 @@ test("look-more S6 the sections' order and the hidden ones are saved with the lo
 	const dir = mkdtempSync(join(tmpdir(), "fisi-dock-state-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const path = join(dir, "state.json");
-	const sections = [{ id: "todo", shown: true }, { id: "odd", shown: true }, { id: "heads-up", shown: false }, { id: "rdd", shown: false }, { id: "ci", shown: true }, { id: "agents", shown: true }, { id: "changes", shown: false }] as const;
+	const sections = [{ id: "todo", shown: true }, { id: "odd", shown: true }, { id: "heads-up", shown: false }, { id: "rdd", shown: false }, { id: "ci", shown: true }, { id: "agents", shown: true }, { id: "sessions", shown: true }, { id: "changes", shown: false }] as const;
 	const look = { ...DEFAULT_LOOK, sections: sections.map((section) => ({ ...section })) };
 	assert.equal(writeDockEnabled(path, true, "dark", true), true);
 	assert.equal(writeDockLook(path, look), true);
@@ -187,7 +187,11 @@ test("look-more S6 the sections' order and the hidden ones are saved with the lo
 	assert.equal(writeDockEnabled(path, false), true);
 	assert.deepEqual(readDockLook(path).sections, look.sections, "off keeps them");
 	writeFileSync(path, '{"look":{"sections":[{"id":"ci","shown":false},{"id":"nope","shown":true},{"id":"ci","shown":true}]}}');
-	assert.deepEqual(readDockLook(path).sections.map((section) => `${section.shown ? "" : "!"}${section.id}`), ["!ci", "heads-up", "odd", "rdd", "agents", "todo", "changes"], "normalized on read");
+	assert.deepEqual(readDockLook(path).sections.map((section) => `${section.shown ? "" : "!"}${section.id}`), ["!ci", "heads-up", "odd", "rdd", "agents", "sessions", "todo", "changes"], "normalized on read");
+	// A look saved before sessions existed: it comes right after agents, in the saved order of the rest.
+	const old = ["todo", "odd", "heads-up", "rdd", "ci", "agents", "changes"].map((id) => ({ id, shown: id !== "heads-up" }));
+	writeFileSync(path, JSON.stringify({ look: { sections: old } }));
+	assert.deepEqual(readDockLook(path).sections.map((section) => `${section.shown ? "" : "!"}${section.id}`), ["todo", "odd", "!heads-up", "rdd", "ci", "agents", "sessions", "changes"], "sessions after agents, the rest as saved");
 	writeFileSync(path, '{"enabled":true,"look":{"logo":"text"}}');
 	assert.deepEqual(readDockLook(path), { ...DEFAULT_LOOK, logo: "text" }, "an old state.json without sections");
 	assert.deepEqual(readDockLook(path).sections, DEFAULT_SECTIONS);

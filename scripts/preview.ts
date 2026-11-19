@@ -109,6 +109,8 @@ const sampleModel: PanelModel = {
 	},
 	// A 4.6.0 subagent task next to the jobs (S87), with its model and effort.
 	agents: [...(samplePanelModel.agents ?? []), { id: "task:a1b2c3", name: "writer", task: "pin the Node version", state: "running", model: "anthropic/claude-opus-5-5", effort: "high" }],
+	// Two other sessions (peer-agents 02): one waiting for the user, one running with a queued agent, from samplePanelModel.
+	sessions: samplePanelModel.sessions,
 	footer: { cost: 0.012, rdd: "on" },
 };
 // The sample todo with its full task list, which only /dock draws.

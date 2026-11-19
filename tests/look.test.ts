@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ACCENTS, COLOR_MODES, DEFAULT_LOOK, DEFAULT_SECTIONS, DIVIDER_LEVELS, FRAME_STYLES, LOGO_STYLES, LOOK_OPTIONS, MOTION_MODES, normalizeLook, SECTION_IDS } from "../lib/look.ts";
+import { ACCENTS, COLOR_MODES, DEFAULT_LOOK, DEFAULT_SECTIONS, DIVIDER_LEVELS, FRAME_STYLES, LOGO_STYLES, LOOK_OPTIONS, MOTION_MODES, normalizeLook, normalizeSections, SECTION_IDS } from "../lib/look.ts";
 
 test("S6 the default look is today's: braille logo, faded frames, vivid colors, pink accent, medium divider, motion on (look-more S7)", () => {
 	assert.deepEqual(DEFAULT_LOOK, { logo: "braille", frames: "faded", colors: "vivid", accent: "pink", divider: "medium", motion: "on", sections: DEFAULT_SECTIONS });
@@ -64,9 +64,9 @@ test("look-more S4 themeNameFor(colors, accent): pink keeps Fisi-Dock and Fisi-D
 
 test("S1 lookKey names the look for memo keys: each field changes it, equal looks share it", async () => {
 	const { lookKey } = await import("../lib/look.ts");
-	assert.equal(lookKey(DEFAULT_LOOK), "braille/faded/vivid/pink/medium/on/heads-up,odd,rdd,ci,agents,todo,changes");
-	assert.equal(lookKey({ logo: "text", frames: "none", colors: "soft", accent: "green", divider: "off", motion: "off", sections: DEFAULT_SECTIONS }), "text/none/soft/green/off/off/heads-up,odd,rdd,ci,agents,todo,changes");
-	assert.equal(lookKey({ ...DEFAULT_LOOK, sections: [{ id: "todo", shown: true }, { id: "odd", shown: false }, ...DEFAULT_SECTIONS.filter((section) => section.id !== "todo" && section.id !== "odd")] }), "braille/faded/vivid/pink/medium/on/todo,!odd,heads-up,rdd,ci,agents,changes", "look-more S6: the order and the hidden ones");
+	assert.equal(lookKey(DEFAULT_LOOK), "braille/faded/vivid/pink/medium/on/heads-up,odd,rdd,ci,agents,sessions,todo,changes");
+	assert.equal(lookKey({ logo: "text", frames: "none", colors: "soft", accent: "green", divider: "off", motion: "off", sections: DEFAULT_SECTIONS }), "text/none/soft/green/off/off/heads-up,odd,rdd,ci,agents,sessions,todo,changes");
+	assert.equal(lookKey({ ...DEFAULT_LOOK, sections: [{ id: "todo", shown: true }, { id: "odd", shown: false }, ...DEFAULT_SECTIONS.filter((section) => section.id !== "todo" && section.id !== "odd")] }), "braille/faded/vivid/pink/medium/on/todo,!odd,heads-up,rdd,ci,agents,sessions,changes", "look-more S6: the order and the hidden ones");
 	assert.equal(lookKey(normalizeLook({ frames: "classic" })), lookKey({ ...DEFAULT_LOOK, frames: "classic" }));
 	const keys = new Set([DEFAULT_LOOK, { ...DEFAULT_LOOK, logo: "none" }, { ...DEFAULT_LOOK, frames: "none" }, { ...DEFAULT_LOOK, colors: "soft" }, { ...DEFAULT_LOOK, accent: "teal" }, { ...DEFAULT_LOOK, divider: "strong" }, { ...DEFAULT_LOOK, motion: "off" }, { ...DEFAULT_LOOK, sections: DEFAULT_SECTIONS.map((section) => ({ ...section, shown: section.id !== "ci" })) }, { ...DEFAULT_LOOK, sections: [...DEFAULT_SECTIONS].reverse() }].map((look) => lookKey(look as typeof DEFAULT_LOOK)));
 	assert.equal(keys.size, 9);
@@ -84,8 +84,8 @@ test("look-more S5 themeNameFor(light, accent) is Fisi-Dock-Light for every acce
 
 const ids = (look: { sections: { id: string; shown: boolean }[] }) => look.sections.map((section) => `${section.shown ? "" : "!"}${section.id}`).join(" ");
 
-test("look-more S6 the sections are heads-up, odd, rdd, ci, agents, todo and changes, today's order, every one shown; session is not in the list", () => {
-	assert.deepEqual(SECTION_IDS, ["heads-up", "odd", "rdd", "ci", "agents", "todo", "changes"]);
+test("look-more S6 the sections are heads-up, odd, rdd, ci, agents, sessions, todo and changes, today's order, every one shown; session is not in the list", () => {
+	assert.deepEqual(SECTION_IDS, ["heads-up", "odd", "rdd", "ci", "agents", "sessions", "todo", "changes"]);
 	assert.deepEqual(DEFAULT_SECTIONS, SECTION_IDS.map((id) => ({ id, shown: true })));
 	assert.deepEqual(DEFAULT_LOOK.sections, DEFAULT_SECTIONS);
 	assert.ok(!(SECTION_IDS as readonly string[]).includes("session"));
@@ -93,13 +93,13 @@ test("look-more S6 the sections are heads-up, odd, rdd, ci, agents, todo and cha
 });
 
 test("look-more S6 normalizeLook keeps the saved order and the hidden ones; unknown ids and duplicates drop, missing ones come last in today's order, shown", () => {
-	const saved = [{ id: "todo", shown: true }, { id: "odd", shown: false }, { id: "changes", shown: true }, { id: "heads-up", shown: false }, { id: "ci", shown: true }, { id: "agents", shown: true }, { id: "rdd", shown: false }];
+	const saved = [{ id: "todo", shown: true }, { id: "odd", shown: false }, { id: "changes", shown: true }, { id: "heads-up", shown: false }, { id: "ci", shown: true }, { id: "agents", shown: true }, { id: "sessions", shown: true }, { id: "rdd", shown: false }];
 	assert.deepEqual(normalizeLook({ sections: saved }).sections, saved, "a full list as saved");
-	assert.equal(ids(normalizeLook({ sections: [{ id: "session", shown: false }, { id: "todo", shown: false }, { id: "mcp", shown: true }, { id: "TODO", shown: true }, { id: "toString", shown: true }] })), "!todo heads-up odd rdd ci agents changes", "unknown ids (session too) drop");
-	assert.equal(ids(normalizeLook({ sections: [{ id: "ci", shown: false }, { id: "ci", shown: true }, { id: "odd", shown: true }, { id: "ci", shown: true }] })), "!ci odd heads-up rdd agents todo changes", "the first of each id wins");
-	assert.equal(ids(normalizeLook({ sections: [{ id: "changes", shown: true }] })), "changes heads-up odd rdd ci agents todo", "missing ones appended shown");
+	assert.equal(ids(normalizeLook({ sections: [{ id: "session", shown: false }, { id: "todo", shown: false }, { id: "mcp", shown: true }, { id: "TODO", shown: true }, { id: "toString", shown: true }] })), "!todo heads-up odd rdd ci agents sessions changes", "unknown ids (session too) drop");
+	assert.equal(ids(normalizeLook({ sections: [{ id: "ci", shown: false }, { id: "ci", shown: true }, { id: "odd", shown: true }, { id: "ci", shown: true }] })), "!ci odd heads-up rdd agents sessions todo changes", "the first of each id wins");
+	assert.equal(ids(normalizeLook({ sections: [{ id: "changes", shown: true }] })), "changes heads-up odd rdd ci agents sessions todo", "missing ones appended shown");
 	assert.equal(ids(normalizeLook({ sections: [] })), ids(DEFAULT_LOOK), "an empty list is today's");
-	assert.equal(ids(normalizeLook({ sections: [null, 3, "todo", ["odd"], { shown: false }, { id: 1 }, { id: "rdd", shown: "no" }, { id: "agents" }] })), "rdd agents heads-up odd ci todo changes", "bad entries drop; only shown false hides");
+	assert.equal(ids(normalizeLook({ sections: [null, 3, "todo", ["odd"], { shown: false }, { id: 1 }, { id: "rdd", shown: "no" }, { id: "agents" }] })), "rdd agents sessions heads-up odd ci todo changes", "bad entries drop; only shown false hides");
 	for (const sections of [undefined, null, "todo", 7, true, { id: "todo", shown: false }, { 0: { id: "todo", shown: false } }]) assert.deepEqual(normalizeLook({ sections }).sections, DEFAULT_SECTIONS, `garbage ${JSON.stringify(sections)}`);
 	assert.deepEqual(normalizeLook({ logo: "text", frames: "none", colors: "soft", accent: "teal", divider: "off", motion: "off" }), { logo: "text", frames: "none", colors: "soft", accent: "teal", divider: "off", motion: "off", sections: DEFAULT_SECTIONS }, "a look saved before sections reads today's sections");
 	const entry = { id: "todo", shown: false, extra: 1 };
@@ -108,4 +108,44 @@ test("look-more S6 normalizeLook keeps the saved order and the hidden ones; unkn
 	read.sections[1].shown = false;
 	assert.equal(normalizeLook(undefined).sections[0].shown, true, "fresh entries, never DEFAULT_SECTIONS' own");
 	assert.equal(DEFAULT_SECTIONS[0].shown, true);
+});
+
+test("peer-agents 02 S7 a saved look from before sessions existed gets it right after agents; the other sections keep their order and their hidden state", () => {
+	const before = [{ id: "todo", shown: true }, { id: "odd", shown: false }, { id: "agents", shown: true }, { id: "heads-up", shown: true }, { id: "ci", shown: false }, { id: "rdd", shown: true }, { id: "changes", shown: true }];
+	assert.deepEqual(normalizeLook({ sections: before }).sections, [
+		{ id: "todo", shown: true },
+		{ id: "odd", shown: false },
+		{ id: "agents", shown: true },
+		{ id: "sessions", shown: true },
+		{ id: "heads-up", shown: true },
+		{ id: "ci", shown: false },
+		{ id: "rdd", shown: true },
+		{ id: "changes", shown: true },
+	], "inserted after agents, not appended");
+	const today = SECTION_IDS.filter((id) => id !== "sessions").map((id) => ({ id, shown: true }));
+	assert.equal(ids(normalizeLook({ sections: today })), ids(DEFAULT_LOOK), "a default look from before is the default look now");
+	assert.equal(ids(normalizeLook({ sections: [...today.slice(0, 4), ...today.slice(5)] })), "heads-up odd rdd ci todo changes agents sessions", "agents missing too: it is appended as before and sessions follows it");
+});
+
+test("peer-agents 02 S7 a look that has sessions keeps it where the user put it, hidden or not; only an explicit shown false hides it", () => {
+	const saved = [{ id: "sessions", shown: false }, { id: "todo", shown: true }, { id: "agents", shown: true }, { id: "odd", shown: true }, { id: "rdd", shown: true }, { id: "ci", shown: true }, { id: "heads-up", shown: true }, { id: "changes", shown: true }];
+	assert.deepEqual(normalizeLook({ sections: saved }).sections, saved);
+	assert.equal(ids(normalizeLook({ sections: saved.map((section) => (section.id === "sessions" ? { id: "sessions" } : section)) })).startsWith("sessions todo"), true, "no shown flag: shown");
+});
+
+test("a look saved before sessions keeps every old section's order and shown flag, whatever they were, and gets sessions right after agents", () => {
+	const old = SECTION_IDS.filter((id) => id !== "sessions");
+	const permutations = (items: readonly string[]): string[][] => (items.length <= 1 ? [[...items]] : items.flatMap((item, index) => permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest])));
+	let checked = 0;
+	for (const order of permutations(old)) {
+		for (const pattern of [0, 0b1010101, 0b0110011, 0b1111111]) {
+			const saved = order.map((id, index) => ({ id, shown: (pattern & (1 << index)) === 0 }));
+			const sections = normalizeSections(saved);
+			assert.deepEqual(sections.filter((section) => section.id !== "sessions"), saved);
+			assert.equal(sections.findIndex((section) => section.id === "sessions"), sections.findIndex((section) => section.id === "agents") + 1);
+			assert.equal(sections.find((section) => section.id === "sessions")?.shown, true);
+			checked++;
+		}
+	}
+	assert.equal(checked, 5040 * 4);
 });

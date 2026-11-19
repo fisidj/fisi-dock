@@ -35,6 +35,7 @@ import { renderPromptLine } from "../lib/prompt-line.ts";
 import { reduceReviews, reviewSnapshot, withTrail, type RddRow } from "../lib/rdd.ts";
 import { createReviewModeReader, gentleAiBinary, REVIEW_MODE_TIMEOUT_MS } from "../lib/rdd-mode.ts";
 import { trailEnd, trailStart, type ReviewTrail } from "../lib/rdd-detail.ts";
+import { readPeerSessions, SESSIONS_POLL_MS, type WaitingCache } from "../lib/sessions.ts";
 import { reduceSettings, renderSettings, settingsAction, type SettingsAction, type SettingsState } from "../lib/settings-menu.ts";
 import { skillsFromCommands } from "../lib/skills.ts";
 import { createSlotTakeover, EMPTIED_PARTS, emptyPart, railOwnsHost, SIDEBAR_STATE } from "../lib/slot.ts";
@@ -236,6 +237,8 @@ interface LiveSession {
 	readRddMode(): void;
 	/** Seeds the unfinished subagent tasks from Gentle Shell's presence activity file once (S87, after a reload). */
 	readSubagents(): void;
+	/** Reads the other sessions' presence headers once (peer-agents 02); the poll timer does it every SESSIONS_POLL_MS after. */
+	readSessions(): void;
 	/** Gentle Shell's live permission mode, undefined until known. */
 	permissionMode(): string | undefined;
 	/** A run settled (true) or a new request started (false): todo-left warning. */
@@ -281,7 +284,9 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 		// A run starting or settling may leave the drawn model as it was and still
 		// start or stop the todo spinner (L61), so this runs on every patch.
 		spinner.sync(store.spinning(), store.entering());
-		waiting.sync(store.model().agents?.some((agent) => agent.state === "waiting") ?? false);
+		// A waiting agent of this session, or of another one whose time shows on the narrow card, keeps the clock going.
+		const model = store.model();
+		waiting.sync((model.agents?.some((agent) => agent.state === "waiting") ?? false) || (model.sessions?.some((peer) => peer.waiting > 0 && peer.waitingSince !== undefined) ?? false));
 	};
 	// Running spinners (S31): a wall-clock timer only while one is drawn; each
 	// new frame changes the store digest, so the rail memo and the strip repaint.
@@ -530,6 +535,22 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 		pruneAgents();
 	}, IDLE_REFRESH_MS);
 	(idle as { unref?(): void }).unref?.();
+	// Other sessions (peer-agents 02): their presence headers, read off the render
+	// path every SESSIONS_POLL_MS while our panel, strip or header is on screen (the
+	// sidebar state on the host terminal), also during a run. A serial read, like the
+	// others, applied when it returns: unchanged data is no change to the store, so it
+	// repaints nothing. The timer is unref'd and stops on dispose.
+	const peerTimes: WaitingCache = new Map();
+	const sessions = createSerialRefresh(async () => {
+		if (disposed) return;
+		const peers = await readPeerSessions(presenceHome(), sessionId, Date.now(), peerTimes);
+		if (!disposed) apply({ sessions: peers });
+	});
+	const sessionsTimer = setInterval(() => {
+		if (disposed || !(host?.terminal as Record<symbol, unknown> | undefined)?.[SIDEBAR_STATE]) return;
+		sessions();
+	}, SESSIONS_POLL_MS);
+	(sessionsTimer as { unref?(): void }).unref?.();
 	// Permission mode (S84): Gentle Shell answers the request synchronously
 	// within the emit; a reply after that, or a second one, is disposed unused.
 	// The mode is read through the adapter, never guessed; the adapter's
@@ -624,6 +645,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 				if (!disposed && subagents.seed(tasks)) syncAgents();
 			}).catch(() => {});
 		},
+		readSessions: sessions,
 		permissionMode: () => permissionMode,
 		setSettled: (settled) => {
 			apply({ runSettled: settled });
@@ -660,6 +682,7 @@ function startLive(pi: ExtensionAPI, ctx: ExtensionContext, look: () => Look, sk
 		dispose: () => {
 			clearInterval(idle);
 			clearInterval(ciTimer);
+			clearInterval(sessionsTimer);
 			for (const timer of pushTimers) clearTimeout(timer);
 			pushTimers.clear();
 			if (detailsTimer !== undefined) clearTimeout(detailsTimer);
@@ -871,6 +894,7 @@ export default function fisiDock(pi: ExtensionAPI): void {
 		session.readMode();
 		session.readRddMode();
 		session.readSubagents();
+		session.readSessions();
 		// Rows already there now (replayed todo, running jobs) stay still; new ones enter (S54).
 		session.store.loaded();
 		// Permission mode, model and effort (S84, S88): `SUPER-YOLO · opus-5.5 · high`,
@@ -938,10 +962,11 @@ export default function fisiDock(pi: ExtensionAPI): void {
 						if (live !== session || !terminal?.[SIDEBAR_STATE] || railOwnsHost(terminal)) return [];
 						const model = session.store.model();
 						const now = Date.now();
-						const running = model.agents?.some(agentLive) ?? false;
+						// A waiting session's time on the card ticks too.
+						const running = (model.agents?.some(agentLive) ?? false) || (model.sessions?.some((peer) => peer.waiting > 0 && peer.waitingSince !== undefined) ?? false);
 						const key = `${width}:${lookKey(look)}:${session.store.digest()}:${running ? Math.floor(now / 1000) : ""}`;
 						if (drawn?.key !== key) {
-							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors, look.motion);
+							const agents = renderAgentsCard(model.agents, width, model.spinner, now, look.colors, look.motion, model.sessions);
 							const todo = renderTodoCard(model.todo, width, model.spinner, look.colors, look.motion, look.accent);
 							drawn = { key, lines: [...renderStrip(model, width, { todo: todo.length === 0, agents: agents.length === 0, motion: look.motion, colors: look.colors }), ...agents, ...todo] };
 						}

@@ -4,7 +4,7 @@ import { type Accent, type ColorMode, DEFAULT_SECTIONS, type DividerLevel, type 
 import { renderLogo } from "./logo.ts";
 import { fitDetail, printable } from "./odd-detail.ts";
 import { orbAt, orbOf, orbWidth, shimmerText, spinnerAt } from "./orbs.ts";
-import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, RddInfo, RddReview, SessionInfo, SkillInfo, SkillScope, SkillsInfo, TodoInfo, TodoTask } from "./panel-model.ts";
+import type { AgentInfo, ChangeInfo, CiCheck, CiInfo, FooterInfo, HeadsUpWarning, McpServerInfo, OddInfo, PanelModel, PeerSessionInfo, RddInfo, RddReview, SessionInfo, SkillInfo, SkillScope, SkillsInfo, TodoInfo, TodoTask } from "./panel-model.ts";
 import { shortAgentModel } from "./prompt-line.ts";
 import { SKILL_SCOPES } from "./skills.ts";
 import { FADE_PEAK, RESET, accentBase, bgCode, bold, dim, fadeAmount, fadedEdge, fg, paint, palette, panelAccent, type Rgb } from "./palette.ts";
@@ -40,6 +40,8 @@ const ODD_CAP = 6;
 const HEADS_UP_CAP = 5;
 /** CI workflows past this many collapse into one "+N more" row (S64). */
 const CI_CAP = 6;
+/** Sessions rows (peer-agents 02): up to this many, then one "+N more · /dock all" row. */
+const SESSIONS_CAP = 3;
 
 const muted = (text: string) => fg(palette.muted, text);
 const plainText = (text: string) => fg(palette.text, text);
@@ -390,7 +392,8 @@ function taskRows(tasks: TodoTask[], width: number, spinner?: number, entrance?:
 const RAIL_TASKS = 8;
 const RAIL_TASK_WINDOW = 7;
 
-function moreTodoRow(more: number, width: number): Row {
+/** The `+N more` row with `/dock all` flush right, for the lists the rail cuts: the todo tasks, the sessions and the agents card. */
+function moreDockRow(more: number, width: number): Row {
 	return { text: item(" ", (rest) => spread(muted(`+${more} more`), `${plainText("/dock")}${muted(" all")}`, rest), width) };
 }
 
@@ -413,7 +416,7 @@ function railTaskRows(tasks: TodoTask[], width: number, spinner?: number, entran
 		rows.push({ text: item(fg(palette.green, "✓"), (rest) => muted(ellipsize(label, rest)), width) });
 	}
 	rows.push(...taskRows(tasks.slice(start, end), width, spinner, entrance, pink));
-	if (end < tasks.length) rows.push(moreTodoRow(tasks.length - end, width));
+	if (end < tasks.length) rows.push(moreDockRow(tasks.length - end, width));
 	return rows;
 }
 
@@ -446,7 +449,7 @@ function todoSection(todo: TodoInfo, width: number, expanded = false, spinner?: 
 	}
 	if (todo.active) rows.push(activeTaskRow(todo.active, width, spinner, todo.entrance, pink));
 	if (todo.next) rows.push({ text: item(fg(palette.faint, "○"), (rest) => plainText(ellipsize(todo.next!, rest)), width) });
-	if (todo.more > 0) rows.push(moreTodoRow(todo.more, width));
+	if (todo.more > 0) rows.push(moreDockRow(todo.more, width));
 	return { title: "todo", color, right, rows };
 }
 
@@ -689,6 +692,47 @@ function agentsSection(agents: AgentInfo[], width: number, spinner?: number, cap
 	return { title: "agents", color: palette.lilac, rows: [...rows, ...moreRow(agents.length - cap, width)] };
 }
 
+/** Whether another session has agents that did not finish. */
+const peerBusy = (peer: PeerSessionInfo): boolean => peer.running + peer.queued + peer.waiting > 0;
+
+/** The other sessions with unfinished agents, the ones with a waiting agent first, then by running count, stable. */
+function busyPeers(sessions: PeerSessionInfo[] | undefined): PeerSessionInfo[] {
+	return (sessions ?? []).filter(peerBusy).sort((a, b) => Number(b.waiting > 0) - Number(a.waiting > 0) || b.running - a.running);
+}
+
+/** The amber `!` of a waiting agent, bold like the other waiting rows. */
+const waitingGlyph = () => bold(fg(palette.amber, "!"));
+
+/**
+ * One row per other session (peer-agents 02): its glyph (the amber `!` and the highlight
+ * while an agent waits for the user, else the spinner while one runs, else the gray `○`),
+ * its name, bold while it waits, and its counts flush right: `⠹2 ○1 !1`, zeros left out.
+ */
+function sessionRow(peer: PeerSessionInfo, width: number, spinner?: number): Row {
+	const waiting = peer.waiting > 0;
+	const running = (text: string) => fg(palette.blue, text);
+	const glyph = waiting ? waitingGlyph() : peer.running > 0 ? running(spinnerAt(spinner)) : fg(palette.faint, "○");
+	const counts = [
+		...(peer.running > 0 ? [`${running(spinnerAt(spinner))}${plainText(String(peer.running))}`] : []),
+		...(peer.queued > 0 ? [`${fg(palette.faint, "○")}${plainText(String(peer.queued))}`] : []),
+		...(waiting ? [bold(fg(palette.amber, `!${peer.waiting}`))] : []),
+	].join(" ");
+	const name = waiting ? bold(plainText(peer.name)) : plainText(peer.name);
+	return { text: item(glyph, (rest) => spread(name, counts, rest), width), ...(waiting ? { highlight: true } : {}) };
+}
+
+/**
+ * The other live sessions with work (peer-agents 02), after agents: SESSIONS_CAP rows (`cap`),
+ * then `+N more · /dock all`; the number of sessions on the top rule. None: no section.
+ */
+function sessionsSection(sessions: PeerSessionInfo[] | undefined, width: number, spinner?: number, cap = SESSIONS_CAP, colors?: ColorMode): Section | undefined {
+	const peers = busyPeers(sessions);
+	if (peers.length === 0) return undefined;
+	const rows = peers.slice(0, cap).map((peer) => sessionRow(peer, width, spinner));
+	const right = fg(panelAccent(palette.teal, colors), String(peers.length));
+	return { title: "sessions", color: palette.teal, right, rows: [...rows, ...(peers.length > cap ? [moreDockRow(peers.length - cap, width)] : [])] };
+}
+
 // ASCII `-` for deleted: U+2212 is ambiguous-width. `●` matches the mcp dots, `→` the branch `↑`.
 const CHANGE_KIND: Record<ChangeInfo["status"], { glyph: string; color: Rgb; word?: string }> = {
 	M: { glyph: "●", color: palette.amber },
@@ -865,7 +909,7 @@ export interface PanelOptions {
 	listsExpanded?: boolean;
 	/** /dock only (S52): every kept ODD step after the request settled, instead of the summary row. */
 	oddExpanded?: boolean;
-	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
+	/** Rows available on screen (S34, S38, S50, S52, S64, S77): the sessions section, then the odd and rdd spacer rows and the muted CI lines, then changes, then an all-passed CI, then a CI that runs, waits or failed, then rdd with all but the latest odd step drop until the panel fits. No limit when absent. */
 	maxRows?: number;
 	/** The section frames (S3): faded boxes (the default, S6), the classic flat gray box, or no box. With no box, a short screen drops the blank rows between sections before anything else. */
 	frames?: FrameStyle;
@@ -902,6 +946,8 @@ export function stillModel(model: PanelModel): PanelModel {
 }
 
 interface Shape {
+	/** The sessions section (peer-agents 02): the first part to step aside. */
+	sessions: boolean;
 	/** The `│` rows between ODD steps and between RDD reviews. */
 	spacers: boolean;
 	/** The muted line under each finished ODD step (S60); the active step keeps its own until `rdd` drops. */
@@ -920,14 +966,15 @@ interface Shape {
 	rdd: boolean;
 }
 
-/** Full panel first, then one more part left out per step; the logo, session, heads-up, ODD, todo (even empty, S94) and agents never drop (S38, S52). Each step names its sections, so it holds in any order (look-more S6). */
+/** Full panel first, then one more part left out per step, sessions first; the logo, session, heads-up, ODD, todo (even empty, S94) and agents never drop (S38, S52). Each step names its sections, so it holds in any order (look-more S6). */
 const SHAPES: Shape[] = [
-	{ spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: true, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: true, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: true },
-	{ spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
+	{ sessions: true, spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
+	{ sessions: false, spacers: true, oddDetails: true, rddDetails: true, ciDetails: true, changes: true, settledCi: true, ci: true, rdd: true },
+	{ sessions: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: true, settledCi: true, ci: true, rdd: true },
+	{ sessions: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: true, ci: true, rdd: true },
+	{ sessions: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: true, rdd: true },
+	{ sessions: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: true },
+	{ sessions: false, spacers: false, oddDetails: false, rddDetails: false, ciDetails: false, changes: false, settledCi: false, ci: false, rdd: false },
 ];
 
 /** Light is drawn in vivid, then painted (look-more S5). */
@@ -960,6 +1007,7 @@ function panelLines(moving: PanelModel, width: number, options: PanelOptions): s
 			rdd: () => (shape.rdd ? rddSection(model.rdd, model.footer?.rdd, inner, shape.spacers, model.spinner, shape.rddDetails, colors) : undefined),
 			ci: () => ((ciUrgent ? shape.ci : shape.settledCi) ? ciSection(model.ci, inner, shape.ciDetails, model.spinner) : undefined),
 			agents: () => model.agents && agentsSection(model.agents, inner, model.spinner, options.listsExpanded ? Infinity : LIST_CAP, options.now),
+			sessions: () => (shape.sessions ? sessionsSection(model.sessions, inner, model.spinner, options.listsExpanded ? Infinity : SESSIONS_CAP, colors) : undefined),
 			todo: () => (model.todo && todoSection(model.todo, inner, options.todoExpanded, model.spinner, false, colors, accent)) || emptyTodoSection(inner),
 			changes: () => (shape.changes ? model.changes && changesSection(model.changes, inner, options.listsExpanded ? Infinity : LIST_CAP) : undefined),
 		};
@@ -1023,6 +1071,8 @@ export function renderTodoCard(todo: TodoInfo | undefined, width: number, spinne
 
 /** Agent names past this many cells are cut, so the tasks keep one column. */
 const AGENT_NAME_CAP = 12;
+/** What another session's row on the agents card says in the task column (peer-agents 02). */
+const PEER_WAITING_TASK = "waits for you";
 
 /**
  * The live agents alone, framed to `width` (S35): narrow screens show it
@@ -1031,26 +1081,41 @@ const AGENT_NAME_CAP = 12;
  * name, task and the time since `startedAt` at `now`, left out when the start
  * is unknown. Up to 4 rows, then `+N more`. Queued and finished agents are
  * not listed; [] when nothing runs. Motion off holds the still frame and plays no
- * entrance (look-more S2).
+ * entrance (look-more S2). `sessions` (peer-agents 02): each other session with a
+ * waiting agent adds one row after this session's agents, highlighted, with the
+ * amber `!`, its name in teal, `waits for you` and its waiting time when known; the
+ * count and the 4-row cap cover both kinds, and a waiting session alone still draws the card.
  */
-export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number, moving: number | undefined, now: number, colors?: ColorMode, motion?: MotionMode): string[] {
+export function renderAgentsCard(agents: AgentInfo[] | undefined, width: number, moving: number | undefined, now: number, colors?: ColorMode, motion?: MotionMode, sessions?: PeerSessionInfo[]): string[] {
 	const columns = Math.max(0, Math.floor(width));
 	const still = motion === "off";
 	const spinner = still ? undefined : moving;
 	const running = (agents ?? []).filter(agentLive).map((agent) => (still ? { ...agent, entrance: undefined } : agent));
-	if (columns === 0 || running.length === 0) return [];
+	const waiting = busyPeers(sessions).filter((peer) => peer.waiting > 0);
+	const total = running.length + waiting.length;
+	if (columns === 0 || total === 0) return [];
 	const inner = columns - 4;
 	const shown = running.slice(0, LIST_CAP);
-	const nameWidth = Math.min(AGENT_NAME_CAP, Math.max(...shown.map((agent) => visibleWidth(agent.name))));
+	const shownPeers = waiting.slice(0, LIST_CAP - shown.length);
+	const names = [...shown.map((agent) => agent.name), ...shownPeers.map((peer) => peer.name)];
+	const nameWidth = Math.min(AGENT_NAME_CAP, Math.max(...names.map((name) => visibleWidth(name))));
 	const rows: Row[] = shown.map((agent) => {
 		const name = padEnd(ellipsize(agent.name, nameWidth), nameWidth);
 		const time = agentTime(agent, now);
 		return { text: item(agentGlyph(agent.state, spinner, agent.entrance), (rest) => agentRow(agent, agentText(name, agent.task, agent.entrance), time, rest), inner) };
 	});
-	const hidden = running.length - shown.length;
-	if (hidden > 0) rows.push({ text: item(" ", (rest) => spread(muted(`+${hidden} more`), `${plainText("/dock")}${muted(" all")}`, rest), inner) });
+	for (const peer of shownPeers) {
+		const name = padEnd(ellipsize(peer.name, nameWidth), nameWidth);
+		const since = peer.waitingSince;
+		const time = since !== undefined && Number.isFinite(since) ? muted(formatElapsed(now - since)) : "";
+		const left = `${fg(palette.teal, name)} ${fg(palette.faint, PEER_WAITING_TASK)}`;
+		const row = { name: peer.name, task: PEER_WAITING_TASK, state: "waiting" as const };
+		rows.push({ text: item(waitingGlyph(), (rest) => agentRow(row, left, time, rest), inner), highlight: true });
+	}
+	const hidden = total - shown.length - shownPeers.length;
+	if (hidden > 0) rows.push(moreDockRow(hidden, inner));
 	const drawn = drawnColors(colors);
-	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelAccent(palette.lilac, drawn), String(running.length)), rows };
+	const section: Section = { title: "agents", color: palette.lilac, right: fg(panelAccent(palette.lilac, drawn), String(total)), rows };
 	return drawSection(section, columns, drawn).map((line) => paint(truncateToWidth(line, columns), colors));
 }
 

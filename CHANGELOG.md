@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- A `sessions` section in the side panel, under `agents`: one short row per other live Gentle Shell session with unfinished agents (read from Gentle Shell 4.9's presence headers every ~5 s), with a glyph, its name and its counts (`⠹2 ○1 !1`); an amber `!` and the highlight when one of its agents waits for you. At most 3 rows, then `+N more  /dock all`; `/dock` lists them all. It is the first section to step aside on short screens, and one more section in `/fisi-dock settings` (`8 of 8`); a look saved before it gets it right after `agents`. The settings menu keeps room for its longest list, so with the eighth section its preview sits one row lower on every screen. The narrow agents card adds a row for each session with a waiting agent, with its waiting time.
+
 ### Changed
 
 - Tested with Gentle Shell 4.9.0.
